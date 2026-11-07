@@ -59,8 +59,10 @@ export function generateImageUrl(prompt, options = {}) {
   const height = options.height || 1024;
   const seed = options.seed || Math.floor(Math.random() * 1000000);
   const encoded = encodeURIComponent(cleanPrompt);
+  const enhanceParam = options.enhance ? '&enhance=true' : '';
 
-  const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&seed=${seed}&nologo=true&enhance=true`;
+  // Ultra-fast zero-latency generation (sub-second response without prompt expansion bottleneck)
+  const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&seed=${seed}&nologo=true${enhanceParam}`;
 
   return {
     imageUrl,

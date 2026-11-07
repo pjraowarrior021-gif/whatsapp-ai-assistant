@@ -38,7 +38,7 @@ export function getActiveModel() {
   return activeModel;
 }
 
-const FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.5-flash'];
+const FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash'];
 
 /**
  * WhatsApp-optimized System Instructions
@@ -107,15 +107,24 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
 
   for (const modelToTry of candidateModels) {
     try {
-      const response = await client.models.generateContent({
+      const generatePromise = client.models.generateContent({
         model: modelToTry,
         contents,
         config: {
           systemInstruction: SYSTEM_INSTRUCTION,
           temperature: config.GEMINI_TEMPERATURE,
           maxOutputTokens: config.GEMINI_MAX_OUTPUT_TOKENS,
-          thinkingConfig: { thinkingBudget: 0 },
         },
+      });
+
+      // Strict 8-second circuit breaker per model to guarantee lightning-fast fallback under load
+      let timeoutId;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`Timeout: ${modelToTry} did not respond within 8000ms`)), 8000);
+      });
+
+      const response = await Promise.race([generatePromise, timeoutPromise]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
       });
 
       const latencyMs = Date.now() - startTime;
