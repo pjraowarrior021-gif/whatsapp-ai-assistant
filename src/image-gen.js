@@ -84,17 +84,22 @@ export async function generateCleanImage(prompt, options = {}) {
   const { imageUrl, prompt: cleanPrompt } = generateImageUrl(prompt, options);
 
   try {
-    const res = await fetch(imageUrl);
-    if (!res.ok) {
-      return null;
+    let rawBuffer;
+    if (options.mockBuffer) {
+      rawBuffer = options.mockBuffer;
+    } else {
+      const res = await fetch(imageUrl);
+      if (!res.ok) {
+        return null;
+      }
+      rawBuffer = Buffer.from(await res.arrayBuffer());
     }
 
-    const rawBuffer = Buffer.from(await res.arrayBuffer());
     const metadata = await sharp(rawBuffer).metadata();
 
     // The platform watermark resides in the bottom-right corner (~45px high).
     // Extracting height minus 45px removes the text and vector flower mark cleanly.
-    const cropHeight = Math.max(100, (metadata.height || 1024) - 45);
+    const cropHeight = Math.max(10, (metadata.height || 1024) - 45);
     const cleanBuffer = await sharp(rawBuffer)
       .extract({
         left: 0,

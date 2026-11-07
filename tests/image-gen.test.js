@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import sharp from 'sharp';
 import { parseImagePrompt, generateImageUrl, generateCleanImage } from '../src/image-gen.js';
 
 test('ImageGen: parseImagePrompt detects slash commands', () => {
@@ -46,7 +47,18 @@ test('ImageGen: generateImageUrl constructs valid URL with parameters', () => {
 });
 
 test('ImageGen: generateCleanImage returns a processed clean image buffer', async () => {
-  const clean = await generateCleanImage('a solitary oak tree on a hill');
+  const sampleBuf = await sharp({
+    create: {
+      width: 200,
+      height: 200,
+      channels: 3,
+      background: { r: 100, g: 150, b: 200 },
+    },
+  })
+    .jpeg()
+    .toBuffer();
+
+  const clean = await generateCleanImage('a solitary oak tree on a hill', { mockBuffer: sampleBuf });
   assert.ok(clean);
   assert.ok(clean.buffer);
   assert.strictEqual(clean.mimeType, 'image/jpeg');
