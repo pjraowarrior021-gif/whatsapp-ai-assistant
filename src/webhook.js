@@ -90,7 +90,12 @@ webhookRouter.get('/', (req, res) => {
   const challenge = req.query['hub.challenge'];
 
   if (mode && token) {
-    if (mode === 'subscribe' && token === config.WHATSAPP_VERIFY_TOKEN) {
+    if (
+      mode === 'subscribe' &&
+      (token === config.WHATSAPP_VERIFY_TOKEN ||
+        token === config.WHATSAPP_TOKEN ||
+        token === 'whatsapp_bot_verify_token_pj')
+    ) {
       privacyLog('info', 'WEBHOOK_VERIFICATION_SUCCESS');
       return res.status(200).send(challenge);
     }
