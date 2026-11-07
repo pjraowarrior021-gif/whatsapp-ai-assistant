@@ -51,3 +51,27 @@ test('WhatsApp Media: downloadMediaInMemory returns null on empty input', async 
   const result = await downloadMediaInMemory('');
   assert.strictEqual(result, null);
 });
+
+test('WhatsApp Media: sendWhatsAppImage returns error on missing parameters', async () => {
+  const { sendWhatsAppImage } = await import('../src/whatsapp.js');
+  const res = await sendWhatsAppImage('', '');
+  assert.strictEqual(res.success, false);
+});
+
+test('WhatsApp Media: handles mock test media gracefully without network calls', async () => {
+  const { getMediaUrl, downloadMediaInMemory, sendWhatsAppMessage, sendWhatsAppImage } = await import('../src/whatsapp.js');
+  
+  const mediaMeta = await getMediaUrl('test_sample_media_id');
+  assert.ok(mediaMeta);
+  assert.ok(mediaMeta.url.includes('mock-test-image.jpg'));
+
+  const downloaded = await downloadMediaInMemory(mediaMeta.url);
+  assert.ok(downloaded);
+  assert.ok(downloaded.base64);
+
+  const msgRes = await sendWhatsAppMessage('910000000000', 'test');
+  assert.strictEqual(msgRes.success, true);
+
+  const imgRes = await sendWhatsAppImage('910000000000', mediaMeta.url);
+  assert.strictEqual(imgRes.success, true);
+});

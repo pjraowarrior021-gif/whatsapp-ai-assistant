@@ -5,6 +5,8 @@ import { app } from '../src/server.js';
 import { verifyMetaSignature } from '../src/webhook.js';
 import { config } from '../src/config.js';
 
+config.ALLOWED_PHONE_NUMBERS.add('910000000000');
+
 test('Webhook HMAC: verifyMetaSignature validates authentic signatures', () => {
   const secret = 'test_secret_1234567890';
   const rawBody = Buffer.from(JSON.stringify({ test: 'payload' }), 'utf-8');
@@ -120,7 +122,7 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
 
   // 5. Test incoming webhook with authorized /help command
   await t.test('POST /webhook handles incoming WhatsApp message payload and triggers commands', async () => {
-    const authorizedNumber = config.ALLOWED_PHONE_NUMBERS.values().next().value || '918217426307';
+    const authorizedNumber = '910000000000';
     const payload = {
       object: 'whatsapp_business_account',
       entry: [
@@ -213,7 +215,7 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
 
   // 7. Test incoming image message payload
   await t.test('POST /webhook accepts incoming image message and processes without errors', async () => {
-    const authorizedNumber = config.ALLOWED_PHONE_NUMBERS.values().next().value || '918217426307';
+    const authorizedNumber = '910000000000';
     const payload = {
       object: 'whatsapp_business_account',
       entry: [

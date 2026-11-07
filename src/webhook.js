@@ -15,10 +15,12 @@ import {
 import { generateAIResponse, getActiveModel, setActiveModel } from './gemini.js';
 import {
   sendWhatsAppMessage,
+  sendWhatsAppImage,
   markMessageAsRead,
   getMediaUrl,
   downloadMediaInMemory,
 } from './whatsapp.js';
+import { parseImagePrompt, generateImageUrl } from './image-gen.js';
 
 export const webhookRouter = express.Router();
 
@@ -274,12 +276,36 @@ async function handleIncomingMessage(message) {
   // 5. Command Handlers (only applicable when text is present without image or text command)
   const lowerText = rawText.toLowerCase();
 
+  // 5a. Image Generation from Text Prompt
+  const imagePrompt = !imagePart ? parseImagePrompt(rawText) : null;
+  if (imagePrompt) {
+    privacyLog('info', 'IMAGE_GENERATION_REQUESTED', {
+      user: anonId,
+      promptLength: imagePrompt.length,
+    });
+
+    const { imageUrl, prompt } = generateImageUrl(imagePrompt);
+    const caption = `🎨 *AI Generated Image*\n\n_Prompt:_ "${prompt}"`;
+
+    const result = await sendWhatsAppImage(from, imageUrl, caption);
+    if (result.success) {
+      saveTurn(anonId, rawText, `[Generated and sent image: ${prompt}]`);
+    } else {
+      await sendWhatsAppMessage(
+        from,
+        `⚠️ *Image Generation Notice:*\nCould not deliver generated image. Error: ${result.error || 'Server error'}. Please try again shortly.`
+      );
+    }
+    return;
+  }
+
   if (!imagePart && (lowerText === '/help' || lowerText === 'help')) {
     const helpMessage = [
       `🤖 *Personal WhatsApp AI Assistant (Gemini)*`,
       ``,
       `*Available Commands:*`,
       `• */help* - Display this help manual`,
+      `• */image <prompt>* or */draw <prompt>* - Create AI artwork from your description`,
       `• */reset* - Clear current conversation memory`,
       `• */delete* or */forget* - Purge all temporary session data`,
       `• */privacy* - View privacy policy & encryption details`,
@@ -288,6 +314,7 @@ async function handleIncomingMessage(message) {
       ``,
       `*Tips:*`,
       `• Send any regular question to chat naturally with Gemini.`,
+      `• Send *"create an image of..."* or */image <prompt>* to generate artwork.`,
       `• Send any *photo, screenshot, or diagram* for instant visual analysis.`,
       `• History is held temporarily in RAM (${config.SESSION_TIMEOUT_MINUTES}m idle timeout).`,
       `• *Zero conversations or images are written to disk or database.*`,
