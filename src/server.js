@@ -159,7 +159,7 @@ if (isMainModule) {
 
   sweeperInterval = startSessionSweeper();
 
-  serverInstance = app.listen(config.PORT, () => {
+  serverInstance = app.listen(config.PORT, '0.0.0.0', () => {
     privacyLog('info', 'SERVER_STARTED', {
       port: config.PORT,
       env: config.NODE_ENV,
