@@ -1,0 +1,41 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { splitMessageIntoChunks } from '../src/whatsapp.js';
+
+test('WhatsApp: splitMessageIntoChunks should return single chunk for short text', () => {
+  const shortText = 'This is a short message.';
+  const chunks = splitMessageIntoChunks(shortText, 4000);
+  assert.strictEqual(chunks.length, 1);
+  assert.strictEqual(chunks[0], shortText);
+});
+
+test('WhatsApp: splitMessageIntoChunks handles empty or null input gracefully', () => {
+  assert.deepStrictEqual(splitMessageIntoChunks(''), ['']);
+  assert.deepStrictEqual(splitMessageIntoChunks(null), ['']);
+});
+
+test('WhatsApp: splitMessageIntoChunks splits text at paragraph boundary', () => {
+  const p1 = 'A'.repeat(500);
+  const p2 = 'B'.repeat(500);
+  const text = `${p1}\n\n${p2}`;
+
+  // If maxChunkSize is 600, it should split at the \n\n
+  const chunks = splitMessageIntoChunks(text, 600);
+  assert.strictEqual(chunks.length, 2);
+  assert.strictEqual(chunks[0], p1);
+  assert.strictEqual(chunks[1], p2);
+});
+
+test('WhatsApp: splitMessageIntoChunks keeps each chunk under limit for large texts', () => {
+  const longText = 'Word '.repeat(2000); // approx 10,000 characters
+  const chunks = splitMessageIntoChunks(longText, 4000);
+
+  assert.ok(chunks.length > 1);
+  for (const chunk of chunks) {
+    assert.ok(chunk.length <= 4000);
+  }
+
+  // Combined text should contain all words (accounting for whitespace normalization)
+  const totalReconstructedWords = chunks.join(' ').split(/\s+/).filter(Boolean).length;
+  assert.strictEqual(totalReconstructedWords, 2000);
+});
