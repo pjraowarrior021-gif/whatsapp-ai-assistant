@@ -39,3 +39,15 @@ test('WhatsApp: splitMessageIntoChunks keeps each chunk under limit for large te
   const totalReconstructedWords = chunks.join(' ').split(/\s+/).filter(Boolean).length;
   assert.strictEqual(totalReconstructedWords, 2000);
 });
+
+test('WhatsApp Media: getMediaUrl returns null on empty input', async () => {
+  const { getMediaUrl } = await import('../src/whatsapp.js');
+  const result = await getMediaUrl('');
+  assert.strictEqual(result, null);
+});
+
+test('WhatsApp Media: downloadMediaInMemory returns null on empty input', async () => {
+  const { downloadMediaInMemory } = await import('../src/whatsapp.js');
+  const result = await downloadMediaInMemory('');
+  assert.strictEqual(result, null);
+});

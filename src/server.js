@@ -133,7 +133,10 @@ app.get('/', (_req, res) => {
 let serverInstance = null;
 let sweeperInterval = null;
 
-const isMainModule = process.argv[1] && import.meta.url === url.pathToFileURL(process.argv[1]).href;
+const isMainModule =
+  (process.argv[1] && import.meta.url === url.pathToFileURL(process.argv[1]).href) ||
+  Boolean(process.env.pm_id) ||
+  (process.argv[1] && process.argv[1].endsWith('server.js'));
 
 if (isMainModule) {
   const validation = validateConfig();

@@ -210,4 +210,54 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
     assert.strictEqual(res.status, 200);
     assert.strictEqual(await res.text(), 'EVENT_RECEIVED');
   });
+
+  // 7. Test incoming image message payload
+  await t.test('POST /webhook accepts incoming image message and processes without errors', async () => {
+    const authorizedNumber = config.ALLOWED_PHONE_NUMBERS.values().next().value || '918217426307';
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'test_account_id',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                contacts: [{ profile: { name: 'Authorized User' }, wa_id: authorizedNumber }],
+                messages: [
+                  {
+                    from: authorizedNumber,
+                    id: `wamid.test_img_${Date.now()}`,
+                    timestamp: '1730000000',
+                    type: 'image',
+                    image: {
+                      id: 'test_media_id_123',
+                      mime_type: 'image/jpeg',
+                      caption: 'What does this image show?',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const raw = JSON.stringify(payload);
+    const signatureHash = crypto.createHmac('sha256', config.WHATSAPP_APP_SECRET).update(raw).digest('hex');
+
+    const res = await fetch(`${baseUrl}/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-signature-256': `sha256=${signatureHash}`,
+      },
+      body: raw,
+    });
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(await res.text(), 'EVENT_RECEIVED');
+  });
 });

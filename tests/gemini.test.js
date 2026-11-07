@@ -28,3 +28,14 @@ test('Gemini: setActiveModel ignores invalid names', () => {
   setActiveModel(null);
   assert.strictEqual(getActiveModel(), current);
 });
+
+test('Gemini: generateAIResponse handles multimodal image parameter gracefully', async () => {
+  const { generateAIResponse } = await import('../src/gemini.js');
+  const dummyImage = {
+    mimeType: 'image/png',
+    data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  };
+  const reply = await generateAIResponse('Describe this pixel in one word', [], dummyImage);
+  assert.ok(typeof reply === 'string');
+  assert.ok(reply.length > 0);
+});

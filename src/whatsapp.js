@@ -188,3 +188,88 @@ export async function markMessageAsRead(messageId) {
     return false;
   }
 }
+
+/**
+ * Retrieves the download URL for a media asset by its WhatsApp Media ID.
+ *
+ * @param {string} mediaId - WhatsApp Media ID
+ * @returns {Promise<{ url: string, mimeType: string } | null>}
+ */
+export async function getMediaUrl(mediaId) {
+  if (!config.WHATSAPP_TOKEN || !mediaId) {
+    return null;
+  }
+
+  const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${mediaId}`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      privacyLog('warn', 'WHATSAPP_MEDIA_URL_FAILED', {
+        status: response.status,
+        error: errorData?.error?.message,
+      });
+      return null;
+    }
+
+    const data = await response.json();
+    return {
+      url: data.url,
+      mimeType: data.mime_type || 'image/jpeg',
+    };
+  } catch (err) {
+    privacyLog('error', 'WHATSAPP_MEDIA_URL_ERROR', {
+      message: err.message,
+    });
+    return null;
+  }
+}
+
+/**
+ * Downloads media binary content directly into an in-memory Buffer.
+ * Never persists media to disk (strict volatile RAM architecture).
+ *
+ * @param {string} mediaUrl - The media URL returned from Meta Graph API
+ * @returns {Promise<{ buffer: Buffer, base64: string } | null>}
+ */
+export async function downloadMediaInMemory(mediaUrl) {
+  if (!config.WHATSAPP_TOKEN || !mediaUrl) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(mediaUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+      },
+    });
+
+    if (!response.ok) {
+      privacyLog('warn', 'WHATSAPP_MEDIA_DOWNLOAD_FAILED', {
+        status: response.status,
+      });
+      return null;
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    return {
+      buffer,
+      base64: buffer.toString('base64'),
+    };
+  } catch (err) {
+    privacyLog('error', 'WHATSAPP_MEDIA_DOWNLOAD_ERROR', {
+      message: err.message,
+    });
+    return null;
+  }
+}

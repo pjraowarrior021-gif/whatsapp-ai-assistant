@@ -38,6 +38,8 @@ export function getActiveModel() {
   return activeModel;
 }
 
+const FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.5-flash'];
+
 /**
  * WhatsApp-optimized System Instructions
  */
@@ -54,78 +56,110 @@ Your core operating rules:
 3. Be respectful, objective, and privacy-conscious:
    - NEVER request, verify, or store passwords, OTPs, UPI PINs, CVVs, or bank account credentials.
    - If a user mentions financial codes or credentials, remind them never to send sensitive credentials over messaging platforms.
-4. If a user asks about privacy, data boundaries, or commands, remind them they can type /privacy or /help.`;
+4. If a user asks about privacy, data boundaries, or commands, remind them they can type /privacy or /help.
+5. When analyzing images, diagrams, error messages, documents, or photos, inspect all visible details, transcribe relevant code or text, and provide fast, precise, and practical solutions.`;
 
 /**
- * Generates an AI response using the Google Gemini API with conversational context.
+ * Generates an AI response using the Google Gemini API with conversational context and optional image input.
  *
- * @param {string} userMessage - The sanitized user input
+ * @param {string} userMessage - The sanitized user input or image caption
  * @param {Array<{role: string, parts: Array<{text: string}>}>} conversationHistory - Prior turns from in-memory session
+ * @param {{ mimeType: string, data: string } | null} [imagePart=null] - Optional base64-encoded image
  * @returns {Promise<string>} The assistant's response text
  */
-export async function generateAIResponse(userMessage, conversationHistory = []) {
+export async function generateAIResponse(userMessage, conversationHistory = [], imagePart = null) {
   const startTime = Date.now();
   const client = getGeminiClient();
 
-  // Construct context payload: prior turns + current user message
+  const userParts = [];
+  if (imagePart && imagePart.data) {
+    userParts.push({
+      inlineData: {
+        mimeType: imagePart.mimeType || 'image/jpeg',
+        data: imagePart.data,
+      },
+    });
+  }
+
+  const promptText =
+    userMessage && userMessage.trim().length > 0
+      ? userMessage.trim()
+      : 'Analyze this image in detail. Identify any text, diagrams, code, questions, or problems, and provide a clear, comprehensive solution or explanation.';
+
+  userParts.push({ text: promptText });
+
+  // Construct context payload: prior turns + current user message/image
   const contents = [
     ...conversationHistory,
     {
       role: 'user',
-      parts: [{ text: userMessage }],
+      parts: userParts,
     },
   ];
 
-  try {
-    const response = await client.models.generateContent({
-      model: activeModel,
-      contents,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        temperature: config.GEMINI_TEMPERATURE,
-        maxOutputTokens: config.GEMINI_MAX_OUTPUT_TOKENS,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    });
+  // Try active model first, then gracefully cascade through fallbacks if quota/overload occurs
+  const candidateModels = [
+    activeModel,
+    ...FALLBACK_MODELS.filter((m) => m !== activeModel),
+  ];
 
-    const latencyMs = Date.now() - startTime;
-    const responseText = response.text ? response.text.trim() : '';
+  let lastError = null;
 
-    privacyLog('info', 'GEMINI_RESPONSE_GENERATED', {
-      model: activeModel,
-      historyLength: conversationHistory.length,
-      inputLength: userMessage.length,
-      outputLength: responseText.length,
-      latencyMs,
-    });
+  for (const modelToTry of candidateModels) {
+    try {
+      const response = await client.models.generateContent({
+        model: modelToTry,
+        contents,
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION,
+          temperature: config.GEMINI_TEMPERATURE,
+          maxOutputTokens: config.GEMINI_MAX_OUTPUT_TOKENS,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      });
 
-    if (!responseText) {
-      return "I'm sorry, I couldn't generate a response for that. Please try rephrasing your message.";
+      const latencyMs = Date.now() - startTime;
+      const responseText = response.text ? response.text.trim() : '';
+
+      privacyLog('info', 'GEMINI_RESPONSE_GENERATED', {
+        model: modelToTry,
+        historyLength: conversationHistory.length,
+        inputLength: userMessage.length,
+        outputLength: responseText.length,
+        latencyMs,
+      });
+
+      if (responseText) {
+        return responseText;
+      }
+    } catch (error) {
+      lastError = error;
+      const errorMessage = error?.message || String(error);
+
+      privacyLog('warn', 'GEMINI_MODEL_ATTEMPT_FAILED', {
+        model: modelToTry,
+        errorMessage: errorMessage.substring(0, 150).replace(/key=[^&\s]+/gi, 'key=REDACTED'),
+      });
     }
-
-    return responseText;
-  } catch (error) {
-    const latencyMs = Date.now() - startTime;
-    const errorMessage = error?.message || String(error);
-
-    privacyLog('error', 'GEMINI_API_ERROR', {
-      model: activeModel,
-      errorMessage: errorMessage.replace(/key=[^&\s]+/gi, 'key=REDACTED'),
-      latencyMs,
-    });
-
-    // Handle rate limits / resource exhaustion
-    if (errorMessage.includes('429') || errorMessage.includes('RESOURCE_EXHAUSTED')) {
-      return '⏳ *Rate Limit Notice:* Gemini API request limit reached. Please wait a minute before sending your next message.';
-    }
-
-    // Handle context length or quota errors
-    if (errorMessage.includes('quota') || errorMessage.includes('QUOTA_EXCEEDED')) {
-      return '⚠️ *Quota Exceeded:* The Gemini API free quota has been temporarily reached. Please try again later or check your API limits at https://aistudio.google.com.';
-    }
-
-    return '⚠️ *Error:* Unable to generate an AI response right now. Please try again in a few moments.';
   }
+
+  const latencyMs = Date.now() - startTime;
+  const errorMsg = lastError?.message || String(lastError || 'Unknown error');
+
+  privacyLog('error', 'GEMINI_ALL_MODELS_FAILED', {
+    attemptedModels: candidateModels,
+    latencyMs,
+  });
+
+  if (errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED')) {
+    return '⏳ *Rate Limit Notice:* Gemini API request limit reached. Please wait a minute before sending your next message.';
+  }
+
+  if (errorMsg.includes('quota') || errorMsg.includes('QUOTA_EXCEEDED')) {
+    return '⚠️ *Quota Exceeded:* The Gemini API free quota has been temporarily reached. Please try again later or check your API limits at https://aistudio.google.com.';
+  }
+
+  return '⚠️ *Error:* Unable to generate an AI response right now. Please try again in a few moments.';
 }
 
 /**

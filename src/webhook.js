@@ -13,7 +13,12 @@ import {
   getPrivacyDisclosure,
 } from './privacy.js';
 import { generateAIResponse, getActiveModel, setActiveModel } from './gemini.js';
-import { sendWhatsAppMessage, markMessageAsRead } from './whatsapp.js';
+import {
+  sendWhatsAppMessage,
+  markMessageAsRead,
+  getMediaUrl,
+  downloadMediaInMemory,
+} from './whatsapp.js';
 
 export const webhookRouter = express.Router();
 
@@ -201,31 +206,70 @@ async function handleIncomingMessage(message) {
     markMessageAsRead(messageId).catch(() => {});
   }
 
-  // 4. Handle non-text messages
-  if (messageType !== 'text') {
-    privacyLog('info', 'NON_TEXT_MESSAGE_RECEIVED', {
+  // 4. Validate and route message types (text and image supported)
+  if (messageType !== 'text' && messageType !== 'image') {
+    privacyLog('info', 'UNSUPPORTED_MESSAGE_TYPE', {
       user: anonId,
       type: messageType,
     });
     await sendWhatsAppMessage(
       from,
-      `ℹ️ _Currently, I only process text messages. Supported incoming format: Text._\nType */help* for available features.`
+      `ℹ️ _Supported formats: Text and Photos/Images._\nSend a text question or any photo for instant AI analysis.\nType */help* for features.`
     );
     return;
   }
 
-  const rawText = message.text?.body?.trim() || '';
-  if (!rawText) return;
+  let rawText = '';
+  let imagePart = null;
+
+  if (messageType === 'text') {
+    rawText = message.text?.body?.trim() || '';
+    if (!rawText) return;
+  } else if (messageType === 'image') {
+    rawText = message.image?.caption?.trim() || '';
+    const mediaId = message.image?.id;
+
+    if (!mediaId) {
+      await sendWhatsAppMessage(from, '⚠️ *Image Error:* Missing media identifier from WhatsApp.');
+      return;
+    }
+
+    const mediaMeta = await getMediaUrl(mediaId);
+    if (!mediaMeta || !mediaMeta.url) {
+      await sendWhatsAppMessage(from, '⚠️ *Image Error:* Could not resolve image download URL from WhatsApp servers.');
+      return;
+    }
+
+    const downloaded = await downloadMediaInMemory(mediaMeta.url);
+    if (!downloaded || !downloaded.base64) {
+      await sendWhatsAppMessage(from, '⚠️ *Image Error:* Failed to download image into memory. Please try sending again.');
+      return;
+    }
+
+    imagePart = {
+      mimeType: mediaMeta.mimeType || message.image?.mime_type || 'image/jpeg',
+      data: downloaded.base64,
+    };
+
+    privacyLog('info', 'IMAGE_RECEIVED_AND_BUFFERED', {
+      user: anonId,
+      mimeType: imagePart.mimeType,
+      sizeBytes: downloaded.buffer.length,
+      hasCaption: Boolean(rawText),
+    });
+  }
 
   privacyLog('info', 'MESSAGE_RECEIVED', {
     user: anonId,
+    type: messageType,
     length: rawText.length,
+    hasImage: Boolean(imagePart),
   });
 
-  // 5. Command Handlers
+  // 5. Command Handlers (only applicable when text is present without image or text command)
   const lowerText = rawText.toLowerCase();
 
-  if (lowerText === '/help' || lowerText === 'help') {
+  if (!imagePart && (lowerText === '/help' || lowerText === 'help')) {
     const helpMessage = [
       `🤖 *Personal WhatsApp AI Assistant (Gemini)*`,
       ``,
@@ -239,8 +283,9 @@ async function handleIncomingMessage(message) {
       ``,
       `*Tips:*`,
       `• Send any regular question to chat naturally with Gemini.`,
+      `• Send any *photo, screenshot, or diagram* for instant visual analysis.`,
       `• History is held temporarily in RAM (${config.SESSION_TIMEOUT_MINUTES}m idle timeout).`,
-      `• *Zero conversations are written to disk or database.*`,
+      `• *Zero conversations or images are written to disk or database.*`,
     ].join('\n');
 
     await sendWhatsAppMessage(from, helpMessage);
@@ -307,11 +352,14 @@ async function handleIncomingMessage(message) {
   // 7. Retrieve temporary conversational context
   const history = getConversation(anonId);
 
-  // 8. Generate Gemini AI Response
-  const aiResponse = await generateAIResponse(sanitizedText, history);
+  // 8. Generate Gemini AI Response (supports text and multimodal image analysis)
+  const aiResponse = await generateAIResponse(sanitizedText, history, imagePart);
 
   // 9. Save turn into volatile in-memory session
-  saveTurn(anonId, sanitizedText, aiResponse);
+  const recordedTurnPrompt = imagePart
+    ? `[Photo/Image Analyzed] ${sanitizedText}`.trim()
+    : sanitizedText;
+  saveTurn(anonId, recordedTurnPrompt, aiResponse);
 
   // 10. Construct final response with optional security warning
   let finalMessage = aiResponse;
