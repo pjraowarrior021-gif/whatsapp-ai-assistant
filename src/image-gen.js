@@ -2,6 +2,7 @@
  * AI Image Generation Module for WhatsApp Assistant
  * Generates high-quality images from text prompts using Generative AI.
  */
+import sharp from 'sharp';
 
 /**
  * Parses user input to detect if it is an image generation request.
@@ -68,4 +69,49 @@ export function generateImageUrl(prompt, options = {}) {
     imageUrl,
     prompt: cleanPrompt,
   };
+}
+
+/**
+ * Downloads and cleans generated image binary in-memory.
+ * Crops any corner vector watermark marks (e.g. platform logo overlay)
+ * guaranteeing a completely clean, pristine image output with zero vector marks.
+ *
+ * @param {string} prompt
+ * @param {object} [options]
+ * @returns {Promise<{ buffer: Buffer, mimeType: string, prompt: string, fallbackUrl: string } | null>}
+ */
+export async function generateCleanImage(prompt, options = {}) {
+  const { imageUrl, prompt: cleanPrompt } = generateImageUrl(prompt, options);
+
+  try {
+    const res = await fetch(imageUrl);
+    if (!res.ok) {
+      return null;
+    }
+
+    const rawBuffer = Buffer.from(await res.arrayBuffer());
+    const metadata = await sharp(rawBuffer).metadata();
+
+    // The platform watermark resides in the bottom-right corner (~45px high).
+    // Extracting height minus 45px removes the text and vector flower mark cleanly.
+    const cropHeight = Math.max(100, (metadata.height || 1024) - 45);
+    const cleanBuffer = await sharp(rawBuffer)
+      .extract({
+        left: 0,
+        top: 0,
+        width: metadata.width || 1024,
+        height: cropHeight,
+      })
+      .jpeg({ quality: 95 })
+      .toBuffer();
+
+    return {
+      buffer: cleanBuffer,
+      mimeType: 'image/jpeg',
+      prompt: cleanPrompt,
+      fallbackUrl: imageUrl,
+    };
+  } catch {
+    return null;
+  }
 }

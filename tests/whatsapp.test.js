@@ -74,4 +74,13 @@ test('WhatsApp Media: handles mock test media gracefully without network calls',
 
   const imgRes = await sendWhatsAppImage('910000000000', mediaMeta.url);
   assert.strictEqual(imgRes.success, true);
+
+  const bufferRes = await sendWhatsAppImage('910000000000', { buffer: Buffer.from('fake_image') });
+  assert.strictEqual(bufferRes.success, true);
+});
+
+test('WhatsApp Media: uploadWhatsAppMedia returns error on missing input', async () => {
+  const { uploadWhatsAppMedia } = await import('../src/whatsapp.js');
+  const res = await uploadWhatsAppMedia(null);
+  assert.strictEqual(res.success, false);
 });

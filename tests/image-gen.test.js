@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseImagePrompt, generateImageUrl } from '../src/image-gen.js';
+import { parseImagePrompt, generateImageUrl, generateCleanImage } from '../src/image-gen.js';
 
 test('ImageGen: parseImagePrompt detects slash commands', () => {
   assert.strictEqual(parseImagePrompt('/image a cybernetic lion'), 'a cybernetic lion');
@@ -43,4 +43,12 @@ test('ImageGen: generateImageUrl constructs valid URL with parameters', () => {
   assert.ok(result.imageUrl.includes('width=1024'));
   assert.ok(result.imageUrl.includes('height=1024'));
   assert.ok(result.imageUrl.includes('seed=42'));
+});
+
+test('ImageGen: generateCleanImage returns a processed clean image buffer', async () => {
+  const clean = await generateCleanImage('a solitary oak tree on a hill');
+  assert.ok(clean);
+  assert.ok(clean.buffer);
+  assert.strictEqual(clean.mimeType, 'image/jpeg');
+  assert.strictEqual(clean.prompt, 'a solitary oak tree on a hill');
 });

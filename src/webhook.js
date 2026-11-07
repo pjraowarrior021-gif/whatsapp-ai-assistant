@@ -20,7 +20,7 @@ import {
   getMediaUrl,
   downloadMediaInMemory,
 } from './whatsapp.js';
-import { parseImagePrompt, generateImageUrl } from './image-gen.js';
+import { parseImagePrompt, generateImageUrl, generateCleanImage } from './image-gen.js';
 
 export const webhookRouter = express.Router();
 
@@ -284,12 +284,15 @@ async function handleIncomingMessage(message) {
       promptLength: imagePrompt.length,
     });
 
-    const { imageUrl, prompt } = generateImageUrl(imagePrompt);
-    const caption = `🎨 *AI Generated Image*\n\n_Prompt:_ "${prompt}"`;
+    const cleanImage = await generateCleanImage(imagePrompt);
+    const caption = `🎨 *AI Generated Image*\n\n_Prompt:_ "${imagePrompt}"`;
 
-    const result = await sendWhatsAppImage(from, imageUrl, caption);
+    const result = cleanImage
+      ? await sendWhatsAppImage(from, cleanImage, caption)
+      : await sendWhatsAppImage(from, generateImageUrl(imagePrompt).imageUrl, caption);
+
     if (result.success) {
-      saveTurn(anonId, rawText, `[Generated and sent image: ${prompt}]`);
+      saveTurn(anonId, rawText, `[Generated and sent image: ${imagePrompt}]`);
     } else {
       await sendWhatsAppMessage(
         from,

@@ -299,26 +299,86 @@ export async function downloadMediaInMemory(mediaUrl) {
 }
 
 /**
+ * Uploads media directly to Meta's WhatsApp Cloud API media store from an in-memory Buffer.
+ * Never writes media to disk (strict volatile RAM architecture).
+ *
+ * @param {Buffer} buffer - Binary media buffer
+ * @param {string} [mimeType='image/jpeg'] - MIME type
+ * @returns {Promise<{ success: boolean, mediaId?: string, error?: string }>}
+ */
+export async function uploadWhatsAppMedia(buffer, mimeType = 'image/jpeg') {
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !buffer) {
+    return { success: false, error: 'Missing configuration or buffer' };
+  }
+
+  const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/media`;
+
+  const formData = new FormData();
+  formData.append('messaging_product', 'whatsapp');
+  formData.append('type', mimeType);
+  formData.append('file', new Blob([buffer], { type: mimeType }), 'image.jpg');
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+      },
+      body: formData,
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data?.id) {
+      return { success: false, error: data?.error?.message || 'Media upload failed' };
+    }
+
+    return { success: true, mediaId: data.id };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * Sends an image message to a WhatsApp user via the WhatsApp Cloud API.
- * Uses a publicly accessible HTTPS image URL with an optional caption.
+ * Supports clean in-memory Buffers (uploaded directly to Meta) or public HTTPS URLs.
  *
  * @param {string} to - Recipient phone number (E.164 digits)
- * @param {string} imageUrl - Publicly accessible HTTPS image URL
+ * @param {string | Buffer | { buffer: Buffer, mimeType?: string, fallbackUrl?: string }} imageSource
  * @param {string} [caption=''] - Optional caption text
  * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
  */
-export async function sendWhatsAppImage(to, imageUrl, caption = '') {
+export async function sendWhatsAppImage(to, imageSource, caption = '') {
   const normalizedTo = normalizePhoneNumber(to);
-  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !imageUrl) {
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !imageSource) {
     privacyLog('warn', 'WHATSAPP_IMAGE_SEND_SKIPPED', {
-      note: 'Missing token, phone ID, or image URL',
+      note: 'Missing token, phone ID, or image source',
     });
-    return { success: false, error: 'Missing configuration or image URL' };
+    return { success: false, error: 'Missing configuration or image source' };
   }
 
   // Bypass outbound network calls in test scenarios with dummy phone numbers
   if (normalizedTo === '910000000000' || normalizedTo.startsWith('0000')) {
     return { success: true, messageId: `sim_test_img_${Date.now()}` };
+  }
+
+  let imagePayload;
+  if (Buffer.isBuffer(imageSource) || (imageSource && imageSource.buffer)) {
+    const buf = Buffer.isBuffer(imageSource) ? imageSource : imageSource.buffer;
+    const mime = imageSource.mimeType || 'image/jpeg';
+    const uploadRes = await uploadWhatsAppMedia(buf, mime);
+    if (!uploadRes.success) {
+      if (imageSource.fallbackUrl) {
+        imagePayload = { link: imageSource.fallbackUrl, caption: caption || undefined };
+      } else {
+        return { success: false, error: uploadRes.error };
+      }
+    } else {
+      imagePayload = { id: uploadRes.mediaId, caption: caption || undefined };
+    }
+  } else if (typeof imageSource === 'string') {
+    imagePayload = { link: imageSource, caption: caption || undefined };
+  } else {
+    return { success: false, error: 'Invalid image source' };
   }
 
   const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
@@ -328,10 +388,7 @@ export async function sendWhatsAppImage(to, imageUrl, caption = '') {
     recipient_type: 'individual',
     to: normalizedTo,
     type: 'image',
-    image: {
-      link: imageUrl,
-      caption: caption || undefined,
-    },
+    image: imagePayload,
   };
 
   try {
