@@ -21,7 +21,9 @@ import { splitTextForSpeech, synthesizeSpeech } from '../src/tts.js';
 import { addTodo, listTodos, markTodoDone, clearCompletedTodos } from '../src/todos.js';
 import { parseReminderTime, scheduleReminder, listReminders, deleteReminder } from '../src/reminders.js';
 import { checkAndIncrementUserQuota, getUserQuotaReport } from '../src/quota.js';
-import { splitMessageIntoChunks } from '../src/whatsapp.js';
+import { splitMessageIntoChunks, sendWhatsAppButtons, sendWhatsAppList } from '../src/whatsapp.js';
+import { extractTextFromPptx, extractTextFromDocx, extractTextFromXlsx, isDocumentSupported } from '../src/document.js';
+import AdmZip from 'adm-zip';
 import { verifyMetaSignature } from '../src/webhook.js';
 import { app } from '../src/server.js';
 
@@ -181,10 +183,71 @@ async function runAllBenchmarks() {
     return { info: `Analyzed ${imageBuffer.length} bytes in memory. Response: "${reply.trim()}"` };
   });
 
-  await benchmark('Document Allowlist & Header Validation (PDF / TXT / CSV)', 'Document Processor', async () => {
+  await benchmark('Document Allowlist & Header Validation (PDF / Office / Text)', 'Document Processor', async () => {
     const dummyPdf = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF');
     if (!dummyPdf.toString().startsWith('%PDF')) throw new Error('Invalid PDF structure');
-    return { info: `Validated ${dummyPdf.length} bytes PDF buffer in memory` };
+    const pptxSupported = isDocumentSupported(
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'slides.pptx'
+    );
+    const docxSupported = isDocumentSupported(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'doc.docx'
+    );
+    const xlsxSupported = isDocumentSupported(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'data.xlsx'
+    );
+    if (!pptxSupported || !docxSupported || !xlsxSupported) throw new Error('Office documents not recognized');
+    return { info: `Validated PDF, PPTX, DOCX, and XLSX support in memory` };
+  });
+
+  await benchmark('PowerPoint (.pptx) In-Memory Slide & Text Extraction', 'Document Processor', async () => {
+    const zip = new AdmZip();
+    zip.addFile(
+      'ppt/slides/slide1.xml',
+      Buffer.from('<p:sp><a:p><a:t>Slide 1: Electric Circuits Overview</a:t></a:p></p:sp>')
+    );
+    zip.addFile(
+      'ppt/slides/slide2.xml',
+      Buffer.from('<p:sp><a:p><a:t>Slide 2: Ohm Law and Resistance</a:t></a:p></p:sp>')
+    );
+    const buffer = zip.toBuffer();
+    const result = extractTextFromPptx(buffer);
+    if (!result.ok || result.slideCount !== 2 || !result.text.includes('Slide 1')) {
+      throw new Error('PPTX extraction failed');
+    }
+    return { info: `Extracted ${result.slideCount} slides (${result.text.length} chars) from in-memory zip` };
+  });
+
+  await benchmark('Word (.docx) In-Memory Paragraph Extraction', 'Document Processor', async () => {
+    const zip = new AdmZip();
+    zip.addFile(
+      'word/document.xml',
+      Buffer.from(
+        '<w:document><w:body><w:p><w:r><w:t>Project Specification: WhatsApp AI Assistant</w:t></w:r></w:p></w:body></w:document>'
+      )
+    );
+    const buffer = zip.toBuffer();
+    const result = extractTextFromDocx(buffer);
+    if (!result.ok || !result.text.includes('WhatsApp AI Assistant')) {
+      throw new Error('DOCX extraction failed');
+    }
+    return { info: `Extracted document text (${result.text.length} chars) in volatile RAM` };
+  });
+
+  await benchmark('Excel (.xlsx) In-Memory Shared Strings Extraction', 'Document Processor', async () => {
+    const zip = new AdmZip();
+    zip.addFile(
+      'xl/sharedStrings.xml',
+      Buffer.from('<sst><si><t>Q1 Revenue: $1.2M</t></si><si><t>Operating Expenses: $400K</t></si></sst>')
+    );
+    const buffer = zip.toBuffer();
+    const result = extractTextFromXlsx(buffer);
+    if (!result.ok || !result.text.includes('Q1 Revenue')) {
+      throw new Error('XLSX extraction failed');
+    }
+    return { info: `Extracted spreadsheet text (${result.text.length} chars) in volatile RAM` };
   });
 
   // --------------------------------------------------------------------------
@@ -402,6 +465,31 @@ async function runAllBenchmarks() {
     const chunks = splitMessageIntoChunks(longText);
     if (chunks.length < 3) throw new Error('Chunking failed');
     return { info: `Split 8500-char message into ${chunks.length} chunks (< 4000 chars each)` };
+  });
+
+  await benchmark('Interactive Buttons Builder (1024-char Auto Split)', 'WhatsApp Transport', async () => {
+    const shortBtn = await sendWhatsAppButtons(testPhone, 'Short action prompt', [
+      { id: 'btn_1', title: 'Option 1' },
+      { id: 'btn_2', title: 'Option 2' },
+    ]);
+    const longText = 'Header overview.\n\n' + 'B'.repeat(1200);
+    const longBtn = await sendWhatsAppButtons(testPhone, longText, [{ id: 'btn_3', title: 'Acknowledge' }]);
+    if (!shortBtn.success || !longBtn.success) throw new Error('Interactive buttons send failed');
+    return { info: `Constructed standard & 1024-char overflow button payloads` };
+  });
+
+  await benchmark('Interactive List Menu Builder (Dropdown Options)', 'WhatsApp Transport', async () => {
+    const listRes = await sendWhatsAppList(
+      testPhone,
+      'Select a system configuration:',
+      [
+        { id: 'row_1', title: 'Model: Flash-Lite', description: 'Fast and responsive' },
+        { id: 'row_2', title: 'Model: Flash-Pro', description: 'In-depth analysis' },
+      ],
+      'Choose Model'
+    );
+    if (!listRes.success) throw new Error('Interactive list send failed');
+    return { info: `Constructed interactive list menu payload` };
   });
 
   // Start temporary local server to test live HTTP endpoints
