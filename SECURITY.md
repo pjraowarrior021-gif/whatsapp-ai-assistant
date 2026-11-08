@@ -53,10 +53,10 @@ This document details the security model, privacy safeguards, and architectural 
 - **Automatic TTL Eviction:** Inactive conversations are completely purged from RAM after `SESSION_TIMEOUT_MINUTES` (default: 15 minutes). Quoted-reply messages expire after 10 minutes.
 - **Manual Data Deletion:** Sending `/reset`, `/delete`, or `/forget` immediately evicts all stored context for the user.
 - **Process Restart Wipe:** When the server restarts, all in-memory sessions and the internal anonymization salt are irreversibly destroyed.
-- **Single Opt-In Disk Exception (Scheduled Reminders):**
-  - By default (`REMINDERS_PERSIST=false`), scheduled reminders are purely in-memory timers.
-  - When explicitly enabled (`REMINDERS_PERSIST=true`), pending reminders (target timestamp, anonymized user hash, and reminder text) are persisted atomically to `.data/reminders.json` so users do not miss scheduled alarms across deployments.
-  - No conversation history, tokens, or personal identifiers are written to this file.
+- **Single Opt-In Disk Exception (Scheduled Reminders & To-Dos):**
+  - By default (`REMINDERS_PERSIST=false`), scheduled reminders and to-do lists are stored strictly in volatile RAM.
+  - When explicitly enabled (`REMINDERS_PERSIST=true`), pending reminders and active to-do items are persisted atomically to `.data/reminders.json` and `.data/todos.json` so users do not miss scheduled tasks across deployments.
+  - No conversation history, tokens, or personal identifiers are written to these files.
 
 ### B. Data Minimization & Sanitization
 
@@ -69,16 +69,22 @@ This document details the security model, privacy safeguards, and architectural 
   - One-time verification codes (`[REDACTED_OTP]`)
 - **Strict Prohibition:** The assistant is instructed never to request or store sensitive financial or banking credentials.
 
-### C. Multimodal & Search Data Flows
+### C. Multimodal & Web Data Flows
 
 - **Voice Notes (Audio):**
   - Downloaded in memory over HTTPS directly from Meta Graph API with strict size (16MB) and timeout (15s) caps.
   - Normalized to `audio/ogg` and passed as inline base64 data to Gemini. Never written to disk.
+  - Outbound voice note synthesis uses lightweight in-memory audio streaming with zero disk writes.
 - **Documents (PDF, TXT, CSV):**
   - Only MIME types in the strict allowlist (`application/pdf`, `text/plain`, `text/csv`) are accepted; all others are rejected immediately.
   - Downloaded into memory buffers and passed as inline data to Gemini for document Q&A.
+- **Webpage & Article Summarizer (SSRF Protection):**
+  - Validates URLs before fetching: strictly blocks loopback addresses (`127.0.0.1`, `localhost`, `[::1]`), internal subnets (`10.*`, `192.168.*`, `172.16-31.*`), and cloud metadata IP (`169.254.169.254`).
+  - Fetches content strictly in memory with size caps (`16MB`) and timeouts (`15s`), stripping scripts, styles, boilerplates, and tracking tags.
+- **Location Intelligence:**
+  - Inbound coordinates, addresses, and place names are formatted in volatile RAM with automatic Google Search grounding to retrieve real-time local snapshots without disk writes.
 - **Google Search Grounding:**
-  - When enabled (`/search on`), search queries derived from user prompts are executed against Google Search to ground responses in fresh web knowledge.
+  - When enabled (`/search on` or dynamic location queries), search queries derived from user prompts are executed against Google Search to ground responses in fresh web knowledge.
   - Up to 3 sources are formatted into WhatsApp markdown links with citations.
 - **Quoted-Reply Memory:**
   - Recent incoming messages are stored in an in-memory sliding cache (`Map<wamid, text>`) with a maximum capacity of 200 items and a 10-minute TTL to provide contextual grounding for WhatsApp reply threads.
@@ -96,16 +102,17 @@ This document details the security model, privacy safeguards, and architectural 
 
 ## 3. Threat Model & Mitigations
 
-| Threat                              | Risk Level | Mitigation in Code                                                                                                                                                                         |
-| :---------------------------------- | :--------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Spoofed Webhook Requests**        | High       | `x-hub-signature-256` HMAC-SHA256 verification using Meta App Secret with `crypto.timingSafeEqual` prevents forged or tampered webhook deliveries. Length mismatches are rejected early.   |
-| **Verify Token Brute-Force**        | High       | Webhook challenge verification compares `hub.verify_token` against `WHATSAPP_VERIFY_TOKEN` strictly using `crypto.timingSafeEqual`. Legacy token bypasses removed.                         |
-| **Slowloris & Resource Exhaustion** | High       | Media downloads enforce an `AbortSignal.timeout(15000)` and stream-read with a hard `MEDIA_MAX_BYTES` cap (default 16MB) before buffering.                                                 |
-| **Per-User Spam & DoS**             | High       | Dual-tier rate limiting: Global `express-rate-limit` plus per-user sliding window limiter (`USER_RATE_LIMIT_MAX` / `USER_RATE_LIMIT_WINDOW_MS`) and daily quotas (`USER_DAILY_QUOTA_MAX`). |
-| **Unauthorized Bot Usage**          | High       | Whitelist enforcement via `ALLOWED_PHONE_NUMBERS`. Senders not in the whitelist are rejected immediately.                                                                                  |
-| **Replay / Duplicate Messages**     | Medium     | Deduplication cache tracks processed WhatsApp message IDs (`wamid.*`) with a 5-minute auto-expiry window.                                                                                  |
-| **Credential / Key Leakage**        | High       | Secrets stored strictly in `.env` (gitignored). Safe masking in diagnostics (`AIz***xyz`). Sanitized error messages strip keys from stack traces.                                          |
-| **Accidental PII Ingestion by AI**  | Medium     | Client-side sanitization layer strips detected credit cards (Luhn-verified), PINs, and password strings before sending payload to Google.                                                  |
+| Threat                                 | Risk Level | Mitigation in Code                                                                                                                                                                         |
+| :------------------------------------- | :--------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Server-Side Request Forgery (SSRF)** | Critical   | Pre-fetch URL parsing in `src/web-scraper.js` strictly blocks private RFC1918 ranges, loopback addresses (`127.0.0.1`, `localhost`), and cloud metadata (`169.254.169.254`).               |
+| **Spoofed Webhook Requests**           | High       | `x-hub-signature-256` HMAC-SHA256 verification using Meta App Secret with `crypto.timingSafeEqual` prevents forged or tampered webhook deliveries. Length mismatches are rejected early.   |
+| **Verify Token Brute-Force**           | High       | Webhook challenge verification compares `hub.verify_token` against `WHATSAPP_VERIFY_TOKEN` strictly using `crypto.timingSafeEqual`. Legacy token bypasses removed.                         |
+| **Slowloris & Resource Exhaustion**    | High       | Media downloads enforce an `AbortSignal.timeout(15000)` and stream-read with a hard `MEDIA_MAX_BYTES` cap (default 16MB) before buffering.                                                 |
+| **Per-User Spam & DoS**                | High       | Dual-tier rate limiting: Global `express-rate-limit` plus per-user sliding window limiter (`USER_RATE_LIMIT_MAX` / `USER_RATE_LIMIT_WINDOW_MS`) and daily quotas (`USER_DAILY_QUOTA_MAX`). |
+| **Unauthorized Bot Usage**             | High       | Whitelist enforcement via `ALLOWED_PHONE_NUMBERS`. Senders not in the whitelist are rejected immediately.                                                                                  |
+| **Replay / Duplicate Messages**        | Medium     | Deduplication cache tracks processed WhatsApp message IDs (`wamid.*`) with a 5-minute auto-expiry window.                                                                                  |
+| **Credential / Key Leakage**           | High       | Secrets stored strictly in `.env` (gitignored). Safe masking in diagnostics (`AIz***xyz`). Sanitized error messages strip keys from stack traces.                                          |
+| **Accidental PII Ingestion by AI**     | Medium     | Client-side sanitization layer strips detected credit cards (Luhn-verified), PINs, and password strings before sending payload to Google.                                                  |
 
 ---
 

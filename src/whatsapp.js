@@ -506,10 +506,12 @@ export async function uploadWhatsAppMedia(buffer, mimeType = 'image/jpeg') {
 
   const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/media`;
 
+  const isAudio = mimeType.includes('audio') || mimeType.includes('mpeg') || mimeType.includes('ogg');
+  const filename = isAudio ? 'audio.mp3' : 'image.jpg';
   const formData = new FormData();
   formData.append('messaging_product', 'whatsapp');
   formData.append('type', mimeType);
-  formData.append('file', new Blob([buffer], { type: mimeType }), 'image.jpg');
+  formData.append('file', new Blob([buffer], { type: mimeType }), filename);
 
   try {
     const res = await fetch(endpoint, {
@@ -617,6 +619,97 @@ export async function sendWhatsAppImage(to, imageSource, caption = '') {
     return { success: true, messageId };
   } catch (err) {
     privacyLog('error', 'WHATSAPP_IMAGE_SEND_NETWORK_ERROR', {
+      message: err.message,
+    });
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Sends an audio voice message to a WhatsApp user via the WhatsApp Cloud API.
+ * Supports in-memory Buffers (uploaded directly to Meta) or public HTTPS URLs.
+ *
+ * @param {string} to - Recipient phone number (E.164 digits)
+ * @param {string | Buffer | { buffer: Buffer, mimeType?: string, fallbackUrl?: string }} audioSource
+ * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
+ */
+export async function sendWhatsAppAudio(to, audioSource) {
+  const normalizedTo = normalizePhoneNumber(to);
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !audioSource) {
+    privacyLog('warn', 'WHATSAPP_AUDIO_SEND_SKIPPED', {
+      note: 'Missing token, phone ID, or audio source',
+    });
+    return { success: false, error: 'Missing configuration or audio source' };
+  }
+
+  // Bypass outbound network calls in test scenarios with dummy phone numbers or during test runs
+  if (
+    config.NODE_ENV === 'test' ||
+    normalizedTo === '910000000000' ||
+    normalizedTo.startsWith('0000') ||
+    normalizedTo.startsWith('9999')
+  ) {
+    return { success: true, messageId: `sim_test_audio_${Date.now()}` };
+  }
+
+  let audioPayload;
+  if (Buffer.isBuffer(audioSource) || (audioSource && audioSource.buffer)) {
+    const buf = Buffer.isBuffer(audioSource) ? audioSource : audioSource.buffer;
+    const mime = audioSource.mimeType || 'audio/mpeg';
+    const uploadRes = await uploadWhatsAppMedia(buf, mime);
+    if (!uploadRes.success) {
+      if (audioSource.fallbackUrl) {
+        audioPayload = { link: audioSource.fallbackUrl };
+      } else {
+        return { success: false, error: uploadRes.error };
+      }
+    } else {
+      audioPayload = { id: uploadRes.mediaId };
+    }
+  } else if (typeof audioSource === 'string') {
+    audioPayload = { link: audioSource };
+  } else {
+    return { success: false, error: 'Invalid audio source' };
+  }
+
+  const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: normalizedTo,
+    type: 'audio',
+    audio: audioPayload,
+  };
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      privacyLog('error', 'WHATSAPP_AUDIO_SEND_FAILED', {
+        status: res.status,
+        error: data?.error?.message,
+      });
+      return { success: false, error: data?.error?.message };
+    }
+
+    const messageId = data?.messages?.[0]?.id;
+    privacyLog('info', 'WHATSAPP_AUDIO_SENT', {
+      toEnding: normalizedTo.slice(-4),
+      messageId,
+    });
+
+    return { success: true, messageId };
+  } catch (err) {
+    privacyLog('error', 'WHATSAPP_AUDIO_SEND_NETWORK_ERROR', {
       message: err.message,
     });
     return { success: false, error: err.message };

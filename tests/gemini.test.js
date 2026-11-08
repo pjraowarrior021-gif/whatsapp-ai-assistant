@@ -8,6 +8,10 @@ import {
   generateAIResponse,
   formatGroundingSources,
   setSearchGrounding,
+  getPersona,
+  setPersona,
+  resetPersona,
+  listPersonas,
 } from '../src/gemini.js';
 import { config } from '../src/config.js';
 
@@ -108,4 +112,69 @@ test('Gemini: generateAIResponse handles multimodal image parameter gracefully w
   // Clean up mock
   setGeminiClient(null);
   setSearchGrounding(config.ENABLE_SEARCH_GROUNDING);
+});
+
+test('Gemini Persona: listPersonas returns all core personas', () => {
+  const personas = listPersonas();
+  assert.ok(personas.default);
+  assert.ok(personas.coder);
+  assert.ok(personas.tutor);
+  assert.ok(personas.executive);
+});
+
+test('Gemini Persona: getPersona defaults to default and updates with setPersona', () => {
+  const anonId = 'u_persona_test_user';
+  resetPersona(anonId);
+  assert.strictEqual(getPersona(anonId), 'default');
+
+  const setResult = setPersona(anonId, 'coder');
+  assert.strictEqual(setResult.success, true);
+  assert.strictEqual(getPersona(anonId), 'coder');
+
+  // Case-insensitive
+  const setResultTutor = setPersona(anonId, 'TUTOR');
+  assert.strictEqual(setResultTutor.success, true);
+  assert.strictEqual(getPersona(anonId), 'tutor');
+
+  // Rejects invalid persona
+  const invalidResult = setPersona(anonId, 'wizard');
+  assert.strictEqual(invalidResult.success, false);
+  assert.strictEqual(getPersona(anonId), 'tutor');
+
+  // Reset persona
+  resetPersona(anonId);
+  assert.strictEqual(getPersona(anonId), 'default');
+});
+
+test('Gemini Persona: generateAIResponse respects persona system instruction and forceGrounding', async () => {
+  let capturedConfig = null;
+  const mockClient = {
+    models: {
+      generateContent: async ({ config }) => {
+        capturedConfig = config;
+        return {
+          text: 'Response from mock Gemini.',
+        };
+      },
+    },
+  };
+
+  setGeminiClient(mockClient);
+  setSearchGrounding(false); // Global search grounding is disabled
+
+  const anonId = 'u_persona_exec_user';
+  setPersona(anonId, 'executive');
+
+  const response = await generateAIResponse('Give me a brief', [], null, {
+    anonId,
+    forceGrounding: true,
+  });
+
+  assert.strictEqual(response, 'Response from mock Gemini.');
+  assert.ok(capturedConfig.systemInstruction.includes('[PERSONA OVERRIDE: EXECUTIVE]'));
+  assert.ok(capturedConfig.tools && capturedConfig.tools[0].googleSearch);
+
+  // Clean up
+  resetPersona(anonId);
+  setGeminiClient(null);
 });

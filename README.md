@@ -28,6 +28,11 @@ Designed for zero cloud costs (**₹0 budget**), zero database maintenance, and 
 ## ✨ Key Features
 
 - **Google Gemini Integration:** Powered by Google Gemini (default `gemini-3.5-flash-lite`, configurable via `GEMINI_MODEL`) with automatic fallback failover (`GEMINI_FALLBACK_MODELS`) via the modern `@google/genai` SDK. Supports runtime model switching.
+- **🔗 Smart Webpage & Article Summarizer:** Share any article or webpage URL to receive an instant, high-yield 3-5 bullet point executive summary with original titles and clickable links. Features strict SSRF protection.
+- **📍 Location Intelligence:** Send your WhatsApp location pin to receive an instant local snapshot with current weather, area overview, and top points of interest, grounded in real-time Google Search data.
+- **🎙️ Voice Note Audio Replies (Text-to-Speech):** Toggle `/voice on` or append `--voice` to receive responses synthesized directly into speech audio voice notes (`audio/mpeg`) in addition to text.
+- **📝 Quick Notes & To-Do List Tracker:** Track tasks effortlessly with `/todo <task>`, `/todos`, `/done <id>`, and `/clear_todos`. Stored in RAM with optional persistence (`REMINDERS_PERSIST=true`).
+- **🎭 Dynamic Persona Switching:** Custom AI system instruction personas via `/persona [name]` (`coder`, `tutor`, `executive`, `default`).
 - **Multimodal Intelligence (Voice & Documents):**
   - **Voice Notes:** Inbound audio and voice notes are automatically normalized, streamed in memory, transcribed, and answered with Gemini multimodal audio capabilities.
   - **Document Analysis:** Upload PDFs, TXT, or CSV files (up to 16MB) with captions to summarize, extract data, or answer analytical questions.
@@ -254,6 +259,12 @@ You can send these commands in your WhatsApp chat at any time:
 | :---------------------- | :----------------------------------------------------------------------------------------------------------------- |
 | `/help`                 | Displays the complete command manual with interactive Quick Action buttons                                         |
 | `/image <prompt>`       | Generates a clean AI image without watermarks via Pollinations (also `/draw <prompt>`)                             |
+| `/todo <task>`          | Adds a task to your quick to-do list with a 6-character short ID                                                   |
+| `/todos`                | Lists all your active to-do items with checkboxes (`[ ]` or `[x]`)                                                 |
+| `/done <id>`            | Marks a task as completed                                                                                          |
+| `/clear_todos`          | Clears all completed to-do items                                                                                   |
+| `/persona [name]`       | Views or switches persona: `/persona coder`, `/persona tutor`, `/persona executive`, `/persona default`            |
+| `/voice <on\|off>`      | Toggles audio voice note responses (or append `--voice` to any message)                                            |
 | `/remind <when> <task>` | Sets a reminder. Relative: `/remind 10m Call mom`, 24h: `/remind 18:30 Workout`, Date: `/remind 25-12 09:00 Party` |
 | `/reminders`            | Lists all your pending scheduled reminders with IDs and target times                                               |
 | `/remind delete <id>`   | Cancels an active scheduled reminder by ID                                                                         |

@@ -49,6 +49,8 @@ test('Webhook HMAC: verifyMetaSignature rejects tampered body or invalid signatu
   assert.strictEqual(verifyMetaSignature(null, validHeader, secret), false);
 });
 
+import { resetUserRateLimit, getAnonymizedId } from '../src/privacy.js';
+
 test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
   const server = app.listen(0);
   const port = server.address().port;
@@ -577,5 +579,260 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
     });
 
     assert.strictEqual(res.status, 200);
+  });
+
+  // 13. Test incoming location message
+  await t.test('POST /webhook accepts incoming location message and processes coordinates', async () => {
+    const authorizedNumber = '910000000000';
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'test_account_id',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                contacts: [{ profile: { name: 'Authorized User' }, wa_id: authorizedNumber }],
+                messages: [
+                  {
+                    from: authorizedNumber,
+                    id: `wamid.test_loc_${Date.now()}`,
+                    timestamp: '1730000000',
+                    type: 'location',
+                    location: {
+                      latitude: 37.7749,
+                      longitude: -122.4194,
+                      name: 'Market Street Cafe',
+                      address: '100 Market St, San Francisco, CA',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const raw = JSON.stringify(payload);
+    const sig = crypto.createHmac('sha256', config.WHATSAPP_APP_SECRET).update(raw).digest('hex');
+    const res = await fetch(`${baseUrl}/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-signature-256': `sha256=${sig}`,
+      },
+      body: raw,
+    });
+
+    assert.strictEqual(res.status, 200);
+  });
+
+  // 14. Test incoming webpage URL message
+  await t.test('POST /webhook processes URL link for article summarization', async () => {
+    const authorizedNumber = '910000000000';
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'test_account_id',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                contacts: [{ profile: { name: 'Authorized User' }, wa_id: authorizedNumber }],
+                messages: [
+                  {
+                    from: authorizedNumber,
+                    id: `wamid.test_url_${Date.now()}`,
+                    timestamp: '1730000000',
+                    type: 'text',
+                    text: { body: 'Please summarize https://en.wikipedia.org/wiki/Artificial_intelligence' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const raw = JSON.stringify(payload);
+    const sig = crypto.createHmac('sha256', config.WHATSAPP_APP_SECRET).update(raw).digest('hex');
+    const res = await fetch(`${baseUrl}/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-signature-256': `sha256=${sig}`,
+      },
+      body: raw,
+    });
+
+    assert.strictEqual(res.status, 200);
+  });
+
+  // 15. Test to-do list commands
+  await t.test('POST /webhook handles /todo, /todos, /done, and /clear_todos commands', async () => {
+    const authorizedNumber = '910000000000';
+    resetUserRateLimit(getAnonymizedId(authorizedNumber));
+
+    const sendCmd = async (cmdText) => {
+      const payload = {
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'test_account_id',
+            changes: [
+              {
+                field: 'messages',
+                value: {
+                  messaging_product: 'whatsapp',
+                  contacts: [{ profile: { name: 'Authorized User' }, wa_id: authorizedNumber }],
+                  messages: [
+                    {
+                      from: authorizedNumber,
+                      id: `wamid.cmd_${Date.now()}_${Math.random()}`,
+                      timestamp: '1730000000',
+                      type: 'text',
+                      text: { body: cmdText },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+      const raw = JSON.stringify(payload);
+      const sig = crypto.createHmac('sha256', config.WHATSAPP_APP_SECRET).update(raw).digest('hex');
+      return fetch(`${baseUrl}/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-hub-signature-256': `sha256=${sig}`,
+        },
+        body: raw,
+      });
+    };
+
+    const res1 = await sendCmd('/todo Buy groceries');
+    assert.strictEqual(res1.status, 200);
+
+    const res2 = await sendCmd('/todos');
+    assert.strictEqual(res2.status, 200);
+
+    const res3 = await sendCmd('/clear_todos');
+    assert.strictEqual(res3.status, 200);
+  });
+
+  // 16. Test persona commands
+  await t.test('POST /webhook handles /persona commands', async () => {
+    const authorizedNumber = '910000000000';
+    resetUserRateLimit(getAnonymizedId(authorizedNumber));
+
+    const sendCmd = async (cmdText) => {
+      const payload = {
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'test_account_id',
+            changes: [
+              {
+                field: 'messages',
+                value: {
+                  messaging_product: 'whatsapp',
+                  contacts: [{ profile: { name: 'Authorized User' }, wa_id: authorizedNumber }],
+                  messages: [
+                    {
+                      from: authorizedNumber,
+                      id: `wamid.cmd_${Date.now()}_${Math.random()}`,
+                      timestamp: '1730000000',
+                      type: 'text',
+                      text: { body: cmdText },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+      const raw = JSON.stringify(payload);
+      const sig = crypto.createHmac('sha256', config.WHATSAPP_APP_SECRET).update(raw).digest('hex');
+      return fetch(`${baseUrl}/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-hub-signature-256': `sha256=${sig}`,
+        },
+        body: raw,
+      });
+    };
+
+    const res1 = await sendCmd('/persona');
+    assert.strictEqual(res1.status, 200);
+
+    const res2 = await sendCmd('/persona coder');
+    assert.strictEqual(res2.status, 200);
+
+    const res3 = await sendCmd('/persona default');
+    assert.strictEqual(res3.status, 200);
+  });
+
+  // 17. Test voice mode toggle commands
+  await t.test('POST /webhook handles /voice on and /voice off toggle commands', async () => {
+    const authorizedNumber = '910000000000';
+    resetUserRateLimit(getAnonymizedId(authorizedNumber));
+
+    const sendCmd = async (cmdText) => {
+      const payload = {
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'test_account_id',
+            changes: [
+              {
+                field: 'messages',
+                value: {
+                  messaging_product: 'whatsapp',
+                  contacts: [{ profile: { name: 'Authorized User' }, wa_id: authorizedNumber }],
+                  messages: [
+                    {
+                      from: authorizedNumber,
+                      id: `wamid.cmd_${Date.now()}_${Math.random()}`,
+                      timestamp: '1730000000',
+                      type: 'text',
+                      text: { body: cmdText },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+      const raw = JSON.stringify(payload);
+      const sig = crypto.createHmac('sha256', config.WHATSAPP_APP_SECRET).update(raw).digest('hex');
+      return fetch(`${baseUrl}/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-hub-signature-256': `sha256=${sig}`,
+        },
+        body: raw,
+      });
+    };
+
+    const res1 = await sendCmd('/voice on');
+    assert.strictEqual(res1.status, 200);
+
+    const res2 = await sendCmd('/voice status');
+    assert.strictEqual(res2.status, 200);
+
+    const res3 = await sendCmd('/voice off');
+    assert.strictEqual(res3.status, 200);
   });
 });

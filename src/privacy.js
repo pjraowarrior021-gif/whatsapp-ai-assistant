@@ -13,6 +13,9 @@ const rememberedMessages = new Map();
 const REMEMBERED_MESSAGES_MAX = 200;
 const REMEMBERED_MESSAGES_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
+// In-Memory user voice reply preferences: Map<anonymizedUserId, boolean>
+const userVoicePreferences = new Map();
+
 // Salt generated at runtime; resets on every process restart to ensure non-linkability across restarts
 const RUNTIME_SALT = crypto.randomBytes(16).toString('hex');
 
@@ -382,12 +385,35 @@ export function resetConversation(anonId) {
 }
 
 /**
+ * Checks if voice note audio replies are enabled for a user.
+ * @param {string} anonId
+ * @returns {boolean}
+ */
+export function isVoiceReplyEnabled(anonId) {
+  if (!anonId) return false;
+  return Boolean(userVoicePreferences.get(anonId));
+}
+
+/**
+ * Sets voice note audio replies state for a user.
+ * @param {string} anonId
+ * @param {boolean} enabled
+ */
+export function setVoiceReplyEnabled(anonId, enabled) {
+  if (anonId) {
+    userVoicePreferences.set(anonId, Boolean(enabled));
+    privacyLog('info', 'VOICE_MODE_TOGGLED', { user: anonId, enabled: Boolean(enabled) });
+  }
+}
+
+/**
  * Deletes all temporary data for an anonymized user immediately.
  * @param {string} anonId
  * @returns {boolean}
  */
 export function deleteUserData(anonId) {
   resetUserRateLimit(anonId);
+  userVoicePreferences.delete(anonId);
   return resetConversation(anonId);
 }
 
@@ -473,7 +499,7 @@ export function getPrivacyDisclosure() {
     `• Our backend does *NOT* write conversations to any database or hard drive.`,
     `• Conversation history is held strictly in volatile RAM for context (${config.SESSION_TIMEOUT_MINUTES} minutes idle timeout) and automatically deleted.`,
     `• Quoted reply context is held in RAM for a maximum of 10 minutes.`,
-    `• *Exception:* Scheduled reminders are saved to encrypted/local storage only when REMINDERS_PERSIST is explicitly enabled.`,
+    `• *Exception:* Scheduled reminders and active to-do lists are saved to encrypted/local storage only when REMINDERS_PERSIST is explicitly enabled.`,
     `• Message bodies, personal credentials, and API keys are *NEVER* written to server logs.`,
     ``,
     `*4. Data Minimization & Guardrails:*`,

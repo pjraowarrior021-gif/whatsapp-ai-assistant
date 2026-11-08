@@ -7,6 +7,7 @@ import { getActiveModel } from './gemini.js';
 import { webhookRouter } from './webhook.js';
 import { getPrometheusMetrics } from './metrics.js';
 import { initReminders, stopReminders } from './reminders.js';
+import { initTodos } from './todos.js';
 
 export const app = express();
 
@@ -119,7 +120,7 @@ app.get('/', (_req, res) => {
       </div>
 
       <div class="warning">
-        <strong>⚠️ Privacy Notice:</strong> Zero conversation text or media is stored on disk (volatile RAM with automatic TTL purge). Scheduled reminders persist across restarts only when <code>REMINDERS_PERSIST=true</code> is explicitly configured.
+        <strong>⚠️ Privacy Notice:</strong> Zero conversation text or media is stored on disk (volatile RAM with automatic TTL purge). Scheduled reminders and to-do lists persist across restarts only when <code>REMINDERS_PERSIST=true</code> is explicitly configured.
       </div>
 
       <div class="card">
@@ -127,6 +128,12 @@ app.get('/', (_req, res) => {
         <ul>
           <li><code>/help</code> - Manual & interactive quick action buttons</li>
           <li><code>/image &lt;prompt&gt;</code> - Generate watermark-free AI artwork</li>
+          <li><code>/todo &lt;task&gt;</code> - Add a task to your quick to-do list</li>
+          <li><code>/todos</code> - Display active to-dos</li>
+          <li><code>/done &lt;id&gt;</code> - Mark a to-do item completed</li>
+          <li><code>/clear_todos</code> - Clear completed tasks</li>
+          <li><code>/persona [name]</code> - Switch AI persona (coder, tutor, executive, default)</li>
+          <li><code>/voice on|off</code> - Toggle voice note audio replies</li>
           <li><code>/remind &lt;time&gt; &lt;text&gt;</code> - Schedule relative or absolute reminders</li>
           <li><code>/reminders</code> - List active reminders</li>
           <li><code>/search on|off</code> - Toggle Google Search grounding with verified web sources</li>
@@ -172,6 +179,7 @@ if (isMainModule) {
 
   sweeperInterval = startSessionSweeper();
   initReminders();
+  initTodos();
 
   serverInstance = app.listen(config.PORT, '0.0.0.0', () => {
     privacyLog('info', 'SERVER_STARTED', {

@@ -6,6 +6,124 @@ let aiClient = null;
 let activeModel = config.GEMINI_MODEL;
 let searchGroundingEnabled = config.ENABLE_SEARCH_GROUNDING;
 
+// In-Memory store for user persona preferences: Map<anonymizedUserId, string>
+const userPersonas = new Map();
+
+/**
+ * WhatsApp-optimized System Instructions
+ */
+export const SYSTEM_INSTRUCTION = `You are a high-performing, private Personal AI Assistant on WhatsApp powered by Google Gemini.
+Your core operating rules:
+1. Provide concise, clear, and helpful answers optimized for quick mobile reading on WhatsApp.
+2. Use WhatsApp formatting conventions:
+   - *bold* for emphasis or titles
+   - _italics_ for secondary notes or clarification
+   - ~strikethrough~ where appropriate
+   - \`\`\`code blocks\`\`\` for code or formatted data
+   - Bulleted lists with emoji or hyphens for clean reading
+   - Do NOT use HTML tags (e.g. <b>, <i>, <a>).
+3. Be respectful, objective, and privacy-conscious:
+   - NEVER request, verify, or store passwords, OTPs, UPI PINs, CVVs, or bank account credentials.
+   - If a user mentions financial codes or credentials, remind them never to send sensitive credentials over messaging platforms.
+4. If a user asks about privacy, data boundaries, or commands, remind them they can type /privacy or /help.
+5. When analyzing images, diagrams, error messages, documents, or photos, inspect all visible details, transcribe relevant code or text, and provide fast, precise, and practical solutions.`;
+
+/**
+ * Built-in Persona configurations
+ */
+export const PERSONAS = {
+  default: {
+    name: 'default',
+    title: 'Balanced Assistant',
+    description: 'Standard balanced, friendly, and helpful personal assistant.',
+    instruction: SYSTEM_INSTRUCTION,
+  },
+  coder: {
+    name: 'coder',
+    title: 'Expert Software Engineer',
+    description: 'Ultra-concise, technical, code-first answers with syntax blocks.',
+    instruction: `${SYSTEM_INSTRUCTION}
+
+[PERSONA OVERRIDE: CODER]
+- Deliver ultra-concise, technical, and code-first answers.
+- Provide complete, correct, production-grade code snippets with proper language tags in markdown.
+- Skip fluff, pleasantries, or unnecessary preambles.
+- When diagnosing bugs, provide root cause analysis followed immediately by the patch.`,
+  },
+  tutor: {
+    name: 'tutor',
+    title: 'Patient Socratic Tutor',
+    description: 'Patient, pedagogical, step-by-step explanations with analogies.',
+    instruction: `${SYSTEM_INSTRUCTION}
+
+[PERSONA OVERRIDE: TUTOR]
+- Act as a patient, encouraging, and clear teacher.
+- Break down complex concepts into step-by-step explanations.
+- Use relatable real-world analogies and intuitive examples.
+- Check for understanding and encourage curiosity.`,
+  },
+  executive: {
+    name: 'executive',
+    title: 'Executive Briefing Specialist',
+    description: 'Bulleted, data-driven executive briefings with high-level summaries.',
+    instruction: `${SYSTEM_INSTRUCTION}
+
+[PERSONA OVERRIDE: EXECUTIVE]
+- Deliver bottom-line-up-front (BLUF), high-impact executive summaries.
+- Use structured bullet points, metrics, and actionable takeaways.
+- Focus on decisions, trade-offs, and strategic implications.
+- Keep sentences concise, direct, and professional.`,
+  },
+};
+
+/**
+ * Returns the active persona for a user.
+ * @param {string} [anonId]
+ * @returns {string} Persona key (e.g. 'default', 'coder', 'tutor', 'executive')
+ */
+export function getPersona(anonId) {
+  if (!anonId) return 'default';
+  return userPersonas.get(anonId) || 'default';
+}
+
+/**
+ * Sets the active persona for a user.
+ * @param {string} anonId
+ * @param {string} personaName
+ * @returns {{ success: boolean, persona?: object, error?: string }}
+ */
+export function setPersona(anonId, personaName) {
+  if (!anonId) return { success: false, error: 'User identifier required' };
+  const key = (personaName || '').trim().toLowerCase();
+  if (!PERSONAS[key]) {
+    return {
+      success: false,
+      error: `Unknown persona "${personaName}". Available personas: ${Object.keys(PERSONAS).join(', ')}`,
+    };
+  }
+  userPersonas.set(anonId, key);
+  privacyLog('info', 'PERSONA_SWITCHED', { user: anonId, persona: key });
+  return { success: true, persona: PERSONAS[key] };
+}
+
+/**
+ * Resets the persona for a user back to default.
+ * @param {string} anonId
+ */
+export function resetPersona(anonId) {
+  if (anonId) {
+    userPersonas.delete(anonId);
+  }
+}
+
+/**
+ * Returns all available personas.
+ * @returns {Record<string, { name: string, title: string, description: string }>}
+ */
+export function listPersonas() {
+  return PERSONAS;
+}
+
 /**
  * Initializes or returns the Google Gen AI SDK client.
  * @returns {GoogleGenAI}
@@ -98,35 +216,22 @@ export function formatGroundingSources(groundingMetadata) {
 }
 
 /**
- * WhatsApp-optimized System Instructions
- */
-const SYSTEM_INSTRUCTION = `You are a high-performing, private Personal AI Assistant on WhatsApp powered by Google Gemini.
-Your core operating rules:
-1. Provide concise, clear, and helpful answers optimized for quick mobile reading on WhatsApp.
-2. Use WhatsApp formatting conventions:
-   - *bold* for emphasis or titles
-   - _italics_ for secondary notes or clarification
-   - ~strikethrough~ where appropriate
-   - \`\`\`code blocks\`\`\` for code or formatted data
-   - Bulleted lists with emoji or hyphens for clean reading
-   - Do NOT use HTML tags (e.g. <b>, <i>, <a>).
-3. Be respectful, objective, and privacy-conscious:
-   - NEVER request, verify, or store passwords, OTPs, UPI PINs, CVVs, or bank account credentials.
-   - If a user mentions financial codes or credentials, remind them never to send sensitive credentials over messaging platforms.
-4. If a user asks about privacy, data boundaries, or commands, remind them they can type /privacy or /help.
-5. When analyzing images, diagrams, error messages, documents, or photos, inspect all visible details, transcribe relevant code or text, and provide fast, precise, and practical solutions.`;
-
-/**
  * Generates an AI response using the Google Gemini API with conversational context and optional image input.
  *
  * @param {string} userMessage - The sanitized user input or image caption
  * @param {Array<{role: string, parts: Array<{text: string}>}>} conversationHistory - Prior turns from in-memory session
  * @param {{ mimeType: string, data: string } | null} [imagePart=null] - Optional base64-encoded image
+ * @param {{ anonId?: string, forceGrounding?: boolean, persona?: string }} [options={}] - Optional request options
  * @returns {Promise<string>} The assistant's response text
  */
-export async function generateAIResponse(userMessage, conversationHistory = [], imagePart = null) {
+export async function generateAIResponse(userMessage, conversationHistory = [], imagePart = null, options = {}) {
   const startTime = Date.now();
   const client = getGeminiClient();
+
+  const personaKey = options.persona || (options.anonId ? getPersona(options.anonId) : 'default');
+  const personaConfig = PERSONAS[personaKey] || PERSONAS.default;
+  const activeInstruction = personaConfig.instruction || SYSTEM_INSTRUCTION;
+  const shouldGround = searchGroundingEnabled || Boolean(options.forceGrounding);
 
   const userParts = [];
   if (imagePart && imagePart.data) {
@@ -163,7 +268,7 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
     try {
       const runGeneration = async (enableSearch) => {
         const genConfig = {
-          systemInstruction: SYSTEM_INSTRUCTION,
+          systemInstruction: activeInstruction,
           temperature: config.GEMINI_TEMPERATURE,
           maxOutputTokens: config.GEMINI_MAX_OUTPUT_TOKENS,
         };
@@ -190,7 +295,7 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
       };
 
       let response;
-      if (searchGroundingEnabled) {
+      if (shouldGround) {
         try {
           response = await runGeneration(true);
         } catch (searchErr) {

@@ -14,6 +14,8 @@ import {
   checkUserRateLimit,
   rememberMessage,
   getRememberedMessage,
+  isVoiceReplyEnabled,
+  setVoiceReplyEnabled,
 } from './privacy.js';
 import {
   generateAIResponse,
@@ -21,10 +23,14 @@ import {
   setActiveModel,
   isSearchGroundingEnabled,
   setSearchGrounding,
+  getPersona,
+  setPersona,
+  listPersonas,
 } from './gemini.js';
 import {
   sendWhatsAppMessage,
   sendWhatsAppImage,
+  sendWhatsAppAudio,
   sendWhatsAppButtons,
   markMessageAsRead,
   getMediaUrl,
@@ -32,6 +38,9 @@ import {
 } from './whatsapp.js';
 import { parseImagePrompt, generateImageUrl, generateCleanImage } from './image-gen.js';
 import { scheduleReminder, listReminders, deleteReminder } from './reminders.js';
+import { addTodo, listTodos, markTodoDone, clearCompletedTodos } from './todos.js';
+import { extractUrl, fetchAndExtractArticle } from './web-scraper.js';
+import { synthesizeSpeech } from './tts.js';
 import { checkAndIncrementUserQuota, recordGeminiDailyUsage, getUserQuotaReport } from './quota.js';
 import { recordMessageMetric, recordErrorMetric, recordMediaBytes, recordGeminiMetric } from './metrics.js';
 
@@ -298,7 +307,7 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
   }
 
   // 6. Validate supported message types
-  const supportedTypes = ['text', 'image', 'audio', 'voice', 'document', 'interactive'];
+  const supportedTypes = ['text', 'image', 'audio', 'voice', 'document', 'interactive', 'location'];
   if (!supportedTypes.includes(messageType)) {
     privacyLog('info', 'UNSUPPORTED_MESSAGE_TYPE', {
       requestId,
@@ -308,7 +317,7 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
     recordMessageMetric(messageType, 'rejected');
     await sendWhatsAppButtons(
       from,
-      `ℹ️ _Supported formats: Text, Photos, Voice Notes, and Documents (PDF/TXT/CSV)._\nSend any text question or upload media for instant AI analysis.`,
+      `ℹ️ _Supported formats: Text, Links, Photos, Voice Notes, Documents, and Locations._\nSend any text question, link, location, or media for instant AI analysis.`,
       [
         { id: 'cmd_help', title: 'Help Manual' },
         { id: 'cmd_status', title: 'System Status' },
@@ -319,6 +328,8 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
 
   let rawText = '';
   let mediaPart = null; // { mimeType, data }
+  let forceGrounding = false;
+  let locationSnapshotPrompt = '';
 
   // 7. Parse message content by type
   if (messageType === 'text') {
@@ -330,6 +341,21 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
     const listId = interactive?.list_reply?.id;
     rawText = buttonId || listId || interactive?.button_reply?.title || '';
     if (!rawText) return;
+  } else if (messageType === 'location') {
+    const loc = message.location || {};
+    const lat = loc.latitude;
+    const lng = loc.longitude;
+    const locName = loc.name ? loc.name.trim() : '';
+    const address = loc.address ? loc.address.trim() : '';
+
+    const locParts = [];
+    if (lat !== undefined && lng !== undefined) locParts.push(`Coordinates: ${lat}, ${lng}`);
+    if (locName) locParts.push(`Name: ${locName}`);
+    if (address) locParts.push(`Address: ${address}`);
+
+    rawText = locParts.join(' | ');
+    locationSnapshotPrompt = `The user shared this location (${locParts.join(' | ')}).\n\nProvide a quick local snapshot for this location: current weather, area overview, and 3 notable points of interest nearby. Format cleanly with bullet points for WhatsApp.`;
+    forceGrounding = true;
   } else if (messageType === 'image') {
     rawText = message.image?.caption?.trim() || '';
     const mediaId = message.image?.id;
@@ -451,7 +477,9 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
       : messageType === 'audio' || messageType === 'voice'
         ? '[voice note]'
         : '[document]'
-    : rawText;
+    : messageType === 'location'
+      ? '[location]'
+      : rawText;
 
   if (messageId) {
     rememberMessage(messageId, messagePlaceholder);
@@ -492,7 +520,13 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
               ? '/usage'
               : lowerText === 'cmd_reminders'
                 ? '/reminders'
-                : lowerText;
+                : lowerText === 'cmd_todos'
+                  ? '/todos'
+                  : lowerText === 'cmd_persona'
+                    ? '/persona'
+                    : lowerText === 'cmd_voice'
+                      ? '/voice'
+                      : lowerText;
 
   // 9a. Image Generation
   const imagePrompt = !mediaPart ? parseImagePrompt(rawText) : null;
@@ -531,6 +565,12 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
       `*Available Commands:*`,
       `• */help* - Display this help manual`,
       `• */image <prompt>* or */draw <prompt>* - Generate AI artwork`,
+      `• */todo <task>* - Add item to your quick to-do list`,
+      `• */todos* - List your active to-dos`,
+      `• */done <id>* - Mark a task completed`,
+      `• */clear_todos* - Clear all completed tasks`,
+      `• */persona [name]* - Switch persona (coder, tutor, executive, default)`,
+      `• */voice on* | */voice off* - Toggle voice audio replies`,
       `• */remind <time> <task>* - Schedule an automated reminder`,
       `• */reminders* - List your active reminders`,
       `• */remind delete <id>* - Cancel a reminder`,
@@ -543,6 +583,8 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
       `• */privacy* - View architecture & privacy disclosure`,
       ``,
       `*Multimodal Capabilities:*`,
+      `• 🔗 *Webpage Summaries:* Send any article or webpage URL for 3-5 bullet point takeaways.`,
+      `• 📍 *Location Intelligence:* Share a location pin for local snapshot, weather, and top spots.`,
       `• 📸 *Photos & Images:* Send screenshots, diagrams, or math problems for instant analysis.`,
       `• 🎙️ *Voice Notes:* Send audio voice notes for automatic transcription and answers.`,
       `• 📄 *Documents:* Upload PDF, TXT, or CSV files for summaries and analysis.`,
@@ -555,7 +597,7 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
 
     await sendWhatsAppButtons(from, helpMessage, [
       { id: 'cmd_status', title: 'Status' },
-      { id: 'cmd_usage', title: 'Daily Quota' },
+      { id: 'cmd_todos', title: 'To-Dos' },
       { id: 'cmd_reset', title: 'Clear History' },
     ]);
     recordMessageMetric('command', 'success');
@@ -598,6 +640,8 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
     const statusMsg = [
       `📊 *System Status:*`,
       `• AI Model: *${getActiveModel()}*`,
+      `• Active Persona: *${getPersona(anonId)}*`,
+      `• Voice Replies: *${isVoiceReplyEnabled(anonId) ? 'Enabled' : 'Disabled'}*`,
       `• Search Grounding: *${searchStatus}*`,
       `• Remaining Daily Quota: *${quota.userMax - quota.userCount} / ${quota.userMax}*`,
       `• Memory Mode: *Volatile RAM Only (Zero Disk Storage)*`,
@@ -697,8 +741,107 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
     return;
   }
 
+  // 9k. Quick Notes & To-Do List Tracker
+  if (effectiveCommand.startsWith('/todo ')) {
+    const taskText = rawText.substring(6).trim();
+    const result = addTodo(anonId, taskText);
+    await sendWhatsAppMessage(from, result.message);
+    recordMessageMetric('todo', result.success ? 'success' : 'rejected');
+    return;
+  }
+
+  if (effectiveCommand === '/todos') {
+    const listMsg = listTodos(anonId);
+    await sendWhatsAppButtons(from, listMsg, [
+      { id: 'cmd_help', title: 'Help' },
+      { id: 'cmd_status', title: 'Status' },
+    ]);
+    recordMessageMetric('command', 'success');
+    return;
+  }
+
+  if (effectiveCommand.startsWith('/done ')) {
+    const todoId = rawText.substring(6).trim();
+    const result = markTodoDone(anonId, todoId);
+    await sendWhatsAppMessage(from, result.message);
+    recordMessageMetric('todo', result.success ? 'success' : 'rejected');
+    return;
+  }
+
+  if (effectiveCommand === '/clear_todos') {
+    const result = clearCompletedTodos(anonId);
+    await sendWhatsAppMessage(from, result.message);
+    recordMessageMetric('todo', 'success');
+    return;
+  }
+
+  // 9l. Custom Persona Switching
+  if (effectiveCommand === '/persona' || effectiveCommand.startsWith('/persona ')) {
+    const personaArg = rawText.substring(8).trim().toLowerCase();
+    if (!personaArg) {
+      const current = getPersona(anonId);
+      const personas = listPersonas();
+      const personaLines = Object.values(personas).map((p) => {
+        const marker = p.name === current ? ' *(Active)*' : '';
+        return `• */persona ${p.name}* - *${p.title}*${marker}\n  _${p.description}_`;
+      });
+      const msg = [
+        `🎭 *AI Personas:*`,
+        `Current Persona: *${current}*`,
+        ``,
+        ...personaLines,
+        ``,
+        `_Switch persona by sending e.g. \`/persona coder\` or \`/persona default\`._`,
+      ].join('\n');
+      await sendWhatsAppMessage(from, msg);
+    } else {
+      const result = setPersona(anonId, personaArg);
+      if (result.success) {
+        await sendWhatsAppMessage(
+          from,
+          `🎭 *Persona Switched to "${result.persona.name}":*\n_${result.persona.description}_`
+        );
+      } else {
+        await sendWhatsAppMessage(from, `⚠️ ${result.error}`);
+      }
+    }
+    recordMessageMetric('command', 'success');
+    return;
+  }
+
+  // 9m. Voice Note Replies Toggle
+  if (effectiveCommand === '/voice on') {
+    setVoiceReplyEnabled(anonId, true);
+    await sendWhatsAppMessage(
+      from,
+      '🎙️ *Voice Mode Enabled:*\nAssistant replies will now also be synthesized into audio voice messages.\nType */voice off* anytime to return to text-only.'
+    );
+    recordMessageMetric('command', 'success');
+    return;
+  }
+  if (effectiveCommand === '/voice off') {
+    setVoiceReplyEnabled(anonId, false);
+    await sendWhatsAppMessage(from, '💬 *Voice Mode Disabled:*\nAssistant replies will now be delivered as text only.');
+    recordMessageMetric('command', 'success');
+    return;
+  }
+  if (effectiveCommand === '/voice' || effectiveCommand === '/voice status') {
+    const isVoice = isVoiceReplyEnabled(anonId);
+    await sendWhatsAppMessage(
+      from,
+      `🎙️ *Voice Mode Status:* *${isVoice ? 'Enabled (Audio replies ON)' : 'Disabled (Text-only)'}*\n\n• Type */voice on* to receive voice audio replies.\n• Type */voice off* for text-only replies.\n• Or append \`--voice\` to any single message.`
+    );
+    recordMessageMetric('command', 'success');
+    return;
+  }
+
+  // Check for inline --voice flag
+  const hasVoiceFlag = rawText.includes('--voice');
+  const cleanRawText = rawText.replace(/--voice/gi, '').trim();
+  const wantsVoice = isVoiceReplyEnabled(anonId) || hasVoiceFlag;
+
   // 10. Privacy Guard: Scan & Redact Sensitive Financial/Credential Information
-  const { sanitizedText, hasRedactions, categories } = maskSensitiveInfo(rawText);
+  const { sanitizedText, hasRedactions, categories } = maskSensitiveInfo(cleanRawText);
 
   if (hasRedactions) {
     privacyLog('warn', 'SENSITIVE_DATA_DETECTED_REDACTED', {
@@ -708,8 +851,53 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
     });
   }
 
-  // Determine default prompts for multimodal media if no text was provided
+  // Check for webpage/article link summarization
+  let articleHeader = null;
+  const foundUrl =
+    !mediaPart && messageType === 'text' && !cleanRawText.startsWith('/') ? extractUrl(cleanRawText) : null;
+
   let effectivePrompt = sanitizedText;
+
+  if (foundUrl) {
+    const article = await fetchAndExtractArticle(foundUrl);
+    if (!article.ok) {
+      if (article.reason === 'ssrf_blocked') {
+        await sendWhatsAppMessage(
+          from,
+          '⚠️ *Security Alert:* Access to internal, loopback, or private network addresses is blocked for security.'
+        );
+        return;
+      }
+      if (article.reason === 'too_large') {
+        await sendWhatsAppMessage(from, '⚠️ *Webpage Error:* Webpage content exceeds maximum allowed size (16MB).');
+        return;
+      }
+      if (article.reason === 'timeout') {
+        await sendWhatsAppMessage(
+          from,
+          '⚠️ *Webpage Error:* Webpage download timed out. Please verify the URL and try again.'
+        );
+        return;
+      }
+      await sendWhatsAppMessage(
+        from,
+        `⚠️ *Webpage Error:* Failed to fetch webpage content (${article.reason || 'Could not load URL'}).`
+      );
+      return;
+    }
+
+    const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
+    if (userPromptAside) {
+      effectivePrompt = `The user shared this article: [${article.title || foundUrl}](${foundUrl})\n\nUser Question/Instruction: "${userPromptAside}"\n\nArticle Content:\n"""${article.text}"""`;
+    } else {
+      effectivePrompt = `Summarize this webpage clearly in 3-5 WhatsApp bullet points with key takeaways:\n\nTitle: ${article.title || 'Webpage'}\nURL: ${foundUrl}\n\nContent:\n"""${article.text}"""`;
+    }
+    articleHeader = { title: article.title || 'Webpage Summary', url: foundUrl };
+  } else if (locationSnapshotPrompt) {
+    effectivePrompt = locationSnapshotPrompt;
+  }
+
+  // Determine default prompts for multimodal media if no text was provided
   if (!effectivePrompt) {
     if (mediaPart && (messageType === 'audio' || messageType === 'voice')) {
       effectivePrompt =
@@ -732,7 +920,10 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
   // 12. Generate Gemini AI Response
   recordGeminiDailyUsage();
   recordGeminiMetric(getActiveModel(), 'success');
-  const aiResponse = await generateAIResponse(fullPromptForGemini, history, mediaPart);
+  const aiResponse = await generateAIResponse(fullPromptForGemini, history, mediaPart, {
+    anonId,
+    forceGrounding: Boolean(forceGrounding),
+  });
 
   // 13. Save turn into volatile in-memory session
   const recordedTurnPrompt = mediaPart
@@ -742,6 +933,9 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
 
   // 14. Construct final response with optional security warning
   let finalMessage = aiResponse;
+  if (articleHeader) {
+    finalMessage = `🔗 *${articleHeader.title}*\n_${articleHeader.url}_\n\n${aiResponse}`;
+  }
   if (hasRedactions) {
     finalMessage += `\n\n⚠️ _Security Alert: Detected and redacted sensitive details (${categories.join(
       ', '
@@ -751,4 +945,19 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
   // 15. Send response back to user
   await sendWhatsAppMessage(from, finalMessage);
   recordMessageMetric(messageType, 'success');
+
+  // 16. Synthesize & Send Voice Note Audio Reply if requested
+  if (wantsVoice) {
+    try {
+      const synth = await synthesizeSpeech(aiResponse);
+      if (synth && synth.ok && synth.buffer) {
+        await sendWhatsAppAudio(from, synth.buffer);
+        privacyLog('info', 'VOICE_REPLY_SENT', { user: anonId, bytes: synth.buffer.length });
+      } else {
+        privacyLog('warn', 'VOICE_SYNTH_FAILED', { user: anonId, error: synth?.error });
+      }
+    } catch (voiceErr) {
+      privacyLog('error', 'VOICE_SEND_ERROR', { user: anonId, error: voiceErr.message });
+    }
+  }
 }
