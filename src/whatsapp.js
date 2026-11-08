@@ -91,8 +91,13 @@ export async function sendWhatsAppMessage(to, messageText) {
     return { success: false, messageIds: [], chunksSent: 0 };
   }
 
-  // Bypass outbound network calls in test scenarios with dummy phone numbers
-  if (normalizedTo === '910000000000' || normalizedTo.startsWith('0000')) {
+  // Bypass outbound network calls in test scenarios with dummy phone numbers or during test runs
+  if (
+    config.NODE_ENV === 'test' ||
+    normalizedTo === '910000000000' ||
+    normalizedTo.startsWith('0000') ||
+    normalizedTo.startsWith('9999')
+  ) {
     return { success: true, messageIds: [`sim_test_${Date.now()}`], chunksSent: chunks.length };
   }
 
@@ -188,9 +193,156 @@ export async function markMessageAsRead(messageId) {
     });
 
     return response.ok;
-  } catch (err) {
+  } catch {
     // Non-critical, ignore read receipt errors
     return false;
+  }
+}
+
+/**
+ * Sends an interactive button message (up to 3 buttons) via WhatsApp Cloud API.
+ *
+ * @param {string} to - Recipient phone number
+ * @param {string} bodyText - Message text
+ * @param {Array<{ id: string, title: string }>} buttons - Max 3 buttons
+ * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
+ */
+export async function sendWhatsAppButtons(to, bodyText, buttons = []) {
+  const normalizedTo = normalizePhoneNumber(to);
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !bodyText) {
+    return { success: false, error: 'Missing configuration or body text' };
+  }
+
+  // Bypass in test mode
+  if (
+    config.NODE_ENV === 'test' ||
+    normalizedTo === '910000000000' ||
+    normalizedTo.startsWith('0000') ||
+    normalizedTo.startsWith('9999')
+  ) {
+    return { success: true, messageId: `sim_btn_${Date.now()}` };
+  }
+
+  const cleanButtons = (buttons || []).slice(0, 3).map((b) => ({
+    type: 'reply',
+    reply: {
+      id: String(b.id),
+      title: String(b.title).substring(0, 20),
+    },
+  }));
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: normalizedTo,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: bodyText },
+      action: {
+        buttons: cleanButtons,
+      },
+    },
+  };
+
+  const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      privacyLog('error', 'WHATSAPP_BUTTONS_SEND_FAILED', { status: res.status, error: data?.error?.message });
+      return { success: false, error: data?.error?.message };
+    }
+
+    return { success: true, messageId: data?.messages?.[0]?.id };
+  } catch (err) {
+    privacyLog('error', 'WHATSAPP_BUTTONS_NETWORK_ERROR', { error: err.message });
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Sends an interactive list menu (up to 10 rows) via WhatsApp Cloud API.
+ *
+ * @param {string} to - Recipient phone number
+ * @param {string} bodyText - Message text
+ * @param {Array<{ id: string, title: string, description?: string }>} rows - Max 10 items
+ * @param {string} [buttonText='Options'] - Title of list dropdown button
+ * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
+ */
+export async function sendWhatsAppList(to, bodyText, rows = [], buttonText = 'Options') {
+  const normalizedTo = normalizePhoneNumber(to);
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !bodyText) {
+    return { success: false, error: 'Missing configuration or body text' };
+  }
+
+  // Bypass in test mode
+  if (
+    config.NODE_ENV === 'test' ||
+    normalizedTo === '910000000000' ||
+    normalizedTo.startsWith('0000') ||
+    normalizedTo.startsWith('9999')
+  ) {
+    return { success: true, messageId: `sim_list_${Date.now()}` };
+  }
+
+  const cleanRows = (rows || []).slice(0, 10).map((r) => ({
+    id: String(r.id),
+    title: String(r.title).substring(0, 24),
+    description: r.description ? String(r.description).substring(0, 72) : undefined,
+  }));
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: normalizedTo,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: { text: bodyText },
+      action: {
+        button: String(buttonText).substring(0, 20),
+        sections: [
+          {
+            title: 'Available Options',
+            rows: cleanRows,
+          },
+        ],
+      },
+    },
+  };
+
+  const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      privacyLog('error', 'WHATSAPP_LIST_SEND_FAILED', { status: res.status, error: data?.error?.message });
+      return { success: false, error: data?.error?.message };
+    }
+
+    return { success: true, messageId: data?.messages?.[0]?.id };
+  } catch (err) {
+    privacyLog('error', 'WHATSAPP_LIST_NETWORK_ERROR', { error: err.message });
+    return { success: false, error: err.message };
   }
 }
 
@@ -248,10 +400,11 @@ export async function getMediaUrl(mediaId) {
 
 /**
  * Downloads media binary content directly into an in-memory Buffer.
+ * Applies strict timeout and size cap to prevent resource exhaustion.
  * Never persists media to disk (strict volatile RAM architecture).
  *
  * @param {string} mediaUrl - The media URL returned from Meta Graph API
- * @returns {Promise<{ buffer: Buffer, base64: string } | null>}
+ * @returns {Promise<{ ok: boolean, buffer?: Buffer, base64?: string, reason?: 'too_large' | 'timeout' | 'http_error' } | null>}
  */
 export async function downloadMediaInMemory(mediaUrl) {
   if (!config.WHATSAPP_TOKEN || !mediaUrl) {
@@ -262,39 +415,79 @@ export async function downloadMediaInMemory(mediaUrl) {
   if (mediaUrl.includes('mock-test-image.jpg')) {
     const mockBuffer = Buffer.from('test-image-data');
     return {
+      ok: true,
       buffer: mockBuffer,
       base64: mockBuffer.toString('base64'),
     };
   }
 
   try {
+    const signal = AbortSignal.timeout(config.MEDIA_FETCH_TIMEOUT_MS);
     const response = await fetch(mediaUrl, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
         'User-Agent': 'WhatsAppBot/1.0 (Node.js)',
       },
+      signal,
     });
 
     if (!response.ok) {
       privacyLog('warn', 'WHATSAPP_MEDIA_DOWNLOAD_FAILED', {
         status: response.status,
       });
-      return null;
+      return { ok: false, reason: 'http_error' };
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const contentLengthHeader = response.headers.get('content-length');
+    if (contentLengthHeader) {
+      const contentLength = parseInt(contentLengthHeader, 10);
+      if (contentLength > config.MEDIA_MAX_BYTES) {
+        privacyLog('warn', 'WHATSAPP_MEDIA_TOO_LARGE', {
+          contentLength,
+          max: config.MEDIA_MAX_BYTES,
+        });
+        return { ok: false, reason: 'too_large' };
+      }
+    }
 
+    // Stream-read chunks to enforce cap even when Content-Length header is omitted
+    const chunks = [];
+    let receivedBytes = 0;
+
+    if (response.body) {
+      for await (const chunk of response.body) {
+        receivedBytes += chunk.length;
+        if (receivedBytes > config.MEDIA_MAX_BYTES) {
+          privacyLog('warn', 'WHATSAPP_MEDIA_STREAM_CAP_EXCEEDED', {
+            receivedBytes,
+            max: config.MEDIA_MAX_BYTES,
+          });
+          return { ok: false, reason: 'too_large' };
+        }
+        chunks.push(Buffer.from(chunk));
+      }
+    }
+
+    const buffer = Buffer.concat(chunks);
     return {
+      ok: true,
       buffer,
       base64: buffer.toString('base64'),
     };
   } catch (err) {
+    const isTimeout =
+      err.name === 'TimeoutError' ||
+      err.name === 'AbortError' ||
+      (err.message && err.message.toLowerCase().includes('timeout'));
+
+    const reason = isTimeout ? 'timeout' : 'http_error';
     privacyLog('error', 'WHATSAPP_MEDIA_DOWNLOAD_ERROR', {
+      reason,
       message: err.message,
     });
-    return null;
+
+    return { ok: false, reason };
   }
 }
 
@@ -356,8 +549,13 @@ export async function sendWhatsAppImage(to, imageSource, caption = '') {
     return { success: false, error: 'Missing configuration or image source' };
   }
 
-  // Bypass outbound network calls in test scenarios with dummy phone numbers
-  if (normalizedTo === '910000000000' || normalizedTo.startsWith('0000')) {
+  // Bypass outbound network calls in test scenarios with dummy phone numbers or during test runs
+  if (
+    config.NODE_ENV === 'test' ||
+    normalizedTo === '910000000000' ||
+    normalizedTo.startsWith('0000') ||
+    normalizedTo.startsWith('9999')
+  ) {
     return { success: true, messageId: `sim_test_img_${Date.now()}` };
   }
 

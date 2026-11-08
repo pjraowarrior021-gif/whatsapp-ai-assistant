@@ -4,6 +4,7 @@ import { privacyLog } from './privacy.js';
 
 let aiClient = null;
 let activeModel = config.GEMINI_MODEL;
+let searchGroundingEnabled = config.ENABLE_SEARCH_GROUNDING;
 
 /**
  * Initializes or returns the Google Gen AI SDK client.
@@ -20,7 +21,15 @@ export function getGeminiClient() {
 }
 
 /**
- * Allows runtime model switching (e.g. gemini-2.5-flash, gemini-1.5-flash).
+ * Injects a mock Gemini client for hermetic offline testing.
+ * @param {object|null} mockClient
+ */
+export function setGeminiClient(mockClient) {
+  aiClient = mockClient;
+}
+
+/**
+ * Allows runtime model switching (e.g. gemini-3.5-flash-lite, gemini-3.5-flash).
  * @param {string} modelName
  */
 export function setActiveModel(modelName) {
@@ -38,7 +47,55 @@ export function getActiveModel() {
   return activeModel;
 }
 
-const FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash'];
+/**
+ * Returns current search grounding state.
+ * @returns {boolean}
+ */
+export function isSearchGroundingEnabled() {
+  return searchGroundingEnabled;
+}
+
+/**
+ * Toggles search grounding at runtime.
+ * @param {boolean} enabled
+ */
+export function setSearchGrounding(enabled) {
+  searchGroundingEnabled = Boolean(enabled);
+}
+
+/**
+ * Builds candidate model list: activeModel followed by de-duplicated fallbacks.
+ * @returns {string[]}
+ */
+export function getCandidateModels() {
+  const fallbacks = Array.isArray(config.GEMINI_FALLBACK_MODELS) ? config.GEMINI_FALLBACK_MODELS : [];
+  return [activeModel, ...fallbacks.filter((m) => m !== activeModel)];
+}
+
+/**
+ * Formats groundingMetadata into a compact WhatsApp *Sources:* list.
+ * @param {object} groundingMetadata
+ * @returns {string}
+ */
+export function formatGroundingSources(groundingMetadata) {
+  if (!groundingMetadata) return '';
+  const chunks = groundingMetadata.groundingChunks || [];
+  const sources = [];
+  const seenUris = new Set();
+
+  for (const chunk of chunks) {
+    if (chunk.web && chunk.web.uri && !seenUris.has(chunk.web.uri)) {
+      seenUris.add(chunk.web.uri);
+      const title = chunk.web.title ? chunk.web.title.trim() : chunk.web.uri;
+      sources.push({ title, uri: chunk.web.uri });
+    }
+  }
+
+  if (sources.length === 0) return '';
+  const topSources = sources.slice(0, 3);
+  const formatted = topSources.map((s, idx) => `${idx + 1}. [${s.title}](${s.uri})`).join('\n');
+  return `\n\n*Sources:*\n${formatted}`;
+}
 
 /**
  * WhatsApp-optimized System Instructions
@@ -98,37 +155,66 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
   ];
 
   // Try active model first, then gracefully cascade through fallbacks if quota/overload occurs
-  const candidateModels = [
-    activeModel,
-    ...FALLBACK_MODELS.filter((m) => m !== activeModel),
-  ];
+  const candidateModels = getCandidateModels();
 
   let lastError = null;
 
   for (const modelToTry of candidateModels) {
     try {
-      const generatePromise = client.models.generateContent({
-        model: modelToTry,
-        contents,
-        config: {
+      const runGeneration = async (enableSearch) => {
+        const genConfig = {
           systemInstruction: SYSTEM_INSTRUCTION,
           temperature: config.GEMINI_TEMPERATURE,
           maxOutputTokens: config.GEMINI_MAX_OUTPUT_TOKENS,
-        },
-      });
+        };
 
-      // Strict 8-second circuit breaker per model to guarantee lightning-fast fallback under load
-      let timeoutId;
-      const timeoutPromise = new Promise((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error(`Timeout: ${modelToTry} did not respond within 8000ms`)), 8000);
-      });
+        if (enableSearch) {
+          genConfig.tools = [{ googleSearch: {} }];
+        }
 
-      const response = await Promise.race([generatePromise, timeoutPromise]).finally(() => {
-        if (timeoutId) clearTimeout(timeoutId);
-      });
+        const generatePromise = client.models.generateContent({
+          model: modelToTry,
+          contents,
+          config: genConfig,
+        });
+
+        // Strict 8-second circuit breaker per model to guarantee lightning-fast fallback under load
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error(`Timeout: ${modelToTry} did not respond within 8000ms`)), 8000);
+        });
+
+        return Promise.race([generatePromise, timeoutPromise]).finally(() => {
+          if (timeoutId) clearTimeout(timeoutId);
+        });
+      };
+
+      let response;
+      if (searchGroundingEnabled) {
+        try {
+          response = await runGeneration(true);
+        } catch (searchErr) {
+          privacyLog('warn', 'GEMINI_SEARCH_GROUNDING_FAILED_RETRIEVING_WITHOUT', {
+            model: modelToTry,
+            error: searchErr?.message?.substring(0, 100),
+          });
+          response = await runGeneration(false);
+        }
+      } else {
+        response = await runGeneration(false);
+      }
 
       const latencyMs = Date.now() - startTime;
-      const responseText = response.text ? response.text.trim() : '';
+      let responseText = response.text ? response.text.trim() : '';
+
+      // Append search grounding sources if available
+      const candidate = response.candidates?.[0];
+      if (candidate?.groundingMetadata) {
+        const sourcesText = formatGroundingSources(candidate.groundingMetadata);
+        if (sourcesText) {
+          responseText += sourcesText;
+        }
+      }
 
       privacyLog('info', 'GEMINI_RESPONSE_GENERATED', {
         model: modelToTry,

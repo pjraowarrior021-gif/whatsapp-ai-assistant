@@ -3,6 +3,7 @@
  * Generates high-quality images from text prompts using Generative AI.
  */
 import sharp from 'sharp';
+import { config } from './config.js';
 
 /**
  * Parses user input to detect if it is an image generation request.
@@ -88,11 +89,29 @@ export async function generateCleanImage(prompt, options = {}) {
     if (options.mockBuffer) {
       rawBuffer = options.mockBuffer;
     } else {
-      const res = await fetch(imageUrl);
+      const signal = AbortSignal.timeout(config.MEDIA_FETCH_TIMEOUT_MS);
+      const res = await fetch(imageUrl, { signal });
       if (!res.ok) {
         return null;
       }
-      rawBuffer = Buffer.from(await res.arrayBuffer());
+
+      const contentLength = parseInt(res.headers.get('content-length') || '0', 10);
+      if (contentLength > config.MEDIA_MAX_BYTES) {
+        return null;
+      }
+
+      const chunks = [];
+      let totalBytes = 0;
+      if (res.body) {
+        for await (const chunk of res.body) {
+          totalBytes += chunk.length;
+          if (totalBytes > config.MEDIA_MAX_BYTES) {
+            return null;
+          }
+          chunks.push(Buffer.from(chunk));
+        }
+      }
+      rawBuffer = Buffer.concat(chunks);
     }
 
     const metadata = await sharp(rawBuffer).metadata();

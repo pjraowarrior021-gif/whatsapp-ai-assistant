@@ -5,6 +5,14 @@ import { config, normalizePhoneNumber } from './config.js';
 // Map<anonymizedUserId, { messages: Array<{role: string, parts: Array<{text: string}>}>, lastActivity: number }>
 const sessionStore = new Map();
 
+// In-Memory user sliding-window rate limit store: Map<anonymizedUserId, number[]>
+const userRateLimits = new Map();
+
+// In-Memory remembered messages for quoted-reply context: Map<messageId, { text: string, timestamp: number }>
+const rememberedMessages = new Map();
+const REMEMBERED_MESSAGES_MAX = 200;
+const REMEMBERED_MESSAGES_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
 // Salt generated at runtime; resets on every process restart to ensure non-linkability across restarts
 const RUNTIME_SALT = crypto.randomBytes(16).toString('hex');
 
@@ -54,15 +62,38 @@ export function isAuthorized(phoneNumber) {
 }
 
 /**
+ * Validates a string of digits using the standard Luhn checksum algorithm.
+ * @param {string} digits
+ * @returns {boolean}
+ */
+export function isValidLuhn(digits) {
+  if (!digits || typeof digits !== 'string') return false;
+  const clean = digits.replace(/\D/g, '');
+  if (clean.length < 13 || clean.length > 19) return false;
+
+  let sum = 0;
+  let shouldDouble = false;
+
+  for (let i = clean.length - 1; i >= 0; i--) {
+    let digit = parseInt(clean.charAt(i), 10);
+    if (shouldDouble) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    shouldDouble = !shouldDouble;
+  }
+
+  return sum % 10 === 0;
+}
+
+// Payment card candidate regex (13-19 digits with optional spaces or dashes)
+const CARD_CANDIDATE_REGEX = /\b(?:\d[ -]*?){13,19}\b/g;
+
+/**
  * Privacy Guard: Sensitive data regex patterns
  */
 const SENSITIVE_PATTERNS = [
-  // Credit / Debit card patterns (13-19 digits with optional spaces or dashes)
-  {
-    regex: /\b(?:\d[ -]*?){13,19}\b/g,
-    replacement: '[REDACTED_CARD_NUMBER]',
-    category: 'Payment Card',
-  },
   // CVV / CVC patterns (e.g. "cvv is 849", "cvv: 849", "cvv 849")
   {
     regex: /\b(?:cvv|cvc|cvv2|security code)(?:\s+is|\s*[:=])?\s+[0-9]{3,4}\b/gi,
@@ -81,10 +112,16 @@ const SENSITIVE_PATTERNS = [
     replacement: '[REDACTED_PASSWORD]',
     category: 'Password/Credential',
   },
-  // Indian Aadhaar number format (4-4-4 digits)
+  // Indian Aadhaar format: 4-4-4 grouped with spaces/hyphens
   {
-    regex: /\b[2-9]{1}[0-9]{3}[ -]?[0-9]{4}[ -]?[0-9]{4}\b/g,
+    regex: /\b[2-9]\d{3}[ -]\d{4}[ -]\d{4}\b/g,
     replacement: '[REDACTED_NATIONAL_ID]',
+    category: 'National ID',
+  },
+  // Indian Aadhaar format: 12 digits preceded by context word
+  {
+    regex: /\b(?:aadhaar|aadhar|uid)[\s:=]+([2-9]\d{11})\b/gi,
+    replacement: (match) => match.replace(/[2-9]\d{11}/, '[REDACTED_NATIONAL_ID]'),
     category: 'National ID',
   },
   // US SSN format (3-2-4 digits)
@@ -103,6 +140,9 @@ const SENSITIVE_PATTERNS = [
 
 /**
  * Sanitizes user input by masking recognized sensitive financial and credential patterns.
+ * Validates payment cards with the Luhn algorithm to prevent false positives on order IDs.
+ * Uses stateless replace operations to avoid regex statefulness bugs.
+ *
  * @param {string} text
  * @returns {{ sanitizedText: string, hasRedactions: boolean, categories: string[] }}
  */
@@ -112,20 +152,31 @@ export function maskSensitiveInfo(text) {
   }
 
   let sanitized = text;
-  let hasRedactions = false;
   const categories = [];
 
+  // 1. Payment Cards: Luhn-validated redaction
+  const cardReplaced = sanitized.replace(CARD_CANDIDATE_REGEX, (match) => {
+    const digits = match.replace(/\D/g, '');
+    if (isValidLuhn(digits)) {
+      categories.push('Payment Card');
+      return '[REDACTED_CARD_NUMBER]';
+    }
+    return match;
+  });
+  sanitized = cardReplaced;
+
+  // 2. Other sensitive patterns with stateless replacements
   for (const pattern of SENSITIVE_PATTERNS) {
-    if (pattern.regex.test(sanitized)) {
-      hasRedactions = true;
+    const next = sanitized.replace(pattern.regex, pattern.replacement);
+    if (next !== sanitized) {
       categories.push(pattern.category);
-      sanitized = sanitized.replace(pattern.regex, pattern.replacement);
+      sanitized = next;
     }
   }
 
   return {
     sanitizedText: sanitized,
-    hasRedactions,
+    hasRedactions: categories.length > 0,
     categories: [...new Set(categories)],
   };
 }
@@ -134,6 +185,8 @@ export function maskSensitiveInfo(text) {
  * Privacy-Safe Structured Logger.
  * Strict Rule: Never logs message content, API keys, phone numbers, or tokens.
  * Only logs metadata: timestamps, event type, anonymized IDs, lengths, latencies, status codes.
+ * Supports text and JSON output formats via LOG_FORMAT.
+ *
  * @param {'info' | 'warn' | 'error' | 'debug'} level
  * @param {string} event
  * @param {object} [meta={}]
@@ -158,9 +211,14 @@ export function privacyLog(level, event, meta = {}) {
     ...safeMeta,
   };
 
-  const output = `[${logEntry.timestamp}] [${logEntry.level}] [${logEntry.event}] ${
-    Object.keys(safeMeta).length > 0 ? JSON.stringify(safeMeta) : ''
-  }`;
+  let output;
+  if (config.LOG_FORMAT === 'json') {
+    output = JSON.stringify(logEntry);
+  } else {
+    output = `[${logEntry.timestamp}] [${logEntry.level}] [${logEntry.event}] ${
+      Object.keys(safeMeta).length > 0 ? JSON.stringify(safeMeta) : ''
+    }`;
+  }
 
   if (level === 'error') {
     console.error(output);
@@ -168,6 +226,92 @@ export function privacyLog(level, event, meta = {}) {
     console.warn(output);
   } else {
     console.log(output);
+  }
+}
+
+/**
+ * Sliding-window rate limiter per anonymized user.
+ * @param {string} anonId
+ * @returns {{ allowed: boolean, retryAfterMs?: number }}
+ */
+export function checkUserRateLimit(anonId) {
+  if (!anonId) return { allowed: true };
+
+  const now = Date.now();
+  const windowMs = config.USER_RATE_LIMIT_WINDOW_MS;
+  const max = config.USER_RATE_LIMIT_MAX;
+
+  let timestamps = userRateLimits.get(anonId) || [];
+  // Prune timestamps outside current sliding window
+  timestamps = timestamps.filter((ts) => now - ts < windowMs);
+
+  if (timestamps.length >= max) {
+    const oldest = timestamps[0];
+    const retryAfterMs = Math.max(0, oldest + windowMs - now);
+    return { allowed: false, retryAfterMs };
+  }
+
+  timestamps.push(now);
+  userRateLimits.set(anonId, timestamps);
+  return { allowed: true };
+}
+
+/**
+ * Resets the rate limit history for an anonymized user.
+ * @param {string} anonId
+ */
+export function resetUserRateLimit(anonId) {
+  userRateLimits.delete(anonId);
+}
+
+/**
+ * Remembers a message text or placeholder in memory for quoted-reply context.
+ * Bounded to max 200 items with a 10-minute TTL.
+ *
+ * @param {string} messageId
+ * @param {string} text
+ */
+export function rememberMessage(messageId, text) {
+  if (!messageId || !text) return;
+
+  if (rememberedMessages.size >= REMEMBERED_MESSAGES_MAX) {
+    const oldestKey = rememberedMessages.keys().next().value;
+    rememberedMessages.delete(oldestKey);
+  }
+
+  rememberedMessages.set(messageId, {
+    text: String(text).trim(),
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Retrieves a remembered message by its ID if still within its 10-minute TTL.
+ * @param {string} messageId
+ * @returns {string | null}
+ */
+export function getRememberedMessage(messageId) {
+  if (!messageId) return null;
+  const entry = rememberedMessages.get(messageId);
+  if (!entry) return null;
+
+  if (Date.now() - entry.timestamp > REMEMBERED_MESSAGES_TTL_MS) {
+    rememberedMessages.delete(messageId);
+    return null;
+  }
+
+  return entry.text;
+}
+
+/**
+ * Purges expired entries from the in-memory remembered messages cache.
+ */
+export function cleanupRememberedMessages() {
+  const cutoff = Date.now() - REMEMBERED_MESSAGES_TTL_MS;
+  for (const [id, entry] of rememberedMessages.entries()) {
+    if (entry.timestamp < cutoff) {
+      rememberedMessages.delete(id);
+    }
   }
 }
 
@@ -243,11 +387,12 @@ export function resetConversation(anonId) {
  * @returns {boolean}
  */
 export function deleteUserData(anonId) {
+  resetUserRateLimit(anonId);
   return resetConversation(anonId);
 }
 
 /**
- * Sweeps the in-memory session store and deletes expired sessions.
+ * Sweeps the in-memory session store, user rate-limit maps, and remembered messages.
  * @returns {number} count of evicted sessions
  */
 export function cleanupExpiredSessions() {
@@ -255,12 +400,27 @@ export function cleanupExpiredSessions() {
   const maxIdleMs = config.SESSION_TIMEOUT_MINUTES * 60 * 1000;
   let evictedCount = 0;
 
+  // 1. Evict idle chat sessions
   for (const [anonId, session] of sessionStore.entries()) {
     if (now - session.lastActivity > maxIdleMs) {
       sessionStore.delete(anonId);
       evictedCount++;
     }
   }
+
+  // 2. Prune stale user rate-limit entries
+  const limitCutoff = now - config.USER_RATE_LIMIT_WINDOW_MS;
+  for (const [anonId, timestamps] of userRateLimits.entries()) {
+    const fresh = timestamps.filter((ts) => ts > limitCutoff);
+    if (fresh.length === 0) {
+      userRateLimits.delete(anonId);
+    } else {
+      userRateLimits.set(anonId, fresh);
+    }
+  }
+
+  // 3. Purge expired quoted-reply context messages
+  cleanupRememberedMessages();
 
   if (evictedCount > 0) {
     privacyLog('debug', 'SESSION_CLEANUP_SWEEP', { evictedCount, remaining: sessionStore.size });
@@ -280,6 +440,14 @@ export function startSessionSweeper(intervalMs = 60000) {
     sweeper.unref();
   }
   return sweeper;
+}
+
+/**
+ * Returns active sessions count for Prometheus metrics.
+ * @returns {number}
+ */
+export function getActiveSessionCount() {
+  return sessionStore.size;
 }
 
 /**
@@ -304,10 +472,12 @@ export function getPrivacyDisclosure() {
     `*3. Zero Permanent Storage Policy:*`,
     `• Our backend does *NOT* write conversations to any database or hard drive.`,
     `• Conversation history is held strictly in volatile RAM for context (${config.SESSION_TIMEOUT_MINUTES} minutes idle timeout) and automatically deleted.`,
+    `• Quoted reply context is held in RAM for a maximum of 10 minutes.`,
+    `• *Exception:* Scheduled reminders are saved to encrypted/local storage only when REMINDERS_PERSIST is explicitly enabled.`,
     `• Message bodies, personal credentials, and API keys are *NEVER* written to server logs.`,
     ``,
     `*4. Data Minimization & Guardrails:*`,
-    `• Automated filters redact payment cards, PINs, passwords, and IDs before transmission to the AI.`,
+    `• Automated filters redact payment cards (Luhn-verified), PINs, passwords, and IDs before transmission to the AI.`,
     `• Never send passwords, OTPs, UPI PINs, or banking credentials.`,
     ``,
     `*5. Commands:*`,

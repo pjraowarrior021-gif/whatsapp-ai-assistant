@@ -1,5 +1,5 @@
 import { config, validateConfig, getSafeConfigSummary } from './config.js';
-import { testGeminiConnection, getActiveModel } from './gemini.js';
+import { testGeminiConnection } from './gemini.js';
 
 async function runDiagnostics() {
   console.log('\n🔍 ====================================================');
@@ -18,7 +18,9 @@ async function runDiagnostics() {
   console.log(`   • WhatsApp Phone ID: ${summary.whatsapp.phoneNumberId}`);
   console.log(`   • WhatsApp Token: ${summary.whatsapp.tokenMasked}`);
   console.log(`   • Webhook Verify Token: ${summary.whatsapp.hasVerifyToken ? 'Configured ✅' : 'Missing ❌'}`);
-  console.log(`   • Meta App Secret: ${summary.whatsapp.hasAppSecret ? 'Configured ✅' : 'Missing ⚠️ (HMAC bypassed)'}`);
+  console.log(
+    `   • Meta App Secret: ${summary.whatsapp.hasAppSecret ? 'Configured ✅' : 'Missing ⚠️ (HMAC bypassed)'}`
+  );
   console.log(`   • Authorized Senders Whitelist: ${summary.privacy.authorizedNumbersCount} phone number(s)`);
   console.log(`   • In-Memory Idle Timeout: ${summary.privacy.sessionTimeoutMinutes} minutes (RAM Only)\n`);
 
@@ -36,9 +38,13 @@ async function runDiagnostics() {
     try {
       const geminiResult = await testGeminiConnection();
       if (geminiResult.success) {
-        console.log(`   ✅ Gemini API Connection: OK (Model: ${geminiResult.model}, Latency: ${geminiResult.latencyMs}ms, Reply: "${geminiResult.reply}")`);
+        console.log(
+          `   ✅ Gemini API Connection: OK (Model: ${geminiResult.model}, Latency: ${geminiResult.latencyMs}ms, Reply: "${geminiResult.reply}")`
+        );
       } else {
-        console.log(`   ❌ Gemini API Ping Failed: ${geminiResult.error || 'Empty response'} (${geminiResult.latencyMs}ms)`);
+        console.log(
+          `   ❌ Gemini API Ping Failed: ${geminiResult.error || 'Empty response'} (${geminiResult.latencyMs}ms)`
+        );
       }
     } catch (err) {
       console.log(`   ❌ Gemini Connection Error: ${err.message}`);
@@ -47,11 +53,7 @@ async function runDiagnostics() {
 
   // 3. Test WhatsApp Cloud API Credentials
   console.log('\n💬 [3/3] Testing WhatsApp Cloud API Token & Phone ID...');
-  if (
-    !config.WHATSAPP_TOKEN ||
-    !config.WHATSAPP_PHONE_NUMBER_ID ||
-    config.WHATSAPP_TOKEN.includes('YOUR_META')
-  ) {
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || config.WHATSAPP_TOKEN.includes('YOUR_META')) {
     console.log('   ⚠️  Skipping WhatsApp Graph API ping: WHATSAPP_TOKEN or WHATSAPP_PHONE_NUMBER_ID not configured.');
     console.log('   👉 Configure them from Meta for Developers -> WhatsApp -> API Setup.');
   } else if (config.WHATSAPP_PHONE_NUMBER_ID === '123456789012345') {
@@ -69,7 +71,9 @@ async function runDiagnostics() {
       });
       const data = await res.json();
       if (res.ok) {
-        console.log(`   ✅ WhatsApp API Token Verified: Connected to ${data.verified_name || data.display_phone_number || 'Phone ID'}`);
+        console.log(
+          `   ✅ WhatsApp API Token Verified: Connected to ${data.verified_name || data.display_phone_number || 'Phone ID'}`
+        );
       } else {
         console.log(`   ❌ WhatsApp Graph API check failed: [${data?.error?.code}] ${data?.error?.message}`);
       }

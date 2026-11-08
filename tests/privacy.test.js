@@ -4,13 +4,17 @@ import {
   isAuthorized,
   getAnonymizedId,
   maskSensitiveInfo,
-  privacyLog,
+  isValidLuhn,
   getConversation,
   saveTurn,
   resetConversation,
   deleteUserData,
-  cleanupExpiredSessions,
   getPrivacyDisclosure,
+  checkUserRateLimit,
+  resetUserRateLimit,
+  rememberMessage,
+  getRememberedMessage,
+  cleanupRememberedMessages,
 } from '../src/privacy.js';
 import { config } from '../src/config.js';
 
@@ -37,14 +41,59 @@ test('Privacy: getAnonymizedId creates consistent salted non-reversible hashes',
   assert.ok(!id1.includes('98765'));
 });
 
-test('Privacy: maskSensitiveInfo redacts payment cards', () => {
-  const input = 'My credit card is 4532 0150 1234 5678 and expires next month';
-  const result = maskSensitiveInfo(input);
+test('Privacy: isValidLuhn validates checksums correctly', () => {
+  // Standard valid 16-digit card
+  assert.strictEqual(isValidLuhn('4532015012345671'), true);
+  // Standard valid 15-digit Amex card
+  assert.strictEqual(isValidLuhn('378282246310005'), true);
+  // Invalid Luhn
+  assert.strictEqual(isValidLuhn('1234567890123'), false);
+  assert.strictEqual(isValidLuhn('4532015012345679'), false);
+  assert.strictEqual(isValidLuhn(''), false);
+});
 
-  assert.strictEqual(result.hasRedactions, true);
-  assert.ok(result.categories.includes('Payment Card'));
-  assert.ok(!result.sanitizedText.includes('4532 0150 1234 5678'));
-  assert.ok(result.sanitizedText.includes('[REDACTED_CARD_NUMBER]'));
+test('Privacy: maskSensitiveInfo redacts payment cards and avoids false positives', () => {
+  // True positive: Luhn-valid 16-digit card
+  const validCard = 'My credit card is 4532 0150 1234 5671 and expires next month';
+  const resultValid = maskSensitiveInfo(validCard);
+  assert.strictEqual(resultValid.hasRedactions, true);
+  assert.ok(resultValid.categories.includes('Payment Card'));
+  assert.ok(!resultValid.sanitizedText.includes('4532 0150 1234 5671'));
+  assert.ok(resultValid.sanitizedText.includes('[REDACTED_CARD_NUMBER]'));
+
+  // False positive 1: Order ID
+  const orderText = 'Order 1234567890123 shipped';
+  const resultOrder = maskSensitiveInfo(orderText);
+  assert.strictEqual(resultOrder.hasRedactions, false);
+  assert.strictEqual(resultOrder.sanitizedText, orderText);
+
+  // False positive 2: ISO timestamp
+  const dateText = 'Deployment occurred at 2026-11-08T10:50:24';
+  const resultDate = maskSensitiveInfo(dateText);
+  assert.strictEqual(resultDate.hasRedactions, false);
+  assert.strictEqual(resultDate.sanitizedText, dateText);
+
+  // False positive 3: 10-digit phone number
+  const phoneText = 'Call me at 9876543210';
+  const resultPhone = maskSensitiveInfo(phoneText);
+  assert.strictEqual(resultPhone.hasRedactions, false);
+  assert.strictEqual(resultPhone.sanitizedText, phoneText);
+});
+
+test('Privacy: maskSensitiveInfo redacts Aadhaar IDs with 4-4-4 format or context prefix', () => {
+  // 4-4-4 grouped format
+  const aadhaarGrouped = 'My id is 9876 5432 1098 please verify';
+  const res1 = maskSensitiveInfo(aadhaarGrouped);
+  assert.strictEqual(res1.hasRedactions, true);
+  assert.ok(res1.categories.includes('National ID'));
+  assert.ok(res1.sanitizedText.includes('[REDACTED_NATIONAL_ID]'));
+
+  // Context-word prefixed 12 digits
+  const aadhaarContext = 'My aadhaar: 987654321098 is registered';
+  const res2 = maskSensitiveInfo(aadhaarContext);
+  assert.strictEqual(res2.hasRedactions, true);
+  assert.ok(res2.categories.includes('National ID'));
+  assert.ok(res2.sanitizedText.includes('[REDACTED_NATIONAL_ID]'));
 });
 
 test('Privacy: maskSensitiveInfo redacts CVV codes', () => {
@@ -85,6 +134,49 @@ test('Privacy: maskSensitiveInfo leaves normal conversation untouched', () => {
   assert.strictEqual(result.hasRedactions, false);
   assert.strictEqual(result.categories.length, 0);
   assert.strictEqual(result.sanitizedText, input);
+});
+
+test('Privacy: checkUserRateLimit enforces sliding window limits', () => {
+  const testAnon = 'u_rate_test_user';
+  resetUserRateLimit(testAnon);
+
+  const origMax = config.USER_RATE_LIMIT_MAX;
+  const origWindow = config.USER_RATE_LIMIT_WINDOW_MS;
+  config.USER_RATE_LIMIT_MAX = 3;
+  config.USER_RATE_LIMIT_WINDOW_MS = 1000;
+
+  // 1st, 2nd, 3rd allowed
+  assert.strictEqual(checkUserRateLimit(testAnon).allowed, true);
+  assert.strictEqual(checkUserRateLimit(testAnon).allowed, true);
+  assert.strictEqual(checkUserRateLimit(testAnon).allowed, true);
+
+  // 4th blocked
+  const blocked = checkUserRateLimit(testAnon);
+  assert.strictEqual(blocked.allowed, false);
+  assert.ok(blocked.retryAfterMs > 0);
+
+  // Reset restores access
+  resetUserRateLimit(testAnon);
+  assert.strictEqual(checkUserRateLimit(testAnon).allowed, true);
+
+  config.USER_RATE_LIMIT_MAX = origMax;
+  config.USER_RATE_LIMIT_WINDOW_MS = origWindow;
+  resetUserRateLimit(testAnon);
+});
+
+test('Privacy: rememberMessage and getRememberedMessage enforce bounds and TTL', () => {
+  const msgId = 'wamid.test_reply_123';
+  rememberMessage(msgId, 'What is the speed of light?');
+
+  const retrieved = getRememberedMessage(msgId);
+  assert.strictEqual(retrieved, 'What is the speed of light?');
+
+  // Unknown ID returns null
+  assert.strictEqual(getRememberedMessage('wamid.unknown'), null);
+
+  // cleanupRememberedMessages should preserve active messages
+  cleanupRememberedMessages();
+  assert.strictEqual(getRememberedMessage(msgId), 'What is the speed of light?');
 });
 
 test('Privacy: in-memory conversation store saves, trims, and resets turns', () => {

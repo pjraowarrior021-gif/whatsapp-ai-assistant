@@ -3,8 +3,10 @@ import rateLimit from 'express-rate-limit';
 import url from 'url';
 import { config, validateConfig, getSafeConfigSummary } from './config.js';
 import { privacyLog, startSessionSweeper } from './privacy.js';
-import { getActiveModel, testGeminiConnection } from './gemini.js';
+import { getActiveModel } from './gemini.js';
 import { webhookRouter } from './webhook.js';
+import { getPrometheusMetrics } from './metrics.js';
+import { initReminders, stopReminders } from './reminders.js';
 
 export const app = express();
 
@@ -78,7 +80,13 @@ app.get('/diagnostic', (_req, res) => {
   });
 });
 
-// 8. Root Welcome / Dashboard
+// 8. Prometheus Metrics Endpoint
+app.get('/metrics', (_req, res) => {
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+  res.status(200).send(getPrometheusMetrics());
+});
+
+// 9. Root Welcome / Dashboard
 app.get('/', (_req, res) => {
   res.status(200).send(`
     <!DOCTYPE html>
@@ -87,7 +95,7 @@ app.get('/', (_req, res) => {
       <meta charset="UTF-8">
       <title>Personal WhatsApp AI Assistant</title>
       <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, sans-serif; max-width: 750px; margin: 40px auto; padding: 20px; line-height: 1.6; color: #222; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; color: #222; }
         h1 { color: #075E54; margin-bottom: 4px; }
         .tagline { color: #666; font-size: 1.1em; margin-bottom: 24px; }
         .card { background: #f9fbf9; border: 1px solid #e1e8e1; border-radius: 8px; padding: 18px; margin-bottom: 20px; }
@@ -101,27 +109,32 @@ app.get('/', (_req, res) => {
     </head>
     <body>
       <h1>Personal WhatsApp AI Assistant</h1>
-      <p class="tagline">Powered by Google Gemini (${getActiveModel()}) with Enhanced Privacy Safeguards</p>
+      <p class="tagline">Powered by Google Gemini (${getActiveModel()}) with Hardened Privacy & Multimodal Architecture</p>
       
       <div class="card">
-        <h3><span class="badge">ONLINE</span> Server Status</h3>
-        <p>Backend is listening for WhatsApp Cloud API webhooks.</p>
+        <h3><span class="badge">ONLINE</span> System Status</h3>
+        <p>Active endpoints for Meta WhatsApp Cloud API webhooks & Prometheus observability.</p>
         <p><strong>Webhook URL:</strong> <code>https://&lt;your-domain&gt;/webhook</code></p>
-        <p><strong>Health Check:</strong> <a href="/health">/health</a> | <strong>Diagnostics:</strong> <a href="/diagnostic">/diagnostic</a></p>
+        <p><strong>Monitoring:</strong> <a href="/health">/health</a> | <a href="/diagnostic">/diagnostic</a> | <a href="/metrics">/metrics</a></p>
       </div>
 
       <div class="warning">
-        <strong>⚠️ Privacy Notice:</strong> The processing pipeline is not end-to-end encrypted. Meta and Google process message text in their secure clouds. This server stores conversations exclusively in volatile RAM with a ${config.SESSION_TIMEOUT_MINUTES}-minute automatic TTL purge.
+        <strong>⚠️ Privacy Notice:</strong> Zero conversation text or media is stored on disk (volatile RAM with automatic TTL purge). Scheduled reminders persist across restarts only when <code>REMINDERS_PERSIST=true</code> is explicitly configured.
       </div>
 
       <div class="card">
         <h3>WhatsApp Commands</h3>
         <ul>
-          <li><code>/help</code> - Display full instructions</li>
-          <li><code>/reset</code> - Clear conversation memory immediately</li>
-          <li><code>/delete</code> - Purge all session data</li>
-          <li><code>/privacy</code> - View privacy disclosure & data flow</li>
-          <li><code>/status</code> - View active model & server health</li>
+          <li><code>/help</code> - Manual & interactive quick action buttons</li>
+          <li><code>/image &lt;prompt&gt;</code> - Generate watermark-free AI artwork</li>
+          <li><code>/remind &lt;time&gt; &lt;text&gt;</code> - Schedule relative or absolute reminders</li>
+          <li><code>/reminders</code> - List active reminders</li>
+          <li><code>/search on|off</code> - Toggle Google Search grounding with verified web sources</li>
+          <li><code>/usage</code> - Check your remaining daily message quota</li>
+          <li><code>/status</code> - View system health, active model & features</li>
+          <li><code>/reset</code> - Clear conversational memory</li>
+          <li><code>/delete</code> - Purge all temporary RAM session data</li>
+          <li><code>/privacy</code> - View privacy disclosure & encryption boundary</li>
         </ul>
       </div>
     </body>
@@ -158,6 +171,7 @@ if (isMainModule) {
   }
 
   sweeperInterval = startSessionSweeper();
+  initReminders();
 
   serverInstance = app.listen(config.PORT, '0.0.0.0', () => {
     privacyLog('info', 'SERVER_STARTED', {
@@ -176,6 +190,7 @@ if (isMainModule) {
   const handleShutdown = (signal) => {
     console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
     if (sweeperInterval) clearInterval(sweeperInterval);
+    stopReminders();
     if (serverInstance) {
       serverInstance.close(() => {
         privacyLog('info', 'SERVER_TERMINATED');
