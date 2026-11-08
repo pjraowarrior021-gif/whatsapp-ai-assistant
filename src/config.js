@@ -7,6 +7,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
+// Default timezone to Indian Standard Time (Asia/Kolkata, UTC+5:30) if not explicitly set
+if (process.env.TIMEZONE) {
+  process.env.TZ = process.env.TIMEZONE;
+} else if (!process.env.TZ) {
+  process.env.TZ = 'Asia/Kolkata';
+}
+
 /**
  * Normalizes phone numbers by stripping non-digit characters (+, spaces, hyphens).
  * @param {string} phone
@@ -92,6 +99,9 @@ export const config = {
   MAX_REQUESTS_PER_USER_PER_DAY: parseInt(process.env.MAX_REQUESTS_PER_USER_PER_DAY, 10) || 200,
   MAX_GEMINI_REQUESTS_PER_DAY: parseInt(process.env.MAX_GEMINI_REQUESTS_PER_DAY, 10) || 1400,
   REMINDERS_PERSIST: process.env.REMINDERS_PERSIST === 'true',
+  TIMEZONE: process.env.TZ || 'Asia/Kolkata',
+  TIMEZONE_OFFSET_HOURS:
+    process.env.TIMEZONE_OFFSET_HOURS !== undefined ? parseFloat(process.env.TIMEZONE_OFFSET_HOURS) : 5.5,
 };
 
 /**
@@ -188,6 +198,10 @@ export function getSafeConfigSummary() {
     media: {
       maxBytes: config.MEDIA_MAX_BYTES,
       fetchTimeoutMs: config.MEDIA_FETCH_TIMEOUT_MS,
+    },
+    timezone: {
+      zone: config.TIMEZONE,
+      offsetHours: config.TIMEZONE_OFFSET_HOURS,
     },
     privacy: {
       authorizedNumbersCount: config.ALLOWED_PHONE_NUMBERS.size,

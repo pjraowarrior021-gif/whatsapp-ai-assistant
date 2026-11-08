@@ -43,12 +43,17 @@ app.use((_req, res, next) => {
 });
 
 // 4. Rate Limiting to protect against DoS attacks & abuse
+// Skips rate limiting for internal platform health checks and Prometheus metrics scrapers
 const limiter = rateLimit({
   windowMs: config.RATE_LIMIT_WINDOW_MS,
-  max: config.RATE_LIMIT_MAX_PER_WINDOW * 5, // Allows headroom for webhooks and health checks
+  max: config.RATE_LIMIT_MAX_PER_WINDOW * 5, // Allows headroom for webhooks
   standardHeaders: true,
   legacyHeaders: false,
   validate: { xForwardedForHeader: false },
+  skip: (req) => {
+    const p = req.path || '';
+    return p === '/health' || p === '/diagnostic' || p === '/metrics' || p === '/';
+  },
   message: {
     status: 429,
     error: 'Too many requests. Rate limit exceeded, please try again shortly.',

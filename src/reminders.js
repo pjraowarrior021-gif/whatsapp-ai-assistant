@@ -24,6 +24,24 @@ const activeReminders = new Map();
 let sweeperInterval = null;
 
 /**
+ * Formats an epoch timestamp or Date object into a readable string in the configured timezone.
+ * @param {number|Date} dateOrMs
+ * @returns {string}
+ */
+export function formatReminderTime(dateOrMs) {
+  const d = typeof dateOrMs === 'number' ? new Date(dateOrMs) : dateOrMs;
+  return d.toLocaleString('en-IN', {
+    timeZone: config.TIMEZONE || 'Asia/Kolkata',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+/**
  * Parses user-provided reminder time strings.
  * Supports:
  * - Relative: '10m', '2h', '1d', '30s'
@@ -60,7 +78,7 @@ export function parseReminderTime(whenStr, now = new Date()) {
     const targetTimeMs = nowMs + msToAdd;
     return {
       targetTimeMs,
-      readableTarget: new Date(targetTimeMs).toLocaleString(),
+      readableTarget: formatReminderTime(targetTimeMs),
     };
   }
 
@@ -80,7 +98,7 @@ export function parseReminderTime(whenStr, now = new Date()) {
 
     return {
       targetTimeMs: targetDate.getTime(),
-      readableTarget: targetDate.toLocaleString(),
+      readableTarget: formatReminderTime(targetDate),
     };
   }
 
@@ -100,7 +118,7 @@ export function parseReminderTime(whenStr, now = new Date()) {
 
     return {
       targetTimeMs: targetDate.getTime(),
-      readableTarget: targetDate.toLocaleString(),
+      readableTarget: formatReminderTime(targetDate),
     };
   }
 
@@ -294,7 +312,7 @@ export function listReminders(anonId) {
 
   const lines = ['⏰ *Your Active Reminders:*', ''];
   for (const r of userReminders) {
-    const timeFormatted = new Date(r.targetTimeMs).toLocaleString();
+    const timeFormatted = formatReminderTime(r.targetTimeMs);
     const diffMin = Math.round((r.targetTimeMs - now) / 60000);
     const relativeText = diffMin > 0 ? `(in ~${diffMin}m)` : '(due soon)';
     lines.push(`• *\`${r.id}\`* - ${timeFormatted} ${relativeText}\n  "${r.text}"`);

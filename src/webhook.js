@@ -229,6 +229,81 @@ function normalizeAudioMime(mime) {
 }
 
 /**
+ * Normalizes user input by mapping interactive button IDs and slashless commands to standard slash format.
+ * @param {string} text
+ * @param {boolean} hasMedia
+ * @returns {string}
+ */
+export function normalizeCommand(text, hasMedia = false) {
+  if (!text || typeof text !== 'string') return '';
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1. Interactive Button IDs
+  const buttonMap = {
+    cmd_help: '/help',
+    cmd_status: '/status',
+    cmd_reset: '/reset',
+    cmd_privacy: '/privacy',
+    cmd_usage: '/usage',
+    cmd_reminders: '/reminders',
+    cmd_todos: '/todos',
+    cmd_persona: '/persona',
+    cmd_voice: '/voice',
+    cmd_img_lion: '/image a majestic male lion in a thunderstorm --photo',
+    cmd_img_wall: '/image a neon cyberpunk alleyway in Tokyo rain --wallpaper',
+    cmd_img_anime: '/image a girl reading in an enchanted sunlit library --anime',
+  };
+  if (buttonMap[lower]) {
+    return buttonMap[lower];
+  }
+
+  // Already prefixed with slash
+  if (trimmed.startsWith('/')) {
+    return trimmed;
+  }
+
+  // If media is attached, don't auto-convert caption text into commands
+  if (hasMedia) {
+    return trimmed;
+  }
+
+  // 2. Exact slashless commands
+  const exactMap = {
+    help: '/help',
+    status: '/status',
+    reset: '/reset',
+    delete: '/delete',
+    forget: '/forget',
+    privacy: '/privacy',
+    usage: '/usage',
+    reminders: '/reminders',
+    todos: '/todos',
+    clear_todos: '/clear_todos',
+    persona: '/persona',
+    voice: '/voice',
+    'voice status': '/voice status',
+    'voice on': '/voice on',
+    'voice off': '/voice off',
+    'search on': '/search on',
+    'search off': '/search off',
+  };
+  if (exactMap[lower]) {
+    return exactMap[lower];
+  }
+
+  // 3. Prefix slashless commands (followed by space)
+  const prefixes = ['remind ', 'todo ', 'done ', 'persona ', 'model ', 'image ', 'draw ', 'imagine '];
+  for (const prefix of prefixes) {
+    if (lower.startsWith(prefix)) {
+      return `/${trimmed}`;
+    }
+  }
+
+  return trimmed;
+}
+
+/**
  * Dispatches an individual incoming WhatsApp message.
  * @param {object} message - WhatsApp message payload object
  * @param {string} requestId - Traceable request identifier
@@ -565,36 +640,8 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
     isQuotedReply: Boolean(quotedContextPrefix),
   });
 
-  // 9. Command Handlers
-  const lowerText = rawText.toLowerCase().trim();
-
-  // Normalize interactive button IDs to command format
-  const effectiveCommand =
-    lowerText === 'cmd_help'
-      ? '/help'
-      : lowerText === 'cmd_status'
-        ? '/status'
-        : lowerText === 'cmd_reset'
-          ? '/reset'
-          : lowerText === 'cmd_privacy'
-            ? '/privacy'
-            : lowerText === 'cmd_usage'
-              ? '/usage'
-              : lowerText === 'cmd_reminders'
-                ? '/reminders'
-                : lowerText === 'cmd_todos'
-                  ? '/todos'
-                  : lowerText === 'cmd_persona'
-                    ? '/persona'
-                    : lowerText === 'cmd_voice'
-                      ? '/voice'
-                      : lowerText === 'cmd_img_lion'
-                        ? '/image a majestic male lion in a thunderstorm --photo'
-                        : lowerText === 'cmd_img_wall'
-                          ? '/image a neon cyberpunk alleyway in Tokyo rain --wallpaper'
-                          : lowerText === 'cmd_img_anime'
-                            ? '/image a girl reading in an enchanted sunlit library --anime'
-                            : lowerText;
+  // 9. Command Handlers & Normalization (supports slash commands, slashless inputs, and interactive buttons)
+  const effectiveCommand = normalizeCommand(rawText, Boolean(mediaPart));
 
   // 9a. Image Generation
   const imagePrompt = !mediaPart ? parseImagePrompt(effectiveCommand || rawText) : null;
@@ -740,7 +787,7 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
 
   // 9g. Model Switch
   if (effectiveCommand.startsWith('/model ')) {
-    const requestedModel = rawText.substring(7).trim();
+    const requestedModel = effectiveCommand.substring(7).trim();
     if (requestedModel) {
       setActiveModel(requestedModel);
       await sendWhatsAppMessage(from, `🔄 *Model Switched:*\nActive model is now set to *${getActiveModel()}*.`);
@@ -787,7 +834,7 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
 
   // 9j. Scheduled Reminders
   if (effectiveCommand.startsWith('/remind ')) {
-    const remArgs = rawText.substring(8).trim();
+    const remArgs = effectiveCommand.substring(8).trim();
     if (remArgs.toLowerCase().startsWith('delete ')) {
       const deleteId = remArgs.substring(7).trim();
       const delResult = deleteReminder(anonId, deleteId);
@@ -823,7 +870,7 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
 
   // 9k. Quick Notes & To-Do List Tracker
   if (effectiveCommand.startsWith('/todo ')) {
-    const taskText = rawText.substring(6).trim();
+    const taskText = effectiveCommand.substring(6).trim();
     const result = addTodo(anonId, taskText);
     await sendWhatsAppMessage(from, result.message);
     recordMessageMetric('todo', result.success ? 'success' : 'rejected');
@@ -841,7 +888,7 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
   }
 
   if (effectiveCommand.startsWith('/done ')) {
-    const todoId = rawText.substring(6).trim();
+    const todoId = effectiveCommand.substring(6).trim();
     const result = markTodoDone(anonId, todoId);
     await sendWhatsAppMessage(from, result.message);
     recordMessageMetric('todo', result.success ? 'success' : 'rejected');
@@ -857,7 +904,7 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
 
   // 9l. Custom Persona Switching
   if (effectiveCommand === '/persona' || effectiveCommand.startsWith('/persona ')) {
-    const personaArg = rawText.substring(8).trim().toLowerCase();
+    const personaArg = effectiveCommand.length > 8 ? effectiveCommand.substring(8).trim().toLowerCase() : '';
     if (!personaArg) {
       const current = getPersona(anonId);
       const personas = listPersonas();

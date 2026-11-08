@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
 import { app } from '../src/server.js';
-import { verifyMetaSignature } from '../src/webhook.js';
+import { verifyMetaSignature, normalizeCommand } from '../src/webhook.js';
 import { config } from '../src/config.js';
 import { setGeminiClient } from '../src/gemini.js';
 
@@ -880,4 +880,73 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
     const res3 = await sendCmd('/voice off');
     assert.strictEqual(res3.status, 200);
   });
+});
+
+test('Webhook: normalizeCommand normalizes button IDs, slashless commands, and prefixes', () => {
+  // 1. Button IDs
+  assert.strictEqual(normalizeCommand('cmd_help'), '/help');
+  assert.strictEqual(normalizeCommand('cmd_status'), '/status');
+  assert.strictEqual(normalizeCommand('cmd_todos'), '/todos');
+  assert.strictEqual(normalizeCommand('cmd_reminders'), '/reminders');
+
+  // 2. Exact slashless commands
+  assert.strictEqual(normalizeCommand('help'), '/help');
+  assert.strictEqual(normalizeCommand('status'), '/status');
+  assert.strictEqual(normalizeCommand('STATUS'), '/status');
+  assert.strictEqual(normalizeCommand('usage'), '/usage');
+  assert.strictEqual(normalizeCommand('todos'), '/todos');
+  assert.strictEqual(normalizeCommand('reminders'), '/reminders');
+  assert.strictEqual(normalizeCommand('privacy'), '/privacy');
+  assert.strictEqual(normalizeCommand('reset'), '/reset');
+  assert.strictEqual(normalizeCommand('voice'), '/voice');
+  assert.strictEqual(normalizeCommand('voice on'), '/voice on');
+  assert.strictEqual(normalizeCommand('voice off'), '/voice off');
+  assert.strictEqual(normalizeCommand('search on'), '/search on');
+
+  // 3. Prefix slashless commands
+  assert.strictEqual(normalizeCommand('remind 10m Take break'), '/remind 10m Take break');
+  assert.strictEqual(normalizeCommand('todo Buy milk'), '/todo Buy milk');
+  assert.strictEqual(normalizeCommand('done a1b2c3'), '/done a1b2c3');
+  assert.strictEqual(normalizeCommand('persona coder'), '/persona coder');
+  assert.strictEqual(normalizeCommand('model gemini-3.5-flash-lite'), '/model gemini-3.5-flash-lite');
+  assert.strictEqual(normalizeCommand('image a roaring tiger'), '/image a roaring tiger');
+
+  // 4. Preserves already slashed commands
+  assert.strictEqual(normalizeCommand('/status'), '/status');
+  assert.strictEqual(normalizeCommand('/todo Clean desk'), '/todo Clean desk');
+
+  // 5. Preserves natural conversation
+  assert.strictEqual(normalizeCommand('What is quantum physics?'), 'What is quantum physics?');
+  assert.strictEqual(
+    normalizeCommand('Can you tell me about the Roman Empire?'),
+    'Can you tell me about the Roman Empire?'
+  );
+
+  // 6. Preserves media captions without auto-prefixing
+  assert.strictEqual(normalizeCommand('status', true), 'status');
+});
+
+test('HTTP Endpoints: rate limiter skip allows unlimited health, diagnostic, and metrics probes', async (t) => {
+  const server = app.listen(0);
+  const port = server.address().port;
+  const baseUrl = `http://localhost:${port}`;
+
+  t.after(() => {
+    server.close();
+  });
+
+  // Make 10 rapid concurrent health requests
+  const healthRequests = Array.from({ length: 10 }).map(() => fetch(`${baseUrl}/health`));
+  const healthResponses = await Promise.all(healthRequests);
+  for (const res of healthResponses) {
+    assert.strictEqual(res.status, 200);
+  }
+
+  // Diagnostic requests
+  const diagRes = await fetch(`${baseUrl}/diagnostic`);
+  assert.strictEqual(diagRes.status, 200);
+  const diagData = await diagRes.json();
+  assert.strictEqual(diagData.status, 'online');
+  assert.ok(diagData.config.timezone);
+  assert.strictEqual(diagData.config.timezone.zone, 'Asia/Kolkata');
 });

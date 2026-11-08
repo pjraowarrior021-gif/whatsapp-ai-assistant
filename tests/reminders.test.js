@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseReminderTime, scheduleReminder, listReminders, deleteReminder, stopReminders } from '../src/reminders.js';
+import {
+  parseReminderTime,
+  formatReminderTime,
+  scheduleReminder,
+  listReminders,
+  deleteReminder,
+  stopReminders,
+} from '../src/reminders.js';
 
 test('Reminders: parseReminderTime parses relative offsets accurately', () => {
   const baseTime = new Date('2026-11-08T12:00:00.000Z');
@@ -92,4 +99,12 @@ test('Reminders: scheduleReminder, listReminders, and deleteReminder lifecycle',
   assert.ok(emptyList.includes('no scheduled reminders'));
 
   stopReminders();
+});
+
+test('Reminders: formatReminderTime formats timestamps into readable Indian Standard Time', () => {
+  // Epoch for 2026-11-08 10:00:00 UTC = 15:30:00 IST
+  const epoch = Date.UTC(2026, 10, 8, 10, 0, 0);
+  const formatted = formatReminderTime(epoch);
+  assert.ok(formatted.includes('Nov 2026') || formatted.includes('8'));
+  assert.ok(formatted.includes('3:30') || formatted.includes('15:30'));
 });
