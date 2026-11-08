@@ -2,7 +2,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import url from 'url';
 import { config, validateConfig, getSafeConfigSummary } from './config.js';
-import { privacyLog, startSessionSweeper } from './privacy.js';
+import { privacyLog, startSessionSweeper, getRecentLogs } from './privacy.js';
 import { getActiveModel } from './gemini.js';
 import { webhookRouter } from './webhook.js';
 import { getPrometheusMetrics } from './metrics.js';
@@ -78,6 +78,7 @@ app.get('/diagnostic', (_req, res) => {
     status: 'online',
     timestamp: new Date().toISOString(),
     config: getSafeConfigSummary(),
+    recentLogs: getRecentLogs(),
   });
 });
 

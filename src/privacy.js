@@ -16,6 +16,10 @@ const REMEMBERED_MESSAGES_TTL_MS = 10 * 60 * 1000; // 10 minutes
 // In-Memory user voice reply preferences: Map<anonymizedUserId, boolean>
 const userVoicePreferences = new Map();
 
+// In-Memory rolling buffer for recent privacy-safe diagnostic logs (max 50)
+const recentLogsRing = [];
+const MAX_RECENT_LOGS = 50;
+
 // Salt generated at runtime; resets on every process restart to ensure non-linkability across restarts
 const RUNTIME_SALT = crypto.randomBytes(16).toString('hex');
 
@@ -214,6 +218,11 @@ export function privacyLog(level, event, meta = {}) {
     ...safeMeta,
   };
 
+  recentLogsRing.push(logEntry);
+  if (recentLogsRing.length > MAX_RECENT_LOGS) {
+    recentLogsRing.shift();
+  }
+
   let output;
   if (config.LOG_FORMAT === 'json') {
     output = JSON.stringify(logEntry);
@@ -230,6 +239,14 @@ export function privacyLog(level, event, meta = {}) {
   } else {
     console.log(output);
   }
+}
+
+/**
+ * Returns recent diagnostic logs from volatile RAM ring buffer.
+ * @returns {Array<object>}
+ */
+export function getRecentLogs() {
+  return [...recentLogsRing];
 }
 
 /**
