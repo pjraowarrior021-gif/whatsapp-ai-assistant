@@ -441,6 +441,51 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
       body: rawInvalid,
     });
     assert.strictEqual(resInvalid.status, 200);
+
+    // 10c. Valid PPTX Presentation
+    const validPptxPayload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'test_account_id',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                contacts: [{ profile: { name: 'Authorized User' }, wa_id: authorizedNumber }],
+                messages: [
+                  {
+                    from: authorizedNumber,
+                    id: `wamid.test_pptx_${Date.now()}`,
+                    timestamp: '1730000000',
+                    type: 'document',
+                    document: {
+                      id: 'test_pptx_id_123',
+                      mime_type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                      filename: 'IECE_Module_1.pptx',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const rawPptx = JSON.stringify(validPptxPayload);
+    const sigPptx = crypto.createHmac('sha256', config.WHATSAPP_APP_SECRET).update(rawPptx).digest('hex');
+
+    const resPptx = await fetch(`${baseUrl}/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-signature-256': `sha256=${sigPptx}`,
+      },
+      body: rawPptx,
+    });
+    assert.strictEqual(resPptx.status, 200);
   });
 
   // 11. Test incoming interactive button reply

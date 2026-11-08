@@ -93,7 +93,7 @@ test('WhatsApp Media: downloadMediaInMemory detects oversize media via Content-L
   globalThis.fetch = async () => ({
     ok: true,
     status: 200,
-    headers: new Map([['content-length', '20000000']]), // 20MB > 16MB cap
+    headers: new Map([['content-length', '200000000']]), // 200MB > 100MB cap
   });
 
   try {

@@ -26,7 +26,10 @@ import {
   getPersona,
   setPersona,
   listPersonas,
+  uploadGeminiFileInMemory,
+  deleteGeminiFile,
 } from './gemini.js';
+import { isDocumentSupported, resolveDocumentMime, extractDocumentContent } from './document.js';
 import {
   sendWhatsAppMessage,
   sendWhatsAppImage,
@@ -224,8 +227,6 @@ function normalizeAudioMime(mime) {
   const clean = mime.split(';')[0].trim().toLowerCase();
   return clean || 'audio/ogg';
 }
-
-const ALLOWED_DOCUMENT_MIMES = new Set(['application/pdf', 'text/plain', 'text/csv']);
 
 /**
  * Dispatches an individual incoming WhatsApp message.
@@ -429,13 +430,14 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
     rawText = docObj?.caption?.trim() || '';
     const mediaId = docObj?.id;
     const reportedMime = (docObj?.mime_type || '').toLowerCase();
+    const docFilename = docObj?.filename || '';
 
-    // MIME type allowlist enforcement
-    if (!ALLOWED_DOCUMENT_MIMES.has(reportedMime)) {
-      privacyLog('warn', 'DOCUMENT_MIME_REJECTED', { requestId, mime: reportedMime });
+    // Document format verification with filename extension fallback
+    if (!isDocumentSupported(reportedMime, docFilename)) {
+      privacyLog('warn', 'DOCUMENT_MIME_REJECTED', { requestId, mime: reportedMime, filename: docFilename });
       await sendWhatsAppMessage(
         from,
-        `⚠️ *Document Error:* Unsupported format (\`${reportedMime || 'unknown'}\`).\nPlease upload PDF, TXT, or CSV files.`
+        `⚠️ *Document Error:* Unsupported format (\`${reportedMime || docFilename || 'unknown'}\`).\nPlease upload PDF, Office (PPTX, DOCX, XLSX), or TXT/CSV files.`
       );
       return;
     }
@@ -454,7 +456,8 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
     const downloaded = await downloadMediaInMemory(mediaMeta.url);
     if (!downloaded || !downloaded.buffer) {
       if (downloaded?.reason === 'too_large') {
-        await sendWhatsAppMessage(from, '⚠️ *Document Error:* Document exceeds maximum size limit (16MB).');
+        const maxMb = Math.round(config.MEDIA_MAX_BYTES / (1024 * 1024));
+        await sendWhatsAppMessage(from, `⚠️ *Document Error:* Document exceeds maximum size limit (${maxMb}MB).`);
       } else if (downloaded?.reason === 'timeout') {
         await sendWhatsAppMessage(from, '⚠️ *Document Error:* Download timed out. Please try sending again.');
       } else {
@@ -464,10 +467,69 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
     }
 
     recordMediaBytes(downloaded.buffer.length);
-    mediaPart = {
-      mimeType: reportedMime,
-      data: downloaded.base64,
-    };
+    const resolvedMime = resolveDocumentMime(reportedMime, docFilename);
+
+    // Extract text in memory for Office/Text formats, or prepare PDF for multimodal reasoning
+    const extracted = extractDocumentContent(downloaded.buffer, resolvedMime, docFilename);
+
+    if (extracted.isPdf) {
+      if (downloaded.buffer.length > 20 * 1024 * 1024) {
+        // PDF > 20MB exceeds Gemini inlineData cap: upload via Gemini Files API
+        const uploadedFile = await uploadGeminiFileInMemory(
+          downloaded.buffer,
+          'application/pdf',
+          docFilename || 'document.pdf'
+        );
+        if (uploadedFile) {
+          mediaPart = {
+            mimeType: 'application/pdf',
+            fileUri: uploadedFile.uri,
+            geminiFileName: uploadedFile.name,
+          };
+        } else {
+          await sendWhatsAppMessage(
+            from,
+            '⚠️ *Document Error:* Unable to process large PDF file. Please try again with a smaller document.'
+          );
+          return;
+        }
+      } else {
+        mediaPart = {
+          mimeType: 'application/pdf',
+          data: downloaded.base64,
+        };
+      }
+    } else if (extracted.ok && extracted.text) {
+      // Office document / Text / CSV successfully extracted in memory
+      const userCaption = rawText ? `\n\nUser Question/Caption: "${rawText}"` : '';
+      const docTypeLabel =
+        docFilename.toLowerCase().endsWith('.pptx') || resolvedMime.includes('presentation')
+          ? `PowerPoint Presentation (${docFilename || 'presentation.pptx'}, ${extracted.slideCount || 0} slides)`
+          : docFilename.toLowerCase().endsWith('.docx') || resolvedMime.includes('word')
+            ? `Word Document (${docFilename || 'document.docx'})`
+            : docFilename.toLowerCase().endsWith('.xlsx') || resolvedMime.includes('sheet')
+              ? `Excel Spreadsheet (${docFilename || 'data.xlsx'})`
+              : `Document (${docFilename || 'file'})`;
+
+      // Safety clamp extracted text at 120,000 characters to stay comfortably within memory limits
+      const clampedText =
+        extracted.text.length > 120000
+          ? extracted.text.substring(0, 120000) + '\n\n...[Document truncated for length]...'
+          : extracted.text;
+
+      rawText = `The user uploaded this ${docTypeLabel}.${userCaption}\n\nDocument Text Content:\n"""\n${clampedText}\n"""`;
+    } else {
+      privacyLog('warn', 'DOCUMENT_EXTRACTION_UNSUCCESSFUL', {
+        mime: resolvedMime,
+        filename: docFilename,
+        error: extracted.error,
+      });
+      await sendWhatsAppMessage(
+        from,
+        `⚠️ *Document Error:* Could not read text from this file (${extracted.error || 'unreadable content'}). Please ensure the document is not password-protected.`
+      );
+      return;
+    }
   }
 
   // 8. Quoted-Reply Context Injection & Message Storage
@@ -963,6 +1025,11 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
   // 15. Send response back to user
   await sendWhatsAppMessage(from, finalMessage);
   recordMessageMetric(messageType, 'success');
+
+  // 15b. Cleanup temporary Gemini Files API upload if one was created
+  if (mediaPart?.geminiFileName) {
+    deleteGeminiFile(mediaPart.geminiFileName).catch(() => {});
+  }
 
   // 16. Synthesize & Send Voice Note Audio Reply if requested
   if (wantsVoice) {

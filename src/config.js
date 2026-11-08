@@ -75,9 +75,9 @@ export const config = {
   WHATSAPP_API_VERSION: process.env.WHATSAPP_API_VERSION || 'v21.0',
   SKIP_SIGNATURE_VERIFICATION: process.env.SKIP_SIGNATURE_VERIFICATION === 'true',
 
-  // Media Download Hardening
-  MEDIA_MAX_BYTES: parseInt(process.env.MEDIA_MAX_BYTES, 10) || 16 * 1024 * 1024, // 16MB
-  MEDIA_FETCH_TIMEOUT_MS: parseInt(process.env.MEDIA_FETCH_TIMEOUT_MS, 10) || 15000, // 15 seconds
+  // Media Download Hardening (Aligned with WhatsApp Cloud API 100MB document limit)
+  MEDIA_MAX_BYTES: parseInt(process.env.MEDIA_MAX_BYTES, 10) || 100 * 1024 * 1024, // 100MB
+  MEDIA_FETCH_TIMEOUT_MS: parseInt(process.env.MEDIA_FETCH_TIMEOUT_MS, 10) || 60000, // 60 seconds
 
   // Privacy & Access Control Configuration
   ALLOWED_PHONE_NUMBERS: parseAllowedNumbers(process.env.ALLOWED_PHONE_NUMBERS),

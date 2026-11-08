@@ -35,7 +35,7 @@ Designed for zero cloud costs (**₹0 budget**), zero database maintenance, and 
 - **🎭 Dynamic Persona Switching:** Custom AI system instruction personas via `/persona [name]` (`coder`, `tutor`, `executive`, `default`).
 - **Multimodal Intelligence (Voice & Documents):**
   - **Voice Notes:** Inbound audio and voice notes are automatically normalized, streamed in memory, transcribed, and answered with Gemini multimodal audio capabilities.
-  - **Document Analysis:** Upload PDFs, TXT, or CSV files (up to 16MB) with captions to summarize, extract data, or answer analytical questions.
+  - **Document Analysis:** Upload PDFs, Office presentations and documents (PowerPoint PPTX, Word DOCX, Excel XLSX), TXT, or CSV files (up to 100MB) with captions to summarize, extract data, or answer analytical questions. Large PDFs (>20MB) are seamlessly routed via Gemini Files API with zero-disk storage.
 - **Clean Image Generation:** Send `/image <prompt>` or `/draw <prompt>` to generate AI images via Pollinations with smart multi-corner watermark removal using Sharp.
 - **Google Search Grounding:** Toggle live web retrieval with `/search on` or `/search off`. Answers include verified clickable sources.
 - **Quoted-Reply Context:** Replying directly to previous messages automatically injects the parent message context into Gemini's prompt.
@@ -48,7 +48,7 @@ Designed for zero cloud costs (**₹0 budget**), zero database maintenance, and 
   - **Zero-Content Logging:** Message contents, prompts, and tokens are never logged.
   - **Precise PII & Luhn Redaction:** Redacts payment cards using the Luhn algorithm, Aadhaar IDs (4-4-4 format or context prefix), CVVs, PINs, passwords, and OTPs while preserving ordinary order IDs and dates.
   - **Timing-Safe Meta Webhook Authentication:** Cryptographically validates Meta signatures (`x-hub-signature-256`) and verify tokens using constant-time buffer comparisons (`crypto.timingSafeEqual`).
-  - **Streaming Media Safety:** Hardened media download pipeline with strict size caps (`MEDIA_MAX_BYTES=16MB`) and fetch timeouts (`MEDIA_FETCH_TIMEOUT_MS=15000ms`).
+  - **Streaming Media Safety:** Hardened media download pipeline with strict size caps (`MEDIA_MAX_BYTES=100MB`) and fetch timeouts (`MEDIA_FETCH_TIMEOUT_MS=60000ms`).
   - **Dual Rate Limiting:** Global Express rate limiter plus per-user sliding-window limiter.
   - **Phone Whitelist Guard:** Strictly blocks all unauthorized phone numbers.
 
@@ -294,8 +294,8 @@ You can send these commands in your WhatsApp chat at any time:
 | `ALLOWED_PHONE_NUMBERS`     | String  | _Required_                 | Comma-separated list of authorized sender phone numbers (e.g. `919876543210`)                  |
 | `MAX_CONTEXT_TURNS`         | Number  | `10`                       | Maximum user/model conversation turns kept in sliding memory window                            |
 | `SESSION_TIMEOUT_MINUTES`   | Number  | `15`                       | Inactivity TTL in minutes before RAM session context is pruned                                 |
-| `MEDIA_MAX_BYTES`           | Number  | `16777216` (16MB)          | Maximum allowed media file size for audio, documents, and images                               |
-| `MEDIA_FETCH_TIMEOUT_MS`    | Number  | `15000` (15s)              | Timeout in ms when fetching media attachments or Pollinations images                           |
+| `MEDIA_MAX_BYTES`           | Number  | `104857600` (100MB)        | Maximum allowed media file size for audio, documents, and images                               |
+| `MEDIA_FETCH_TIMEOUT_MS`    | Number  | `60000` (60s)              | Timeout in ms when fetching media attachments or Pollinations images                           |
 | `USER_RATE_LIMIT_MAX`       | Number  | `10`                       | Maximum messages per user sliding window before throttling                                     |
 | `USER_RATE_LIMIT_WINDOW_MS` | Number  | `60000` (1 min)            | Duration of per-user sliding rate limit window in milliseconds                                 |
 | `USER_DAILY_QUOTA_MAX`      | Number  | `100`                      | Maximum inbound messages per user per UTC day                                                  |

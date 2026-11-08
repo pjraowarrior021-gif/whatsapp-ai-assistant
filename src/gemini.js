@@ -241,6 +241,13 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
         data: imagePart.data,
       },
     });
+  } else if (imagePart && imagePart.fileUri) {
+    userParts.push({
+      fileData: {
+        fileUri: imagePart.fileUri,
+        mimeType: imagePart.mimeType || 'application/pdf',
+      },
+    });
   }
 
   const promptText =
@@ -283,10 +290,21 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
           config: genConfig,
         });
 
-        // Strict 8-second circuit breaker per model to guarantee lightning-fast fallback under load
+        // Dynamic circuit breaker:
+        // Multi-page PDFs, large documents, audio, and large prompts require generous time (45s).
+        // Web search grounding and images require 25s. Standard short text requires 15s.
+        const isDocumentOrLarge =
+          Boolean(imagePart && (imagePart.mimeType === 'application/pdf' || imagePart.fileUri)) ||
+          (userMessage && userMessage.length > 2500);
+
+        const timeoutMs = isDocumentOrLarge ? 45000 : shouldGround || Boolean(imagePart) ? 25000 : 15000;
+
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error(`Timeout: ${modelToTry} did not respond within 8000ms`)), 8000);
+          timeoutId = setTimeout(
+            () => reject(new Error(`Timeout: ${modelToTry} did not respond within ${timeoutMs}ms`)),
+            timeoutMs
+          );
         });
 
         return Promise.race([generatePromise, timeoutPromise]).finally(() => {
@@ -431,5 +449,59 @@ export async function enhanceImagePrompt(prompt) {
     return trimmed;
   } catch {
     return trimmed;
+  }
+}
+
+/**
+ * Uploads an in-memory document/file buffer to Gemini Files API for large payloads (>20MB).
+ *
+ * @param {Buffer} buffer - In-memory file buffer
+ * @param {string} mimeType - File MIME type
+ * @param {string} [displayName='document'] - Friendly display name
+ * @returns {Promise<{ uri: string, name: string, mimeType: string } | null>}
+ */
+export async function uploadGeminiFileInMemory(buffer, mimeType, displayName = 'document') {
+  try {
+    const client = getGeminiClient();
+    const blob = new Blob([buffer], { type: mimeType });
+    const uploadResult = await client.files.upload({
+      file: blob,
+      config: {
+        mimeType,
+        displayName: (displayName || 'document').substring(0, 50),
+      },
+    });
+
+    return {
+      uri: uploadResult.uri,
+      name: uploadResult.name,
+      mimeType: uploadResult.mimeType || mimeType,
+    };
+  } catch (err) {
+    privacyLog('error', 'GEMINI_FILE_UPLOAD_FAILED', {
+      error: (err.message || String(err)).replace(/key=[^&\s]+/gi, 'key=REDACTED'),
+    });
+    return null;
+  }
+}
+
+/**
+ * Deletes a file from Gemini Files API by resource name (e.g. "files/xyz").
+ *
+ * @param {string} name - The file resource name returned by uploadGeminiFileInMemory
+ * @returns {Promise<boolean>}
+ */
+export async function deleteGeminiFile(name) {
+  if (!name) return false;
+  try {
+    const client = getGeminiClient();
+    await client.files.delete({ name });
+    return true;
+  } catch (err) {
+    privacyLog('warn', 'GEMINI_FILE_DELETE_FAILED', {
+      name,
+      error: err.message,
+    });
+    return false;
   }
 }
