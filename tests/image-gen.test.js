@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
-import { parseImagePrompt, generateImageUrl, generateCleanImage } from '../src/image-gen.js';
+import { parseImagePrompt, parseImagePromptOptions, generateImageUrl, generateCleanImage } from '../src/image-gen.js';
 
 test('ImageGen: parseImagePrompt detects slash commands', () => {
   assert.strictEqual(parseImagePrompt('/image a cybernetic lion'), 'a cybernetic lion');
@@ -56,4 +56,52 @@ test('ImageGen: generateCleanImage returns a processed clean image buffer', asyn
   assert.ok(clean.buffer);
   assert.strictEqual(clean.mimeType, 'image/jpeg');
   assert.strictEqual(clean.prompt, 'a solitary oak tree on a hill');
+  assert.strictEqual(clean.model, 'flux');
+});
+
+test('ImageGen: parseImagePromptOptions parses models, aspect ratios, and styles accurately', () => {
+  // 1. Default configuration
+  const def = parseImagePromptOptions('a red sports car');
+  assert.strictEqual(def.prompt, 'a red sports car');
+  assert.strictEqual(def.model, 'flux');
+  assert.strictEqual(def.width, 1024);
+  assert.strictEqual(def.height, 1024);
+  assert.strictEqual(def.enhance, true);
+  assert.strictEqual(def.style, null);
+
+  // 2. Fast turbo mode
+  const fast = parseImagePromptOptions('a cybernetic tiger --fast');
+  assert.strictEqual(fast.prompt, 'a cybernetic tiger');
+  assert.strictEqual(fast.model, 'turbo');
+
+  // 3. Wallpaper 9:16 aspect ratio
+  const wall = parseImagePromptOptions('neon rain in shibuya --wallpaper');
+  assert.strictEqual(wall.prompt, 'neon rain in shibuya');
+  assert.strictEqual(wall.width, 720);
+  assert.strictEqual(wall.height, 1280);
+
+  // 4. Widescreen 16:9 aspect ratio
+  const wide = parseImagePromptOptions('majestic mountain lake --wide');
+  assert.strictEqual(wide.prompt, 'majestic mountain lake');
+  assert.strictEqual(wide.width, 1280);
+  assert.strictEqual(wide.height, 720);
+
+  // 5. Styles and raw flag
+  const styled = parseImagePromptOptions('anime girl reading --anime --raw');
+  assert.strictEqual(styled.prompt, 'anime girl reading');
+  assert.strictEqual(styled.style, 'anime');
+  assert.strictEqual(styled.enhance, false);
+
+  const photo = parseImagePromptOptions('portrait of astronaut --photo --flux');
+  assert.strictEqual(photo.prompt, 'portrait of astronaut');
+  assert.strictEqual(photo.style, 'photo');
+  assert.strictEqual(photo.model, 'flux');
+});
+
+test('ImageGen: generateImageUrl includes selected model parameter', () => {
+  const fluxUrl = generateImageUrl('an owl in tree', { model: 'flux' });
+  assert.ok(fluxUrl.imageUrl.includes('model=flux'));
+
+  const turboUrl = generateImageUrl('an owl in tree', { model: 'turbo' });
+  assert.ok(turboUrl.imageUrl.includes('model=turbo'));
 });

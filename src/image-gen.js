@@ -1,9 +1,11 @@
 /**
  * AI Image Generation Module for WhatsApp Assistant
  * Generates high-quality images from text prompts using Generative AI.
+ * Powered by FLUX.1 (default SOTA) and SDXL-Turbo with Gemini AI prompt co-pilot.
  */
 import sharp from 'sharp';
 import { config } from './config.js';
+import { enhanceImagePrompt } from './gemini.js';
 
 /**
  * Parses user input to detect if it is an image generation request.
@@ -46,43 +48,171 @@ export function parseImagePrompt(text) {
 }
 
 /**
- * Builds a high-resolution, enhanced generative AI image URL from a text prompt.
+ * Parses advanced flags and options from a raw image prompt string.
+ * Supports model switching (--fast / --flux), aspect ratios (--wallpaper, --wide),
+ * style presets (--anime, --photo, --cyberpunk, --3d), and raw mode (--raw).
+ *
+ * @param {string} rawPrompt
+ * @returns {{ prompt: string, model: 'flux' | 'turbo', width: number, height: number, enhance: boolean, style: string | null }}
+ */
+export function parseImagePromptOptions(rawPrompt) {
+  if (!rawPrompt || typeof rawPrompt !== 'string') {
+    return {
+      prompt: '',
+      model: 'flux',
+      width: 1024,
+      height: 1024,
+      enhance: true,
+      style: null,
+    };
+  }
+
+  let text = rawPrompt.trim();
+  let model = 'flux';
+  let width = 1024;
+  let height = 1024;
+  let enhance = true;
+  let style = null;
+
+  // 1. Model flags
+  if (/(?:^|\s+)--(?:fast|turbo|quick)\b/i.test(text)) {
+    model = 'turbo';
+    text = text.replace(/(?:^|\s+)--(?:fast|turbo|quick)\b/gi, ' ');
+  } else if (/(?:^|\s+)--flux\b/i.test(text)) {
+    model = 'flux';
+    text = text.replace(/(?:^|\s+)--flux\b/gi, ' ');
+  }
+
+  // 2. Aspect ratio / dimension flags
+  if (/(?:^|\s+)--(?:wallpaper|story|portrait|vertical)\b/i.test(text) || /(?:^|\s+)--ar\s+9:16\b/i.test(text)) {
+    width = 720;
+    height = 1280;
+    text = text
+      .replace(/(?:^|\s+)--(?:wallpaper|story|portrait|vertical)\b/gi, ' ')
+      .replace(/(?:^|\s+)--ar\s+9:16\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:wide|landscape|horizontal)\b/i.test(text) || /(?:^|\s+)--ar\s+16:9\b/i.test(text)) {
+    width = 1280;
+    height = 720;
+    text = text.replace(/(?:^|\s+)--(?:wide|landscape|horizontal)\b/gi, ' ').replace(/(?:^|\s+)--ar\s+16:9\b/gi, ' ');
+  } else if (/(?:^|\s+)--square\b/i.test(text) || /(?:^|\s+)--ar\s+1:1\b/i.test(text)) {
+    width = 1024;
+    height = 1024;
+    text = text.replace(/(?:^|\s+)--square\b/gi, ' ').replace(/(?:^|\s+)--ar\s+1:1\b/gi, ' ');
+  }
+
+  // 3. Raw flag (bypasses Gemini prompt enhancer)
+  if (/(?:^|\s+)--raw\b/i.test(text)) {
+    enhance = false;
+    text = text.replace(/(?:^|\s+)--raw\b/gi, ' ');
+  }
+
+  // 4. Style preset flags
+  if (/(?:^|\s+)--(?:anime|manga)\b/i.test(text)) {
+    style = 'anime';
+    text = text.replace(/(?:^|\s+)--(?:anime|manga)\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:photo|real|realistic)\b/i.test(text)) {
+    style = 'photo';
+    text = text.replace(/(?:^|\s+)--(?:photo|real|realistic)\b/gi, ' ');
+  } else if (/(?:^|\s+)--cyberpunk\b/i.test(text)) {
+    style = 'cyberpunk';
+    text = text.replace(/(?:^|\s+)--cyberpunk\b/gi, ' ');
+  } else if (/(?:^|\s+)--3d\b/i.test(text)) {
+    style = '3d';
+    text = text.replace(/(?:^|\s+)--3d\b/gi, ' ');
+  } else if (/(?:^|\s+)--cinematic\b/i.test(text)) {
+    style = 'cinematic';
+    text = text.replace(/(?:^|\s+)--cinematic\b/gi, ' ');
+  }
+
+  // Clean double spaces
+  text = text.replace(/\s{2,}/g, ' ').trim();
+
+  return {
+    prompt: text,
+    model,
+    width,
+    height,
+    enhance,
+    style,
+  };
+}
+
+/**
+ * Builds a high-resolution generative AI image URL from a text prompt.
  *
  * @param {string} prompt - Cleaned text prompt
  * @param {object} [options]
  * @param {number} [options.width=1024]
  * @param {number} [options.height=1024]
+ * @param {string} [options.model='flux'] - 'flux' (SOTA default) or 'turbo' (sub-2s)
  * @param {number} [options.seed]
- * @returns {{ imageUrl: string, prompt: string }}
+ * @returns {{ imageUrl: string, prompt: string, model: string }}
  */
 export function generateImageUrl(prompt, options = {}) {
   const cleanPrompt = String(prompt).trim();
   const width = options.width || 1024;
   const height = options.height || 1024;
+  const model = options.model || 'flux';
   const seed = options.seed || Math.floor(Math.random() * 1000000);
   const encoded = encodeURIComponent(cleanPrompt);
   const enhanceParam = options.enhance ? '&enhance=true' : '';
 
-  // Ultra-fast zero-latency generation (sub-second response without prompt expansion bottleneck)
-  const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&seed=${seed}&nologo=true${enhanceParam}`;
+  const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&seed=${seed}&model=${model}&nologo=true${enhanceParam}`;
 
   return {
     imageUrl,
     prompt: cleanPrompt,
+    model,
   };
 }
 
 /**
  * Downloads and cleans generated image binary in-memory.
- * Crops any corner vector watermark marks (e.g. platform logo overlay)
- * guaranteeing a completely clean, pristine image output with zero vector marks.
+ * Automatically enhances short prompts using Gemini, injects styles,
+ * and crops any corner vector watermark marks via Sharp.
  *
- * @param {string} prompt
- * @param {object} [options]
- * @returns {Promise<{ buffer: Buffer, mimeType: string, prompt: string, fallbackUrl: string } | null>}
+ * @param {string} rawPrompt - User image prompt (may contain flags)
+ * @param {object} [userOptions]
+ * @returns {Promise<{ buffer: Buffer, mimeType: string, prompt: string, enhancedPrompt: string, fallbackUrl: string, model: string, width: number, height: number } | null>}
  */
-export async function generateCleanImage(prompt, options = {}) {
-  const { imageUrl, prompt: cleanPrompt } = generateImageUrl(prompt, options);
+export async function generateCleanImage(rawPrompt, userOptions = {}) {
+  const parsed = parseImagePromptOptions(rawPrompt);
+  const options = {
+    model: userOptions.model || parsed.model || 'flux',
+    width: userOptions.width || parsed.width || 1024,
+    height: userOptions.height || parsed.height || 1024,
+    enhance: userOptions.enhance !== undefined ? userOptions.enhance : parsed.enhance,
+    style: userOptions.style || parsed.style,
+    seed: userOptions.seed,
+    mockBuffer: userOptions.mockBuffer,
+  };
+
+  let effectivePrompt = parsed.prompt || String(rawPrompt).trim();
+
+  // Apply style decorators if flag was provided
+  if (options.style === 'anime') {
+    effectivePrompt += ', vibrant anime art style, Studio Ghibli aesthetic, detailed anime illustration';
+  } else if (options.style === 'photo') {
+    effectivePrompt += ', 8k photorealistic photography, shot on 35mm lens, natural soft lighting, hyper-detailed';
+  } else if (options.style === 'cyberpunk') {
+    effectivePrompt += ', cyberpunk aesthetic, neon glow, dark futuristic city, volumetric lighting, synthwave';
+  } else if (options.style === '3d') {
+    effectivePrompt += ', 3D digital render, Unreal Engine 5, Octane render, smooth lighting, high resolution';
+  } else if (options.style === 'cinematic') {
+    effectivePrompt += ', cinematic movie still, 35mm anamorphic lens, dramatic lighting, 8k resolution, color graded';
+  }
+
+  // Gemini AI Prompt Co-Pilot: enrich prompts unless --raw or mockBuffer was specified
+  let finalPrompt = effectivePrompt;
+  if (options.enhance && !options.mockBuffer && effectivePrompt.length < 250) {
+    try {
+      finalPrompt = await enhanceImagePrompt(effectivePrompt);
+    } catch {
+      finalPrompt = effectivePrompt;
+    }
+  }
+
+  const { imageUrl } = generateImageUrl(finalPrompt, options);
 
   try {
     let rawBuffer;
@@ -117,13 +247,14 @@ export async function generateCleanImage(prompt, options = {}) {
     const metadata = await sharp(rawBuffer).metadata();
 
     // The platform watermark resides in the bottom-right corner (~45px high).
-    // Extracting height minus 45px removes the text and vector flower mark cleanly.
-    const cropHeight = Math.max(10, (metadata.height || 1024) - 45);
+    // Extracting height minus 45px removes the text and vector mark cleanly in memory.
+    const origHeight = metadata.height || options.height || 1024;
+    const cropHeight = Math.max(10, origHeight - 45);
     const cleanBuffer = await sharp(rawBuffer)
       .extract({
         left: 0,
         top: 0,
-        width: metadata.width || 1024,
+        width: metadata.width || options.width || 1024,
         height: cropHeight,
       })
       .jpeg({ quality: 95 })
@@ -132,8 +263,12 @@ export async function generateCleanImage(prompt, options = {}) {
     return {
       buffer: cleanBuffer,
       mimeType: 'image/jpeg',
-      prompt: cleanPrompt,
+      prompt: parsed.prompt,
+      enhancedPrompt: finalPrompt,
       fallbackUrl: imageUrl,
+      model: options.model,
+      width: options.width,
+      height: options.height,
     };
   } catch {
     return null;

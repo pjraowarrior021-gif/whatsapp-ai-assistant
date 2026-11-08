@@ -36,7 +36,7 @@ import {
   getMediaUrl,
   downloadMediaInMemory,
 } from './whatsapp.js';
-import { parseImagePrompt, generateImageUrl, generateCleanImage } from './image-gen.js';
+import { parseImagePrompt, parseImagePromptOptions, generateImageUrl, generateCleanImage } from './image-gen.js';
 import { scheduleReminder, listReminders, deleteReminder } from './reminders.js';
 import { addTodo, listTodos, markTodoDone, clearCompletedTodos } from './todos.js';
 import { extractUrl, fetchAndExtractArticle } from './web-scraper.js';
@@ -531,21 +531,31 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
   // 9a. Image Generation
   const imagePrompt = !mediaPart ? parseImagePrompt(rawText) : null;
   if (imagePrompt) {
+    const parsedOptions = parseImagePromptOptions(imagePrompt);
     privacyLog('info', 'IMAGE_GENERATION_REQUESTED', {
       requestId,
       user: anonId,
-      promptLength: imagePrompt.length,
+      promptLength: parsedOptions.prompt.length,
+      model: parsedOptions.model,
+      dimensions: `${parsedOptions.width}x${parsedOptions.height}`,
     });
 
     const cleanImage = await generateCleanImage(imagePrompt);
-    const caption = `🎨 *AI Generated Image*\n\n_Prompt:_ "${imagePrompt}"`;
+    const modelBadge = parsedOptions.model === 'turbo' ? '⚡ SDXL-Turbo (Fast)' : '✨ FLUX.1 (HD)';
+    const dimBadge = `${parsedOptions.width}x${parsedOptions.height}`;
+    const caption = [
+      `🎨 *AI Generated Image* (${modelBadge})`,
+      `📐 _Size:_ ${dimBadge}`,
+      ``,
+      `_Prompt:_ "${parsedOptions.prompt}"`,
+    ].join('\n');
 
     const result = cleanImage
       ? await sendWhatsAppImage(from, cleanImage, caption)
-      : await sendWhatsAppImage(from, generateImageUrl(imagePrompt).imageUrl, caption);
+      : await sendWhatsAppImage(from, generateImageUrl(imagePrompt, parsedOptions).imageUrl, caption);
 
     if (result.success) {
-      saveTurn(anonId, rawText, `[Generated and sent image: ${imagePrompt}]`);
+      saveTurn(anonId, rawText, `[Generated and sent image: ${parsedOptions.prompt}]`);
       recordMessageMetric('image_gen', 'success');
     } else {
       recordErrorMetric('image_gen');
@@ -564,7 +574,8 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
       ``,
       `*Available Commands:*`,
       `• */help* - Display this help manual`,
-      `• */image <prompt>* or */draw <prompt>* - Generate AI artwork`,
+      `• */image <prompt>* or */draw <prompt>* - Generate AI artwork (FLUX.1 HD)`,
+      `  _Options: \`--fast\` (1.5s draft), \`--wallpaper\` (phone 9:16), \`--wide\` (16:9), \`--anime\`, \`--photo\`, \`--raw\`_`,
       `• */todo <task>* - Add item to your quick to-do list`,
       `• */todos* - List your active to-dos`,
       `• */done <id>* - Mark a task completed`,

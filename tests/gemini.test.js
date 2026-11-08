@@ -12,6 +12,7 @@ import {
   setPersona,
   resetPersona,
   listPersonas,
+  enhanceImagePrompt,
 } from '../src/gemini.js';
 import { config } from '../src/config.js';
 
@@ -176,5 +177,25 @@ test('Gemini Persona: generateAIResponse respects persona system instruction and
 
   // Clean up
   resetPersona(anonId);
+  setGeminiClient(null);
+});
+
+test('Gemini: enhanceImagePrompt enhances prompt using mock Gemini client', async () => {
+  const mockClient = {
+    models: {
+      generateContent: async () => ({
+        text: 'Cinematic portrait of a cyberpunk cat in neon rain, 8k resolution',
+      }),
+    },
+  };
+
+  setGeminiClient(mockClient);
+  const enhanced = await enhanceImagePrompt('a cat');
+  assert.strictEqual(enhanced, 'Cinematic portrait of a cyberpunk cat in neon rain, 8k resolution');
+
+  // Empty prompt returns original
+  const empty = await enhanceImagePrompt('');
+  assert.strictEqual(empty, '');
+
   setGeminiClient(null);
 });

@@ -160,9 +160,7 @@ test('WhatsApp Interactive: sendWhatsAppButtons constructs payload and handles r
 
   // Test body text exceeding Meta 1024-character limit
   const longText = 'A'.repeat(1500);
-  const longRes = await sendWhatsAppButtons('910000000000', longText, [
-    { id: 'btn_1', title: 'Option One' },
-  ]);
+  const longRes = await sendWhatsAppButtons('910000000000', longText, [{ id: 'btn_1', title: 'Option One' }]);
   assert.strictEqual(longRes.success, true);
   assert.ok(longRes.messageId);
 });

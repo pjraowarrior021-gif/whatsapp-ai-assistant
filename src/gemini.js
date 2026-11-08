@@ -230,7 +230,7 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
 
   const personaKey = options.persona || (options.anonId ? getPersona(options.anonId) : 'default');
   const personaConfig = PERSONAS[personaKey] || PERSONAS.default;
-  const activeInstruction = personaConfig.instruction || SYSTEM_INSTRUCTION;
+  const activeInstruction = options.systemInstruction || personaConfig.instruction || SYSTEM_INSTRUCTION;
   const shouldGround = searchGroundingEnabled || Boolean(options.forceGrounding);
 
   const userParts = [];
@@ -392,5 +392,44 @@ export async function testGeminiConnection() {
       latencyMs: Date.now() - start,
       error: (err.message || String(err)).replace(/key=[^&\s]+/gi, 'key=REDACTED'),
     };
+  }
+}
+
+/**
+ * Uses Gemini to enrich short image prompts with visual, lighting, and camera details for FLUX.1.
+ *
+ * @param {string} prompt - Raw user prompt
+ * @returns {Promise<string>} Enhanced detailed prompt
+ */
+export async function enhanceImagePrompt(prompt) {
+  if (!prompt || typeof prompt !== 'string') return prompt;
+  const trimmed = prompt.trim();
+  // Don't expand if already very long or detailed (> 250 chars)
+  if (trimmed.length > 250) return trimmed;
+
+  try {
+    const instruction = [
+      'You are a professional generative AI prompt engineer for the FLUX.1 text-to-image model.',
+      'Enrich the user input into a vivid, photorealistic, highly detailed image generation prompt (max 35 words).',
+      'Focus on lighting, atmospheric mood, cinematic camera perspective, and artistic fidelity.',
+      'Preserve the core subject.',
+      'Output ONLY the enhanced prompt string. Do NOT add conversational filler, markdown formatting, or quotes.',
+    ].join(' ');
+
+    const enhanced = await generateAIResponse(`Prompt: ${trimmed}`, [], null, {
+      systemInstruction: instruction,
+    });
+
+    const cleaned = (enhanced || '').replace(/^["'`]|["'`]$/g, '').trim();
+    if (
+      cleaned.length > 5 &&
+      !cleaned.toLowerCase().includes("i'm currently") &&
+      !cleaned.toLowerCase().includes('cannot generate')
+    ) {
+      return cleaned;
+    }
+    return trimmed;
+  } catch {
+    return trimmed;
   }
 }
