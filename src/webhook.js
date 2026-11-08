@@ -595,7 +595,8 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
       `• *Zero conversations or images are saved to disk.*`,
     ].join('\n');
 
-    await sendWhatsAppButtons(from, helpMessage, [
+    await sendWhatsAppMessage(from, helpMessage);
+    await sendWhatsAppButtons(from, '⚡ *Quick Actions:*', [
       { id: 'cmd_status', title: 'Status' },
       { id: 'cmd_todos', title: 'To-Dos' },
       { id: 'cmd_reset', title: 'Clear History' },

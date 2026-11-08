@@ -231,6 +231,17 @@ export async function sendWhatsAppButtons(to, bodyText, buttons = []) {
     },
   }));
 
+  // Meta Cloud API interactive buttons enforce a strict 1024-character cap on body text.
+  // If the message exceeds 1024 characters, send the full text via standard message chunks first,
+  // then dispatch the interactive buttons with a concise action prompt.
+  if (bodyText.length > 1024) {
+    await sendWhatsAppMessage(normalizedTo, bodyText);
+    if (cleanButtons.length === 0) {
+      return { success: true };
+    }
+    return sendWhatsAppButtons(normalizedTo, '⚡ *Quick Actions:*', cleanButtons);
+  }
+
   const payload = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
