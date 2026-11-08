@@ -526,10 +526,16 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
                     ? '/persona'
                     : lowerText === 'cmd_voice'
                       ? '/voice'
-                      : lowerText;
+                      : lowerText === 'cmd_img_lion'
+                        ? '/image a majestic male lion in a thunderstorm --photo'
+                        : lowerText === 'cmd_img_wall'
+                          ? '/image a neon cyberpunk alleyway in Tokyo rain --wallpaper'
+                          : lowerText === 'cmd_img_anime'
+                            ? '/image a girl reading in an enchanted sunlit library --anime'
+                            : lowerText;
 
   // 9a. Image Generation
-  const imagePrompt = !mediaPart ? parseImagePrompt(rawText) : null;
+  const imagePrompt = !mediaPart ? parseImagePrompt(effectiveCommand || rawText) : null;
   if (imagePrompt) {
     const parsedOptions = parseImagePromptOptions(imagePrompt);
     privacyLog('info', 'IMAGE_GENERATION_REQUESTED', {
