@@ -169,6 +169,29 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
     config.NODE_ENV = origEnv;
   });
 
+  await t.test(
+    'POST /webhook bypasses signature check when WHATSAPP_APP_SECRET is placeholder test_meta_app_secret',
+    async () => {
+      const origSecret = config.WHATSAPP_APP_SECRET;
+      config.WHATSAPP_APP_SECRET = 'test_meta_app_secret_1234567890';
+
+      const body = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
+      const res = await fetch(`${baseUrl}/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-hub-signature-256': 'sha256=some_signature_from_meta',
+        },
+        body,
+      });
+      assert.strictEqual(res.status, 200);
+      const reply = await res.text();
+      assert.strictEqual(reply, 'EVENT_RECEIVED');
+
+      config.WHATSAPP_APP_SECRET = origSecret;
+    }
+  );
+
   // 5. Test incoming webhook with authorized /help command
   await t.test('POST /webhook handles incoming WhatsApp message payload and triggers commands', async () => {
     const authorizedNumber = '910000000000';

@@ -121,6 +121,10 @@ export function validateConfig() {
     warnings.push(
       'WHATSAPP_APP_SECRET is not set. Meta Webhook HMAC-SHA256 signature verification will be bypassed in dev mode.'
     );
+  } else if (config.WHATSAPP_APP_SECRET.includes('test_meta_app_secret')) {
+    warnings.push(
+      'WHATSAPP_APP_SECRET is set to placeholder "test_meta_app_secret". HMAC signature verification is bypassed until your real Meta App Secret is configured in .env and Railway.'
+    );
   }
 
   // Access Control Warning
