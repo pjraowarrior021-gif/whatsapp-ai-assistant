@@ -24,15 +24,15 @@ export function parseImagePrompt(text) {
 
   // 2. Natural language triggers (e.g. "generate an image of a neon city")
   const nlMatch = trimmed.match(
-    /^(?:please\s+)?(?:can\s+you\s+)?(?:generate|create|make|paint|draw|render)\s+(?:an?\s+)?(?:image|picture|photo|wallpaper|artwork|drawing|illustration)\s+(?:of|showing|about|depicting|with)?\s*(.+)$/i
+    /^(?:please\s+)?(?:can\s+you\s+)?(?:generate|create|make|paint|draw|render|imagine)\s+(?:an?\s+)?(?:image|picture|photo|wallpaper|artwork|drawing|illustration)\s+(?:of|showing|about|depicting|with)?\s*(.+)$/i
   );
   if (nlMatch) {
     return nlMatch[1].trim();
   }
 
-  // 3. "draw me a ..." or "paint a ..."
+  // 3. "draw me a ..." or "paint a ..." or "imagine a ..."
   const drawMeMatch = trimmed.match(
-    /^(?:please\s+)?(?:can\s+you\s+)?(?:draw|paint|sketch)\s+(?:me\s+)?(?:an?\s+)?(.+)$/i
+    /^(?:please\s+)?(?:can\s+you\s+)?(?:draw|paint|sketch|imagine)\s+(?:me\s+)?(?:an?\s+)?(.+)$/i
   );
   if (drawMeMatch) {
     const candidate = drawMeMatch[1].trim();

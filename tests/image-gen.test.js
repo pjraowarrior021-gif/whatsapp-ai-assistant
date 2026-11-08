@@ -15,6 +15,11 @@ test('ImageGen: parseImagePrompt detects natural language requests', () => {
   assert.strictEqual(parseImagePrompt('Can you generate a picture of an enchanted forest?'), 'an enchanted forest?');
   assert.strictEqual(parseImagePrompt('draw a portrait of an astronaut'), 'portrait of an astronaut');
   assert.strictEqual(parseImagePrompt('paint a landscape with purple mountains'), 'landscape with purple mountains');
+  assert.strictEqual(
+    parseImagePrompt('imagine an ethereal bioluminescent cyber-forest'),
+    'ethereal bioluminescent cyber-forest'
+  );
+  assert.strictEqual(parseImagePrompt('please imagine a peaceful Japanese garden'), 'peaceful Japanese garden');
 });
 
 test('ImageGen: parseImagePrompt ignores normal conversational queries and programming questions', () => {
