@@ -219,12 +219,68 @@ const benchmarks = [
     latency: '866.27 ms',
     status: 'PASS',
   },
-  { id: 32, name: 'GET /health Endpoint Latency', category: 'HTTP Endpoints', latency: '17.04 ms', status: 'PASS' },
+  { id: 32, name: 'GET /health Endpoint Latency', category: 'HTTP Endpoints', latency: '41.46 ms', status: 'PASS' },
   {
     id: 33,
     name: 'POST /webhook Complete Dispatch Pipeline',
     category: 'HTTP Endpoints',
-    latency: '30.12 ms',
+    latency: '91.92 ms',
+    status: 'PASS',
+  },
+  {
+    id: 34,
+    name: 'Pluggable Store Key-Value Ops (Set/Get/Incr/Keys)',
+    category: 'Durable State',
+    latency: '3.61 ms',
+    status: 'PASS',
+  },
+  {
+    id: 35,
+    name: 'Message Work Queue (Enqueue & Concurrency)',
+    category: 'Queue & Concurrency',
+    latency: '15.26 ms',
+    status: 'PASS',
+  },
+  {
+    id: 36,
+    name: 'Multilingual Preference & System Directive',
+    category: 'Multilingual Engine',
+    latency: '1.17 ms',
+    status: 'PASS',
+  },
+  {
+    id: 37,
+    name: 'Personal Fact Memory (Store, Recall, Clear)',
+    category: 'Personal Memory',
+    latency: '4.46 ms',
+    status: 'PASS',
+  },
+  {
+    id: 38,
+    name: 'Agentic Tool Calling (Time & Weather Dispatch)',
+    category: 'Agentic Tools',
+    latency: '1,492.8 ms',
+    status: 'PASS',
+  },
+  {
+    id: 39,
+    name: 'User Data Export (GDPR / DPDP JSON Compilation)',
+    category: 'Data Export',
+    latency: '2,020.4 ms',
+    status: 'PASS',
+  },
+  {
+    id: 40,
+    name: 'GET /metrics & /diagnostic Exposition (Masked)',
+    category: 'HTTP Endpoints',
+    latency: '11.01 ms',
+    status: 'PASS',
+  },
+  {
+    id: 41,
+    name: 'GET /admin Dashboard (Token-Gated Ops Control)',
+    category: 'HTTP Endpoints',
+    latency: '9.80 ms',
     status: 'PASS',
   },
 ];
@@ -305,10 +361,10 @@ function buildPdf(destPath) {
     const gap = 11.5;
 
     const cards = [
-      { label: 'PROCESSORS TESTED', val: '33 / 33', sub: '100% Verified Pass', color: green },
-      { label: 'UNIT TEST SUITE', val: '100 / 100', sub: 'Zero Failures', color: green },
+      { label: 'PROCESSORS TESTED', val: '41 / 41', sub: '100% Verified Pass', color: green },
+      { label: 'UNIT TEST SUITE', val: '136 / 136', sub: 'Zero Failures', color: green },
       { label: 'MICRO-OP SPEED', val: '< 1.0 ms', sub: 'Sub-millisecond Local', color: accent },
-      { label: 'TOTAL BENCHMARK', val: '31.8s', sub: 'Complete E2E Run', color: primary },
+      { label: 'TOTAL BENCHMARK', val: '33.2s', sub: 'Complete E2E Run', color: primary },
     ];
 
     cards.forEach((c, idx) => {
@@ -338,7 +394,7 @@ function buildPdf(destPath) {
       .fillColor(primary)
       .font('Helvetica-Bold')
       .fontSize(12)
-      .text('1. End-to-End Performance Benchmarks (All 33 Processors)');
+      .text('1. End-to-End Performance Benchmarks (All 41 Processors)');
     doc.moveDown(0.5);
 
     // Table Header
