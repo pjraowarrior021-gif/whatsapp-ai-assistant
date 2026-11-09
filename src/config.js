@@ -104,7 +104,7 @@ export const config = {
   // Quotas & Reminders
   MAX_REQUESTS_PER_USER_PER_DAY: parseInt(process.env.MAX_REQUESTS_PER_USER_PER_DAY, 10) || 200,
   MAX_GEMINI_REQUESTS_PER_DAY: parseInt(process.env.MAX_GEMINI_REQUESTS_PER_DAY, 10) || 1400,
-  REMINDERS_PERSIST: process.env.REMINDERS_PERSIST !== 'false',
+  REMINDERS_PERSIST: process.env.REMINDERS_PERSIST === 'true',
   TIMEZONE: process.env.TZ || 'Asia/Kolkata',
   TIMEZONE_OFFSET_HOURS:
     process.env.TIMEZONE_OFFSET_HOURS !== undefined ? parseFloat(process.env.TIMEZONE_OFFSET_HOURS) : 5.5,
