@@ -29,6 +29,7 @@ Designed for zero cloud costs (**₹0 budget**), zero database maintenance, and 
 
 - **Google Gemini Integration:** Powered by Google Gemini (default `gemini-3.5-flash-lite`, configurable via `GEMINI_MODEL`) with automatic fallback failover (`GEMINI_FALLBACK_MODELS`) via the modern `@google/genai` SDK. Supports runtime model switching.
 - **🔗 Smart Webpage & Article Summarizer:** Share any article or webpage URL to receive an instant, high-yield 3-5 bullet point executive summary with original titles and clickable links. Features strict SSRF protection.
+- **▶️ YouTube Video Intelligence & Summarizer:** Share any YouTube link (Standard, Shorts, or `youtu.be`) to receive an instant, structured summary with core thesis, key insights, and milestone topic timestamps parsed directly from video transcripts. Zero API keys required.
 - **📍 Location Intelligence:** Send your WhatsApp location pin to receive an instant local snapshot with current weather, area overview, and top points of interest, grounded in real-time Google Search data.
 - **🎙️ Voice Note Audio Replies (Text-to-Speech):** Toggle `/voice on` or append `--voice` to receive responses synthesized directly into speech audio voice notes (`audio/mpeg`) in addition to text.
 - **📝 Quick Notes & To-Do List Tracker:** Track tasks effortlessly with `/todo <task>`, `/todos`, `/done <id>`, and `/clear_todos`. Stored in RAM with optional persistence (`REMINDERS_PERSIST=true`).

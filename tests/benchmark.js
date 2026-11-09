@@ -32,6 +32,7 @@ import { setUserLanguage, getUserLanguage, getLanguageInstruction } from '../src
 import { addMemoryFact, getMemoryContext, clearUserMemory } from '../src/memory.js';
 import { executeToolCall } from '../src/tools/index.js';
 import { exportUserData } from '../src/export.js';
+import { extractYouTubeVideoId, fetchYouTubeMetadata, fetchYouTubeVideoData } from '../src/youtube.js';
 
 const results = [];
 
@@ -340,6 +341,23 @@ async function runAllBenchmarks() {
     return {
       info: `Fetched "${article.title}" (${article.text.length} chars). Summary: "${summary.substring(0, 80)}..."`,
     };
+  });
+
+  // --------------------------------------------------------------------------
+  // Group: YouTube Intelligence & Video Summarizer
+  // --------------------------------------------------------------------------
+  await benchmark('YouTube Video ID Parser & Metadata Fetch (oEmbed)', 'YouTube Summarizer', async () => {
+    const id = extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    if (id !== 'dQw4w9WgXcQ') throw new Error('ID extraction failed');
+    const meta = await fetchYouTubeMetadata(id);
+    if (!meta.title) throw new Error('oEmbed metadata missing title');
+    return { info: `Parsed video "${meta.title}" by ${meta.authorName}` };
+  });
+
+  await benchmark('YouTube Subtitle / Transcript Ingestion & Formatting', 'YouTube Summarizer', async () => {
+    const data = await fetchYouTubeVideoData('dQw4w9WgXcQ');
+    if (!data.ok || !data.hasTranscript) throw new Error('Transcript fetch failed');
+    return { info: `Ingested ${data.transcriptText.length} chars of timestamped transcript for "${data.title}"` };
   });
 
   // --------------------------------------------------------------------------

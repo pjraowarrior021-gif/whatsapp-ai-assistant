@@ -1036,3 +1036,59 @@ test('HTTP Endpoints: rate limiter skip allows unlimited health, diagnostic, and
   assert.ok(diagData.config.timezone);
   assert.strictEqual(diagData.config.timezone.zone, 'Asia/Kolkata');
 });
+
+test('POST /webhook handles YouTube link message submission and queues processing', async (t) => {
+  const server = app.listen(0);
+  const port = server.address().port;
+  const baseUrl = `http://localhost:${port}`;
+
+  t.after(() => {
+    server.close();
+  });
+
+  const payload = {
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: '123456',
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              messaging_product: 'whatsapp',
+              contacts: [{ profile: { name: 'Alice' }, wa_id: '918217426307' }],
+              messages: [
+                {
+                  from: '918217426307',
+                  id: `wamid.yt_test_${Date.now()}`,
+                  timestamp: String(Math.floor(Date.now() / 1000)),
+                  type: 'text',
+                  text: { body: 'Please summarize https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  const raw = JSON.stringify(payload);
+  const sig = crypto
+    .createHmac('sha256', config.WHATSAPP_APP_SECRET || 'test')
+    .update(raw)
+    .digest('hex');
+
+  const res = await fetch(`${baseUrl}/webhook`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-hub-signature-256': `sha256=${sig}`,
+    },
+    body: raw,
+  });
+
+  assert.strictEqual(res.status, 200);
+  const text = await res.text();
+  assert.strictEqual(text, 'EVENT_RECEIVED');
+});

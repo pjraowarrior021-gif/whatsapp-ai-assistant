@@ -43,6 +43,7 @@ import { parseImagePrompt, parseImagePromptOptions, generateImageUrl, generateCl
 import { scheduleReminder, listReminders, deleteReminder } from './reminders.js';
 import { addTodo, listTodos, markTodoDone, clearCompletedTodos } from './todos.js';
 import { extractUrl, fetchAndExtractArticle } from './web-scraper.js';
+import { extractYouTubeVideoId, fetchYouTubeVideoData, buildYouTubeAiPrompt } from './youtube.js';
 import { synthesizeSpeech } from './tts.js';
 import { checkAndIncrementUserQuota, recordGeminiDailyUsage, getUserQuotaReport } from './quota.js';
 import { recordMessageMetric, recordErrorMetric, recordMediaBytes, recordGeminiMetric } from './metrics.js';
@@ -778,6 +779,7 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       ``,
       `*Multimodal Capabilities:*`,
       `• 🔗 *Webpage Summaries:* Send any article or webpage URL for 3-5 bullet point takeaways.`,
+      `• ▶️ *YouTube Summaries:* Paste any YouTube or Shorts link for key takeaways & topic timestamps.`,
       `• 📍 *Location Intelligence:* Share a location pin for local snapshot, weather, and top spots.`,
       `• 📸 *Photos & Images:* Send screenshots, diagrams, or math problems for instant analysis.`,
       `• 🎙️ *Voice Notes:* Send audio voice notes for automatic transcription and answers.`,
@@ -1078,40 +1080,63 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   let effectivePrompt = sanitizedText;
 
   if (foundUrl) {
-    const article = await fetchAndExtractArticle(foundUrl);
-    if (!article.ok) {
-      if (article.reason === 'ssrf_blocked') {
-        await sendWhatsAppMessage(
-          from,
-          '⚠️ *Security Alert:* Access to internal, loopback, or private network addresses is blocked for security.'
-        );
-        return;
-      }
-      if (article.reason === 'too_large') {
-        await sendWhatsAppMessage(from, '⚠️ *Webpage Error:* Webpage content exceeds maximum allowed size (16MB).');
-        return;
-      }
-      if (article.reason === 'timeout') {
-        await sendWhatsAppMessage(
-          from,
-          '⚠️ *Webpage Error:* Webpage download timed out. Please verify the URL and try again.'
-        );
-        return;
-      }
-      await sendWhatsAppMessage(
-        from,
-        `⚠️ *Webpage Error:* Failed to fetch webpage content (${article.reason || 'Could not load URL'}).`
-      );
-      return;
-    }
+    const ytVideoId = extractYouTubeVideoId(foundUrl);
+    if (ytVideoId) {
+      const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
+      const videoData = await fetchYouTubeVideoData(ytVideoId);
 
-    const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
-    if (userPromptAside) {
-      effectivePrompt = `The user shared this article: [${article.title || foundUrl}](${foundUrl})\n\nUser Question/Instruction: "${userPromptAside}"\n\nArticle Content:\n"""${article.text}"""`;
+      if (!videoData.ok) {
+        await sendWhatsAppMessage(
+          from,
+          `⚠️ *YouTube Error:* Could not load video details (${videoData.error || 'Video may be private, restricted, or unavailable'}).`
+        );
+        return;
+      }
+
+      effectivePrompt = buildYouTubeAiPrompt(videoData, userPromptAside);
+      articleHeader = {
+        title: `▶️ ${videoData.title} (${videoData.author})`,
+        url: videoData.url,
+      };
+      if (!videoData.hasTranscript) {
+        forceGrounding = true;
+      }
     } else {
-      effectivePrompt = `Summarize this webpage clearly in 3-5 WhatsApp bullet points with key takeaways:\n\nTitle: ${article.title || 'Webpage'}\nURL: ${foundUrl}\n\nContent:\n"""${article.text}"""`;
+      const article = await fetchAndExtractArticle(foundUrl);
+      if (!article.ok) {
+        if (article.reason === 'ssrf_blocked') {
+          await sendWhatsAppMessage(
+            from,
+            '⚠️ *Security Alert:* Access to internal, loopback, or private network addresses is blocked for security.'
+          );
+          return;
+        }
+        if (article.reason === 'too_large') {
+          await sendWhatsAppMessage(from, '⚠️ *Webpage Error:* Webpage content exceeds maximum allowed size (16MB).');
+          return;
+        }
+        if (article.reason === 'timeout') {
+          await sendWhatsAppMessage(
+            from,
+            '⚠️ *Webpage Error:* Webpage download timed out. Please verify the URL and try again.'
+          );
+          return;
+        }
+        await sendWhatsAppMessage(
+          from,
+          `⚠️ *Webpage Error:* Failed to fetch webpage content (${article.reason || 'Could not load URL'}).`
+        );
+        return;
+      }
+
+      const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
+      if (userPromptAside) {
+        effectivePrompt = `The user shared this article: [${article.title || foundUrl}](${foundUrl})\n\nUser Question/Instruction: "${userPromptAside}"\n\nArticle Content:\n"""${article.text}"""`;
+      } else {
+        effectivePrompt = `Summarize this webpage clearly in 3-5 WhatsApp bullet points with key takeaways:\n\nTitle: ${article.title || 'Webpage'}\nURL: ${foundUrl}\n\nContent:\n"""${article.text}"""`;
+      }
+      articleHeader = { title: article.title || 'Webpage Summary', url: foundUrl };
     }
-    articleHeader = { title: article.title || 'Webpage Summary', url: foundUrl };
   } else if (locationSnapshotPrompt) {
     effectivePrompt = locationSnapshotPrompt;
   }
