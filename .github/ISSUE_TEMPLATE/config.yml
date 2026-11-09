@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/pjraowarrior021-gif/whatsapp-ai-assistant/security/advisories/new
+    about: Do not report security vulnerabilities in public issues. Use GitHub's private vulnerability reporting if enabled for this repository; otherwise contact the maintainer privately as described in SECURITY.md.
+  - name: Read the security policy
+    url: https://github.com/pjraowarrior021-gif/whatsapp-ai-assistant/blob/main/SECURITY.md
+    about: Review the privacy boundaries, security practices, and vulnerability reporting guidance.

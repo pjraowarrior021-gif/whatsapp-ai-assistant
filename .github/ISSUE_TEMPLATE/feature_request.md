@@ -1,22 +1,22 @@
 ---
-name: Feature Request
-about: Suggest an idea or capability for this project
-title: '[FEAT] '
+name: Feature request
+about: Suggest a feature or improvement
+ title: "feature: "
 labels: enhancement
-assignees: ''
+assignees: ""
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+## Problem or use case
+What user need or problem would this address?
 
-**Describe the Solution You'd Like**
-A clear and concise description of what you want to happen.
+## Proposed solution
+Describe the behavior you would like.
 
-**Describe Alternatives You've Considered**
-A clear and concise description of any alternative solutions or features you've considered.
+## Alternatives considered
+What other approaches have you considered?
 
-**Zero-Cost & Privacy Considerations**
-How does this feature maintain zero-cost defaults and strict privacy preservation?
+## Privacy, security, and cost
+Would the idea send data to a new service, persist data, require new permissions, or add ongoing cost? How should users control it?
 
-**Additional Context**
-Add any other context, API schemas, or screenshots about the feature request here.
+## Additional context
+Add examples using synthetic data only. Do not include personal messages, phone numbers, credentials, or tokens.

@@ -1,30 +1,30 @@
 ---
-name: Bug Report
-about: Create a report to help us improve
-title: '[BUG] '
+name: Bug report
+about: Report a reproducible problem (do not include private data or secrets)
+title: "bug: "
 labels: bug
-assignees: ''
+assignees: ""
 ---
 
-**Describe the Bug**
-A clear and concise description of what the bug is.
+## Summary
+Describe the problem and its impact.
 
-**To Reproduce**
-Steps to reproduce the behavior:
+## Steps to reproduce
+Use synthetic/test data only. Do not include real phone numbers, message contents, API keys, access tokens, or unredacted logs.
 
-1. Configure `.env` with `...`
-2. Send WhatsApp message `...`
-3. Check server logs / response
+1.
+2.
+3.
 
-**Expected Behavior**
-A clear and concise description of what you expected to happen.
+## Expected and actual behavior
 
-**Environment Information:**
+- Expected:
+- Actual:
 
-- OS: [e.g. Ubuntu 24.04, Windows 11, macOS]
-- Node.js Version: [e.g. 20.12.0, 22.0.0]
-- State Backend: [e.g. memory, redis]
-- Active Gemini Model: [e.g. gemini-3.5-flash-lite]
+## Environment
+- OS:
+- Node.js version (`node --version`):
+- Install/configuration details (omit secret values):
 
-**Screenshots / Redacted Logs**
-If applicable, paste sanitized logs here (ensure all phone numbers, tokens, and keys are redacted).
+## Logs or screenshots
+Share only sanitized output. Remove phone numbers, names, message content, tokens, and other personal or confidential data before posting.

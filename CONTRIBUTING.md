@@ -1,87 +1,60 @@
-# Contributing to Personal WhatsApp AI Assistant
+# Contributing
 
-Thank you for your interest in contributing to Personal WhatsApp AI Assistant! We welcome contributions that maintain our core architectural principles: **Zero-Cost Default**, **Strict Privacy Guarantees**, **Hermetic Testing**, and **Backward Compatibility**.
+Thanks for considering a contribution to **whatsapp-ai-assistant**! Contributions that improve usability, reliability, accessibility, testing, and privacy are welcome.
 
----
+## Before you start
 
-## Code of Conduct
+- For substantial changes, open an issue first to discuss the approach.
+- For security vulnerabilities, do **not** open a public issue. Follow the private reporting instructions in [SECURITY.md](SECURITY.md).
+- Please do not include real WhatsApp numbers, API keys, tokens, private messages, or other personal data in issues, tests, screenshots, or logs.
 
-All contributors and participants are expected to adhere to our [Code of Conduct](CODE_OF_CONDUCT.md). Please treat everyone with respect, patience, and courtesy.
+## Development setup
 
----
-
-## Core Development Principles
-
-1. **Zero External Paid Dependencies by Default:**
-   All default setups run on volatile in-RAM data structures or local disk files without requiring paid cloud infrastructure or commercial databases. External stores (e.g. Redis) are strictly opt-in.
-2. **Strict Privacy Contract:**
-   Never log raw message bodies, prompts, conversation transcripts, or API tokens. Always route logs through `privacyLog()` with anonymized user IDs (`anonId`) and redacted secrets (`maskSensitiveInfo()`).
-3. **Fail-Closed Security:**
-   Webhook signature verification, operational token checking (`requireOpsAuth`), and whitelist authorization must fail closed when unconfigured or invalid in production.
-4. **100% Hermetic Test Coverage:**
-   Never make external API calls (Meta Graph API, Gemini API, or Open-Meteo) during automated tests. Always mock network boundaries.
-
----
-
-## Local Development Workflow
-
-### 1. Prerequisites
-
-- Node.js `>=20.0.0` (Node 22 LTS recommended, see `.nvmrc`)
-- npm `>=10.0.0`
-- Git
-
-### 2. Setup
+Requirements: Node.js 20 or newer (Node 22 is recommended), npm 10 or newer, and Git.
 
 ```bash
-git clone https://github.com/PJ/whatsapp-ai-assistant.git
-cd "WHATSAPP bot"
-npm install
-copy .env.example .env # On Windows PowerShell/CMD (or 'cp .env.example .env' on Unix)
+git clone https://github.com/pjraowarrior021-gif/whatsapp-ai-assistant.git
+cd whatsapp-ai-assistant
+npm ci
+cp .env.example .env
 ```
 
-### 3. Running Verification Suite
+On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`. Put only your own test credentials in `.env`; never commit it. The sample values are placeholders. Keep reminder/to-do persistence disabled unless you explicitly want local disk persistence.
 
-Before submitting any pull request, ensure all checks pass:
+## Checks before submitting
+
+Run the relevant checks locally:
 
 ```bash
-# Run unit and integration tests
 npm test
-
-# Check code formatting with Prettier
-npm run format:check
-
-# Format code automatically
-npm run format
-
-# Run ESLint static analysis
 npm run lint
+npm run format:check
+npm audit --audit-level=high
+```
 
-# Run non-blocking latency and memory benchmarks
+The live preflight command (`npm run check`) requires valid provider credentials. Do not run it in CI or paste its output publicly without checking for sensitive data. The benchmark is optional:
+
+```bash
 npm run benchmark
 ```
 
----
+Automated tests should mock external services; do not make real Meta, Gemini, or other provider API calls in tests.
 
-## Commit Guidelines
+## Contribution expectations
 
-We enforce **Conventional Commits**:
+- Add or update tests for behavior changes and bug fixes.
+- Keep secrets out of source, logs, fixtures, and test output. Route operational logging through the project's privacy-safe logger and avoid logging message content or personal identifiers.
+- Preserve webhook authentication, authorization, input validation, rate limits, and privacy boundaries. Do not weaken production security checks to make tests pass.
+- Document new or changed commands and environment variables in the README and `.env.example`; state defaults accurately.
+- Keep dependencies and provider-specific claims current; explain new external services and their data flows.
+- Use clear, focused changes and follow the existing JavaScript/ESM style and Prettier/ESLint configuration.
 
-- `feat(scope): ...` for new capabilities
-- `fix(scope): ...` for bug fixes
-- `test(scope): ...` for test suite additions
-- `refactor(scope): ...` for architectural improvements without behavioral changes
-- `chore(scope): ...` for build scripts, CI, dependencies, or repo hygiene
-- `docs(scope): ...` for documentation updates
+## Pull requests
 
----
+1. Create a focused branch from `main`, for example `fix/reminder-default` or `feat/task-confirmation`.
+2. Describe the user impact, implementation, and any privacy or security implications.
+3. Link a related issue when applicable.
+4. Include tests and document any configuration changes.
+5. Complete the [pull request template](.github/pull_request_template.md) and wait for CI/review.
 
-## Pull Request Process
-
-1. Fork the repository and create your branch from `main`:
-   ```bash
-   git checkout -b feat/your-feature-name
-   ```
-2. Write unit tests for all new functions, endpoints, or tools in `tests/`.
-3. Verify that `npm test`, `npm run lint`, and `npm run format:check` pass cleanly.
-4. Open a pull request against `main` using the provided Pull Request Template.
+We use Conventional Commit-style prefixes where practical: `feat:`, `fix:`, `test:`, `refactor:`, `docs:`, and `chore:`.

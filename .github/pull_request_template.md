@@ -1,15 +1,21 @@
-## Description
+## Summary
+Describe what changed and why.
 
-Provide a concise explanation of what this pull request changes and why.
+## Related issue
+Closes #
 
-## Related Issues
+## Verification
+- [ ] Tests added or updated for behavior changes.
+- [ ] `npm test` passes.
+- [ ] `npm run lint` passes.
+- [ ] `npm run format:check` passes.
+- [ ] Relevant docs and `.env.example` updated for configuration or user-facing changes.
 
-Closes #(issue number)
+## Privacy and security review
+- [ ] No secrets, real phone numbers, private messages, or personal data are included in this PR.
+- [ ] Message content and credentials are not logged or persisted unexpectedly.
+- [ ] Webhook validation, authorization, rate limits, and media/input safeguards remain intact.
+- [ ] New external services, permissions, data flows, costs, and persistence behavior are documented.
 
-## Changes Checklist
-
-- [ ] Code follows project style guidelines (`npm run format:check`, `npm run lint`).
-- [ ] Unit tests added or updated for new functionality (`npm test`).
-- [ ] Zero message logging and privacy boundaries preserved.
-- [ ] Backward compatibility maintained for existing commands and environment variables.
-- [ ] Environment variables documented in `.env.example` and `README.md` (if applicable).
+## Notes for reviewers
+Mention any manual testing, migration, compatibility, or deployment considerations.
