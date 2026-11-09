@@ -28,6 +28,9 @@ Designed for zero cloud costs (**₹0 budget**), zero database maintenance, and 
 ## ✨ Key Features
 
 - **Google Gemini Integration:** Powered by Google Gemini (default `gemini-3.5-flash-lite`, configurable via `GEMINI_MODEL`) with automatic fallback failover (`GEMINI_FALLBACK_MODELS`) via the modern `@google/genai` SDK. Supports runtime model switching.
+- **🧠 Autonomous Fact & Preference Learner:** Automatically extracts personal facts, dietary preferences, constraints, preferred code languages, and corrections from natural conversation turns without requiring explicit commands. Features automatic contradiction resolution (e.g., location changes update seamlessly). Decoupled manual and auto quotas with toggle `/memory auto on` and `/memory auto off`.
+- **🔄 Workflow & Habit Sequence Learner:** Learns how the user works by detecting multi-step workflow patterns across sessions (e.g., reels -> menu & venue items -> to-do suggestions; error logs -> code fix -> explanation) and proactively optimizes responses to eliminate friction.
+- **💬 Human-Like WhatsApp Conversational Cadence:** Eliminates all robotic corporate AI fluff (zero "Certainly!", "As an AI...", or "Feel free to ask..."). Communicates naturally with warm, direct, bite-sized WhatsApp paragraphs (1-3 sentences), selective bolding, and human acknowledgments ("Got it", "On it", "Done").
 - **🔗 Smart Webpage & Article Summarizer:** Share any article or webpage URL to receive an instant, high-yield 3-5 bullet point executive summary with original titles and clickable links. Features strict SSRF protection and Open Graph metadata fallback for single-page applications.
 - **▶️ YouTube Video Intelligence & Summarizer:** Share any YouTube link (Standard, Shorts, Live Streams, or `youtu.be`) to receive an instant, structured summary with core thesis, key insights, and milestone topic timestamps parsed directly from video transcripts. Features resilient fallback to oEmbed metadata and Google Search Grounding when captions are unavailable or rate-limited.
 - **📸 Instagram Reel & Post Summarizer:** Share any Instagram Reel or Post link (`/reel/`, `/p/`, `/reels/`, `/share/`) to extract venue names, locations, recommended menu items, creator handles, and critical insights via Open Graph metadata paired with Google Search Grounding. Zero API tokens or logins required.
@@ -268,6 +271,7 @@ You can send these commands in your WhatsApp chat at any time:
 | `/persona [name]`       | Views or switches persona: `/persona coder`, `/persona tutor`, `/persona executive`, `/persona default`            |
 | `/language [code]`      | Sets preferred reply language (`/language hi` for Hindi, `ta`, `te`, `bn`, `es`, `fr`, or `/language auto`)        |
 | `/memory [add\|list]`   | Manages long-term personal facts and preferences (`/memory add ...`, `/memory list`, `/memory clear`)              |
+| `/memory auto <on\|off>`| Toggles autonomous conversational fact learning (`/memory auto on` or `/memory auto off`)                          |
 | `/export`               | Exports a full sanitized copy of your active session, to-dos, and preferences as a JSON document                   |
 | `/voice <on\|off>`      | Toggles audio voice note responses (or append `--voice` to any message)                                            |
 | `/remind <when> <task>` | Sets a reminder. Relative: `/remind 10m Call mom`, 24h: `/remind 18:30 Workout`, Date: `/remind 25-12 09:00 Party` |
@@ -373,6 +377,10 @@ c:\Users\PJ\Documents\WHATSAPP bot\
 │   ├── language.js          # Multilingual translation directives & user language preference store
 │   ├── memory.js            # Long-term personal fact memory & system prompt injection
 │   ├── export.js            # User data export generator delivering sanitized JSON via WhatsApp
+│   ├── auto-learner.js      # Autonomous user fact, preference, and constraint extractor
+│   ├── workflow-learner.js  # Recurring workflow habit detector and prompt directive synthesizer
+│   ├── youtube.js           # YouTube video transcript ingestion, oEmbed metadata, and timestamping
+│   ├── instagram.js         # Instagram Reel & Post extractor with Meta Open Graph crawler
 │   ├── whatsapp.js          # WhatsApp Cloud API client, message chunking, buttons, media I/O, templates
 │   ├── privacy.js           # Whitelist guard, Luhn PII redactor, in-memory store, zero-logging
 │   ├── image-gen.js         # Prompt detection, Pollinations client, Sharp corner crop

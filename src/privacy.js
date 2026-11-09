@@ -21,8 +21,13 @@ const userVoicePreferences = new Map();
 const recentLogsRing = [];
 const MAX_RECENT_LOGS = 50;
 
-// Salt generated at runtime; resets on every process restart to ensure non-linkability across restarts
+// Salt generated at runtime; fallback to RUNTIME_SALT if neither persistent env salt nor secret is present
 const RUNTIME_SALT = crypto.randomBytes(16).toString('hex');
+const PERSISTENT_SALT =
+  process.env.USER_PERSISTENCE_SALT ||
+  (config.WHATSAPP_APP_SECRET && config.WHATSAPP_APP_SECRET !== 'placeholder_app_secret'
+    ? crypto.createHash('sha256').update(config.WHATSAPP_APP_SECRET).digest('hex').substring(0, 32)
+    : RUNTIME_SALT);
 
 /**
  * Returns a non-reversible anonymized identifier for logging and internal session mapping.
@@ -36,7 +41,7 @@ export function getAnonymizedId(phoneNumber) {
     'u_' +
     crypto
       .createHash('sha256')
-      .update(normalized + RUNTIME_SALT)
+      .update(normalized + PERSISTENT_SALT)
       .digest('hex')
       .substring(0, 10)
   );
@@ -439,6 +444,8 @@ export function deleteUserData(anonId) {
   userVoicePreferences.delete(anonId);
   store.del(`voice:${anonId}`).catch(() => {});
   store.del(`ratelimit:${anonId}`).catch(() => {});
+  store.del(`user:memory:${anonId}`).catch(() => {});
+  store.del(`user:workflows:${anonId}`).catch(() => {});
   return resetConversation(anonId);
 }
 

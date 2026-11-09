@@ -50,7 +50,9 @@ import { checkAndIncrementUserQuota, recordGeminiDailyUsage, getUserQuotaReport 
 import { recordMessageMetric, recordErrorMetric, recordMediaBytes, recordGeminiMetric } from './metrics.js';
 import { messageQueue } from './queue.js';
 import { handleLanguageCommand } from './language.js';
-import { handleMemoryCommand } from './memory.js';
+import { handleMemoryCommand, clearUserMemory, addAutoMemoryFact } from './memory.js';
+import { clearLearnedWorkflows } from './workflow-learner.js';
+import { autoLearnFromTurn, extractDeterministicFacts } from './auto-learner.js';
 import { exportUserData } from './export.js';
 
 export { messageQueue };
@@ -817,9 +819,11 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   // 9d. Data Purge
   if (effectiveCommand === '/delete' || effectiveCommand === '/forget') {
     deleteUserData(anonId);
+    await clearUserMemory(anonId);
+    await clearLearnedWorkflows(anonId);
     await sendWhatsAppMessage(
       from,
-      `🗑️ *Data Purged:*\nAll temporary in-memory session data for your identifier has been completely wiped.`
+      `🗑️ *Data Purged:*\nAll temporary in-memory session data, learned habits, and personal memory have been completely wiped.`
     );
     recordMessageMetric('command', 'success');
     return;
@@ -1074,6 +1078,18 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     });
   }
 
+  // Fast Deterministic Learning: if user explicitly states a name, location, diet, or preference,
+  // learn it immediately so prompt context and response reflect it in this very turn!
+  if (messageType === 'text' && !cleanRawText.startsWith('/')) {
+    const immediateFacts = extractDeterministicFacts(sanitizedText);
+    for (const item of immediateFacts) {
+      await addAutoMemoryFact(anonId, item.fact, {
+        category: item.category,
+        confidence: item.confidence,
+      });
+    }
+  }
+
   // Check for webpage/article link summarization
   let articleHeader = null;
   const foundUrl =
@@ -1211,6 +1227,18 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   // 15b. Cleanup temporary Gemini Files API upload if one was created
   if (mediaPart?.geminiFileName) {
     deleteGeminiFile(mediaPart.geminiFileName).catch(() => {});
+  }
+
+  // 15c. Post-response autonomous habit & workflow learning (0ms added user latency)
+  if (config.NODE_ENV !== 'test') {
+    autoLearnFromTurn({
+      anonId,
+      userMessage: sanitizedText,
+      assistantReply: aiResponse,
+      messageType,
+    }).catch((err) => {
+      privacyLog('debug', 'POST_TURN_AUTONOMOUS_LEARN_ERROR', { error: err.message });
+    });
   }
 
   // 16. Synthesize & Send Voice Note Audio Reply if requested

@@ -7,6 +7,7 @@ import { getConversation, isVoiceReplyEnabled } from './privacy.js';
 import { getPersona, isSearchGroundingEnabled } from './gemini.js';
 import { getUserLanguage } from './language.js';
 import { listMemoryFacts } from './memory.js';
+import { listLearnedWorkflows } from './workflow-learner.js';
 import { listTodos } from './todos.js';
 import { listReminders } from './reminders.js';
 import { sendWhatsAppDocument, sendWhatsAppMessage } from './whatsapp.js';
@@ -36,6 +37,7 @@ export async function exportUserData(from, anonId) {
     todosSummary: listTodos(anonId),
     remindersSummary: listReminders(anonId),
     memorySummary: listMemoryFacts(anonId),
+    learnedWorkflows: listLearnedWorkflows(anonId),
   };
 
   const jsonString = JSON.stringify(exportPayload, null, 2);

@@ -34,6 +34,8 @@ import { executeToolCall } from '../src/tools/index.js';
 import { exportUserData } from '../src/export.js';
 import { extractYouTubeVideoId, fetchYouTubeMetadata, fetchYouTubeVideoData } from '../src/youtube.js';
 import { isInstagramUrl, extractInstagramShortcode, fetchInstagramPostData } from '../src/instagram.js';
+import { extractDeterministicFacts, autoLearnFromTurn } from '../src/auto-learner.js';
+import { recordUserInteraction, getLearnedWorkflowContext, clearLearnedWorkflows } from '../src/workflow-learner.js';
 
 const results = [];
 
@@ -604,6 +606,48 @@ async function runAllBenchmarks() {
     }
     await clearUserMemory(anon);
     return { info: `Fact successfully stored, recalled, and cleared (${context.length} chars)` };
+  });
+
+  await benchmark('Autonomous User Fact Learning & Contradiction Resolution', 'Auto-Learner', async () => {
+    const anon = 'u_bench_auto_learn';
+    await clearUserMemory(anon);
+    const turn1 = await autoLearnFromTurn({
+      anonId: anon,
+      userMessage: 'Call me PJ and I live in Bengaluru.',
+      _assistantReply: 'Hello PJ!',
+      messageType: 'text',
+    });
+    if (turn1.deterministicFactsLearned !== 2) throw new Error('Failed to extract facts in turn 1');
+
+    const turn2 = await autoLearnFromTurn({
+      anonId: anon,
+      userMessage: 'Actually, I moved to London last week.',
+      _assistantReply: 'Understood!',
+      messageType: 'text',
+    });
+    if (turn2.deterministicFactsLearned !== 1) throw new Error('Failed to extract updated location');
+
+    const ctx = getMemoryContext(anon);
+    if (!ctx.includes('PJ') || !ctx.includes('London') || ctx.includes('Bengaluru')) {
+      throw new Error(`Contradiction resolution failed in context: ${ctx}`);
+    }
+    await clearUserMemory(anon);
+    return { info: 'Successfully extracted identity, updated location, and resolved contradictions' };
+  });
+
+  await benchmark('Workflow Habit Recognition & Directive Context Compilation', 'Workflow Learner', async () => {
+    const anon = 'u_bench_workflow';
+    await clearLearnedWorkflows(anon);
+    await recordUserInteraction(anon, 'youtube_video', { url: 'https://youtu.be/test1' });
+    const res2 = await recordUserInteraction(anon, 'instagram_reel', { url: 'https://instagram.com/reel/test2' });
+    if (!res2.habitDetected) throw new Error('Habit was not detected on second media action');
+
+    const ctx = getLearnedWorkflowContext(anon);
+    if (!ctx.includes('LEARNED USER WORKFLOW DIRECTIVES') || !ctx.includes('actionable takeaways')) {
+      throw new Error('Workflow directive context compilation failed');
+    }
+    await clearLearnedWorkflows(anon);
+    return { info: `Habit detected: ${res2.habitName}, context compiled (${ctx.length} chars)` };
   });
 
   // --------------------------------------------------------------------------
