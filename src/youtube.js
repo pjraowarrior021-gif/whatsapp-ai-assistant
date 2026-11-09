@@ -25,16 +25,26 @@ export function extractYouTubeVideoId(input) {
     const host = parsed.hostname.toLowerCase();
 
     // Standard youtube.com domains
-    if (host === 'youtube.com' || host === 'www.youtube.com' || host === 'm.youtube.com') {
+    if (
+      host === 'youtube.com' ||
+      host === 'www.youtube.com' ||
+      host === 'm.youtube.com' ||
+      host === 'music.youtube.com' ||
+      host === 'youtube-nocookie.com' ||
+      host === 'www.youtube-nocookie.com'
+    ) {
       // 1. /watch?v=VIDEO_ID
       const v = parsed.searchParams.get('v');
       if (v && /^[a-zA-Z0-9_-]{11}$/.test(v)) {
         return v;
       }
 
-      // 2. /shorts/VIDEO_ID, /embed/VIDEO_ID, /v/VIDEO_ID
+      // 2. /shorts/VIDEO_ID, /embed/VIDEO_ID, /v/VIDEO_ID, /live/VIDEO_ID
       const pathParts = parsed.pathname.split('/').filter(Boolean);
-      if ((pathParts[0] === 'shorts' || pathParts[0] === 'embed' || pathParts[0] === 'v') && pathParts[1]) {
+      if (
+        (pathParts[0] === 'shorts' || pathParts[0] === 'embed' || pathParts[0] === 'v' || pathParts[0] === 'live') &&
+        pathParts[1]
+      ) {
         const id = pathParts[1].substring(0, 11);
         if (/^[a-zA-Z0-9_-]{11}$/.test(id)) {
           return id;
@@ -262,26 +272,16 @@ export async function fetchYouTubeVideoData(videoId, options = {}) {
 
     privacyLog('warn', 'YOUTUBE_TRANSCRIPT_UNAVAILABLE', { videoId, error: errMsg });
 
-    if (isNoTranscript) {
-      return {
-        ok: true,
-        videoId,
-        url: canonicalUrl,
-        title: metadata.title,
-        author: metadata.authorName,
-        hasTranscript: false,
-        reason: 'transcripts_disabled',
-      };
-    }
-
+    // Resilient fallback: instead of failing, return video metadata so Gemini can summarize via Google Search Grounding
     return {
-      ok: false,
+      ok: true,
       videoId,
       url: canonicalUrl,
       title: metadata.title,
       author: metadata.authorName,
+      hasTranscript: false,
+      reason: isNoTranscript ? 'transcripts_disabled' : 'fetch_error_fallback',
       error: errMsg,
-      reason: 'fetch_error',
     };
   }
 }

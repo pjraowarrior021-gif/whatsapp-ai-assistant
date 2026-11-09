@@ -18,6 +18,8 @@ test('YouTube: extractYouTubeVideoId parses all standard and short URL formats',
     { url: 'https://www.youtube.com/shorts/dQw4w9WgXcQ', expected: 'dQw4w9WgXcQ' },
     { url: 'https://m.youtube.com/watch?v=dQw4w9WgXcQ', expected: 'dQw4w9WgXcQ' },
     { url: 'https://www.youtube.com/embed/dQw4w9WgXcQ', expected: 'dQw4w9WgXcQ' },
+    { url: 'https://www.youtube.com/live/dQw4w9WgXcQ', expected: 'dQw4w9WgXcQ' },
+    { url: 'https://music.youtube.com/watch?v=dQw4w9WgXcQ', expected: 'dQw4w9WgXcQ' },
     { url: 'Can you summarize https://youtu.be/dQw4w9WgXcQ please?', expected: 'dQw4w9WgXcQ' },
   ];
 
@@ -97,6 +99,18 @@ test('YouTube: fetchYouTubeVideoData handles disabled transcripts gracefully', a
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.hasTranscript, false);
   assert.strictEqual(res.reason, 'transcripts_disabled');
+});
+
+test('YouTube: fetchYouTubeVideoData falls back gracefully when IP is rate limited (429)', async () => {
+  const mockFetcher = async () => {
+    throw new Error('Too Many Requests (429)');
+  };
+
+  const res = await fetchYouTubeVideoData('test_429', { fetcher: mockFetcher });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.hasTranscript, false);
+  assert.strictEqual(res.reason, 'fetch_error_fallback');
+  assert.ok(res.error.includes('429'));
 });
 
 test('YouTube: buildYouTubeAiPrompt builds prompt with transcript and timestamps', () => {

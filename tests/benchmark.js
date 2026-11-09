@@ -33,6 +33,7 @@ import { addMemoryFact, getMemoryContext, clearUserMemory } from '../src/memory.
 import { executeToolCall } from '../src/tools/index.js';
 import { exportUserData } from '../src/export.js';
 import { extractYouTubeVideoId, fetchYouTubeMetadata, fetchYouTubeVideoData } from '../src/youtube.js';
+import { isInstagramUrl, extractInstagramShortcode, fetchInstagramPostData } from '../src/instagram.js';
 
 const results = [];
 
@@ -358,6 +359,33 @@ async function runAllBenchmarks() {
     const data = await fetchYouTubeVideoData('dQw4w9WgXcQ');
     if (!data.ok || !data.hasTranscript) throw new Error('Transcript fetch failed');
     return { info: `Ingested ${data.transcriptText.length} chars of timestamped transcript for "${data.title}"` };
+  });
+
+  await benchmark('YouTube Shorts & Live Stream URL Resolver', 'YouTube Summarizer', async () => {
+    const shortsId = extractYouTubeVideoId('https://www.youtube.com/shorts/dQw4w9WgXcQ');
+    const liveId = extractYouTubeVideoId('https://www.youtube.com/live/dQw4w9WgXcQ');
+    if (shortsId !== 'dQw4w9WgXcQ' || liveId !== 'dQw4w9WgXcQ') throw new Error('Shorts/Live resolver failed');
+    return { info: `Resolved Shorts (${shortsId}) and Live (${liveId}) identifiers` };
+  });
+
+  // --------------------------------------------------------------------------
+  // Group: Instagram Reel & Post Intelligence
+  // --------------------------------------------------------------------------
+  await benchmark('Instagram Reel URL Parser & Shortcode Extractor', 'Instagram Intelligence', async () => {
+    const url = 'https://www.instagram.com/reel/DKn-PT1PMnr/?igsh=MXI4aWUwY29kcWRzMw==';
+    const isIg = isInstagramUrl(url);
+    const shortcode = extractInstagramShortcode(url);
+    if (!isIg || shortcode !== 'DKn-PT1PMnr') throw new Error('Instagram extraction failed');
+    return { info: `Extracted Reel shortcode "${shortcode}" from mobile share link` };
+  });
+
+  await benchmark('Instagram Reel Ingestion via Social Open Graph Crawler', 'Instagram Intelligence', async () => {
+    const url = 'https://www.instagram.com/reel/DKn-PT1PMnr/?igsh=MXI4aWUwY29kcWRzMw==';
+    const data = await fetchInstagramPostData(url);
+    if (!data.ok) throw new Error('Instagram ingestion failed');
+    return {
+      info: `Ingested ${data.isReel ? 'Reel' : 'Post'} by ${data.author} (${data.caption.length} chars caption)`,
+    };
   });
 
   // --------------------------------------------------------------------------

@@ -103,3 +103,54 @@ test('WebScraper: fetchAndExtractArticle safely parses article with mocked netwo
     globalThis.fetch = originalFetch;
   }
 });
+
+test('WebScraper: cleanHtml falls back to Open Graph description when body text is empty/short', () => {
+  const spaHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>SPA Dashboard</title>
+        <meta property="og:title" content="Viral Video Title - Creator &amp; Venue">
+        <meta property="og:description" content="This is an extensive description of the video with venue @spot and top culinary dishes &amp; tips.">
+      </head>
+      <body>
+        <div id="root"></div>
+      </body>
+    </html>
+  `;
+
+  const cleaned = cleanHtml(spaHtml);
+  assert.strictEqual(cleaned.title, 'Viral Video Title - Creator & Venue');
+  assert.ok(cleaned.text.includes('This is an extensive description of the video'));
+  assert.ok(cleaned.text.includes('venue @spot'));
+});
+
+test('WebScraper: fetchAndExtractArticle succeeds on JS SPA shell by extracting Open Graph meta description', async () => {
+  const originalFetch = globalThis.fetch;
+  const mockSpaHtml = `
+    <html>
+      <head>
+        <title>App Preview</title>
+        <meta property="og:description" content="Detailed overview of a new restaurant in Bengaluru with food recommendations and opening hours.">
+      </head>
+      <body><div id="app"></div></body>
+    </html>
+  `;
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get: (h) => (h.toLowerCase() === 'content-type' ? 'text/html' : null),
+    },
+    text: async () => mockSpaHtml,
+  });
+
+  try {
+    const result = await fetchAndExtractArticle('https://example.com/spa-post');
+    assert.strictEqual(result.ok, true);
+    assert.ok(result.text.includes('Detailed overview of a new restaurant in Bengaluru'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -44,6 +44,7 @@ import { scheduleReminder, listReminders, deleteReminder } from './reminders.js'
 import { addTodo, listTodos, markTodoDone, clearCompletedTodos } from './todos.js';
 import { extractUrl, fetchAndExtractArticle } from './web-scraper.js';
 import { extractYouTubeVideoId, fetchYouTubeVideoData, buildYouTubeAiPrompt } from './youtube.js';
+import { isInstagramUrl, fetchInstagramPostData, buildInstagramAiPrompt } from './instagram.js';
 import { synthesizeSpeech } from './tts.js';
 import { checkAndIncrementUserQuota, recordGeminiDailyUsage, getUserQuotaReport } from './quota.js';
 import { recordMessageMetric, recordErrorMetric, recordMediaBytes, recordGeminiMetric } from './metrics.js';
@@ -780,6 +781,7 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       `*Multimodal Capabilities:*`,
       `• 🔗 *Webpage Summaries:* Send any article or webpage URL for 3-5 bullet point takeaways.`,
       `• ▶️ *YouTube Summaries:* Paste any YouTube or Shorts link for key takeaways & topic timestamps.`,
+      `• 📸 *Instagram Summaries:* Paste any Instagram Reel or Post link for venue, dish, and creator highlights.`,
       `• 📍 *Location Intelligence:* Share a location pin for local snapshot, weather, and top spots.`,
       `• 📸 *Photos & Images:* Send screenshots, diagrams, or math problems for instant analysis.`,
       `• 🎙️ *Voice Notes:* Send audio voice notes for automatic transcription and answers.`,
@@ -1101,6 +1103,17 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       if (!videoData.hasTranscript) {
         forceGrounding = true;
       }
+    } else if (isInstagramUrl(foundUrl)) {
+      const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
+      const instaData = await fetchInstagramPostData(foundUrl);
+
+      effectivePrompt = buildInstagramAiPrompt(instaData, userPromptAside);
+      const mediaBadge = instaData.isReel ? 'Instagram Reel' : 'Instagram Post';
+      articleHeader = {
+        title: `📸 ${instaData.title || mediaBadge} (${instaData.author})`,
+        url: instaData.url,
+      };
+      forceGrounding = true; // Google search grounding retrieves up-to-date venue details, dishes, and reviews
     } else {
       const article = await fetchAndExtractArticle(foundUrl);
       if (!article.ok) {
@@ -1127,6 +1140,10 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
           `⚠️ *Webpage Error:* Failed to fetch webpage content (${article.reason || 'Could not load URL'}).`
         );
         return;
+      }
+
+      if (article.needsGrounding) {
+        forceGrounding = true;
       }
 
       const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
