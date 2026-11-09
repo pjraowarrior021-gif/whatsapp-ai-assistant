@@ -49,6 +49,17 @@ import { recordMessageMetric, recordErrorMetric, recordMediaBytes, recordGeminiM
 
 export const webhookRouter = express.Router();
 
+// Mount JSON body parser (with raw buffer capture for HMAC) and URL-encoded parser strictly on /webhook
+webhookRouter.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+    limit: '1mb',
+  })
+);
+webhookRouter.use(express.urlencoded({ extended: true }));
+
 // In-Memory cache for message deduplication (messageId -> timestamp)
 const processedMessageIds = new Map();
 const DEDUP_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -77,11 +88,7 @@ if (dedupInterval.unref) {
  * @returns {boolean}
  */
 export function verifyMetaSignature(rawBody, signatureHeader, appSecret) {
-  if (!appSecret) {
-    // If secret not configured in dev, signature check is disabled
-    return true;
-  }
-  if (!signatureHeader || !rawBody) {
+  if (!appSecret || !signatureHeader || !rawBody) {
     return false;
   }
 
@@ -145,13 +152,11 @@ webhookRouter.post('/', async (req, res) => {
   const requestId = crypto.randomUUID();
   const signature = req.headers['x-hub-signature-256'];
 
-  // 1. Signature Verification
-  // If SKIP_SIGNATURE_VERIFICATION is enabled or WHATSAPP_APP_SECRET is a boilerplate test placeholder,
-  // skip HMAC verification to prevent dropping real Meta webhooks when an app secret is not yet set.
-  const isPlaceholderSecret = config.WHATSAPP_APP_SECRET && config.WHATSAPP_APP_SECRET.includes('test_meta_app_secret');
-  const shouldSkipSig = Boolean(config.SKIP_SIGNATURE_VERIFICATION) || isPlaceholderSecret;
+  // 1. Signature Verification (Fail-closed)
+  // Only bypass during automated tests when explicitly set with SKIP_SIGNATURE_VERIFICATION
+  const shouldSkipSig = Boolean(config.SKIP_SIGNATURE_VERIFICATION) && config.NODE_ENV === 'test';
 
-  if (!shouldSkipSig && config.WHATSAPP_APP_SECRET) {
+  if (!shouldSkipSig) {
     const isValid = verifyMetaSignature(req.rawBody, signature, config.WHATSAPP_APP_SECRET);
     if (!isValid) {
       privacyLog('warn', 'INVALID_WEBHOOK_SIGNATURE', {
@@ -161,11 +166,6 @@ webhookRouter.post('/', async (req, res) => {
       recordErrorMetric('invalid_signature');
       return res.status(401).send('Unauthorized: Invalid HMAC signature.');
     }
-  } else if (isPlaceholderSecret) {
-    privacyLog('warn', 'HMAC_VERIFICATION_BYPASSED_PLACEHOLDER_SECRET', {
-      requestId,
-      note: 'WHATSAPP_APP_SECRET contains placeholder test_meta_app_secret. Update with your real Meta App Secret in production.',
-    });
   }
 
   // 2. Immediate 200 OK acknowledgment to Meta to prevent timeout/retry loop

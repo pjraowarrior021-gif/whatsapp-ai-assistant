@@ -64,6 +64,7 @@ export const config = {
   PORT: parseInt(process.env.PORT, 10) || 3000,
   NODE_ENV: process.env.NODE_ENV || 'development',
   LOG_FORMAT: process.env.LOG_FORMAT || 'text',
+  OPS_TOKEN: process.env.OPS_TOKEN || '',
 
   // Google Gemini AI Configuration
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
@@ -127,27 +128,44 @@ export function validateConfig() {
   if (!config.WHATSAPP_VERIFY_TOKEN) {
     errors.push('Missing WHATSAPP_VERIFY_TOKEN (custom verification token for webhook handshake).');
   }
-  if (!config.WHATSAPP_APP_SECRET) {
-    warnings.push(
-      'WHATSAPP_APP_SECRET is not set. Meta Webhook HMAC-SHA256 signature verification will be bypassed in dev mode.'
-    );
-  } else if (config.WHATSAPP_APP_SECRET.includes('test_meta_app_secret')) {
-    warnings.push(
-      'WHATSAPP_APP_SECRET is set to placeholder "test_meta_app_secret". HMAC signature verification is bypassed until your real Meta App Secret is configured in .env and Railway.'
-    );
+  // Meta App Secret Verification & Hardening
+  const isPlaceholderSecret =
+    !config.WHATSAPP_APP_SECRET ||
+    config.WHATSAPP_APP_SECRET.includes('test_meta_app_secret') ||
+    config.WHATSAPP_APP_SECRET.includes('your_meta_app_secret');
+
+  if (config.NODE_ENV === 'production') {
+    if (isPlaceholderSecret) {
+      errors.push(
+        'Missing or placeholder WHATSAPP_APP_SECRET. In production, a valid Meta App Secret is required to verify webhook HMAC signatures.'
+      );
+    }
+    if (config.SKIP_SIGNATURE_VERIFICATION) {
+      errors.push(
+        'CRITICAL: SKIP_SIGNATURE_VERIFICATION is enabled in production! Webhook HMAC validation must remain active.'
+      );
+    }
+  } else {
+    if (!config.WHATSAPP_APP_SECRET) {
+      warnings.push(
+        'WHATSAPP_APP_SECRET is not set. Meta Webhook HMAC-SHA256 signature verification will fail closed.'
+      );
+    } else if (isPlaceholderSecret) {
+      warnings.push(
+        'WHATSAPP_APP_SECRET is set to placeholder "test_meta_app_secret". HMAC signature verification will reject incoming webhooks until your real Meta App Secret is configured.'
+      );
+    }
+    if (config.SKIP_SIGNATURE_VERIFICATION && config.NODE_ENV !== 'test') {
+      warnings.push(
+        'SKIP_SIGNATURE_VERIFICATION is enabled outside of test environment! Webhook HMAC validation is inactive.'
+      );
+    }
   }
 
   // Access Control Warning
   if (config.ALLOWED_PHONE_NUMBERS.size === 0) {
     warnings.push(
       'ALLOWED_PHONE_NUMBERS is empty. All incoming messages will be rejected by default to prevent unauthorized access.'
-    );
-  }
-
-  // Security check for signature verification bypass
-  if (config.SKIP_SIGNATURE_VERIFICATION && config.NODE_ENV !== 'test') {
-    warnings.push(
-      'CRITICAL: SKIP_SIGNATURE_VERIFICATION is enabled outside of test environment! Webhook HMAC validation is inactive.'
     );
   }
 
@@ -202,6 +220,9 @@ export function getSafeConfigSummary() {
     timezone: {
       zone: config.TIMEZONE,
       offsetHours: config.TIMEZONE_OFFSET_HOURS,
+    },
+    ops: {
+      hasOpsToken: Boolean(config.OPS_TOKEN),
     },
     privacy: {
       authorizedNumbersCount: config.ALLOWED_PHONE_NUMBERS.size,

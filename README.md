@@ -284,6 +284,7 @@ You can send these commands in your WhatsApp chat at any time:
 | :-------------------------- | :------ | :------------------------- | :--------------------------------------------------------------------------------------------- |
 | `PORT`                      | Number  | `3000`                     | HTTP server listening port                                                                     |
 | `NODE_ENV`                  | String  | `development`              | Application environment (`development`, `production`, `test`)                                  |
+| `OPS_TOKEN`                 | String  | _Optional_                 | Secret bearer token required to authenticate `/metrics` and `/diagnostic` in production        |
 | `GEMINI_API_KEY`            | String  | _Required_                 | Google AI Studio Gemini API key                                                                |
 | `GEMINI_MODEL`              | String  | `gemini-3.5-flash-lite`    | Single primary Gemini model used for generation                                                |
 | `GEMINI_FALLBACK_MODELS`    | String  | `gemini-3.1-flash-lite...` | Comma-separated list of fallback Gemini model IDs                                              |

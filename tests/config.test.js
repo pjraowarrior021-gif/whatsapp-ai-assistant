@@ -34,7 +34,7 @@ test('Config: validateConfig returns validation status and warnings', () => {
   assert.ok(Array.isArray(result.warnings));
 });
 
-test('Config: validateConfig warns if SKIP_SIGNATURE_VERIFICATION is enabled outside test', () => {
+test('Config: validateConfig hard-fails in production if SKIP_SIGNATURE_VERIFICATION is enabled', () => {
   const originalEnv = config.NODE_ENV;
   const originalSkip = config.SKIP_SIGNATURE_VERIFICATION;
 
@@ -42,8 +42,31 @@ test('Config: validateConfig warns if SKIP_SIGNATURE_VERIFICATION is enabled out
   config.SKIP_SIGNATURE_VERIFICATION = true;
 
   const result = validateConfig();
-  assert.ok(result.warnings.some((w) => w.includes('SKIP_SIGNATURE_VERIFICATION')));
+  assert.strictEqual(result.valid, false);
+  assert.ok(result.errors.some((e) => e.includes('SKIP_SIGNATURE_VERIFICATION')));
 
   config.NODE_ENV = originalEnv;
   config.SKIP_SIGNATURE_VERIFICATION = originalSkip;
+});
+
+test('Config: validateConfig hard-fails in production when WHATSAPP_APP_SECRET is missing or placeholder', () => {
+  const originalEnv = config.NODE_ENV;
+  const originalSecret = config.WHATSAPP_APP_SECRET;
+
+  config.NODE_ENV = 'production';
+
+  // 1. Unset secret
+  config.WHATSAPP_APP_SECRET = '';
+  const resEmpty = validateConfig();
+  assert.strictEqual(resEmpty.valid, false);
+  assert.ok(resEmpty.errors.some((e) => e.includes('WHATSAPP_APP_SECRET')));
+
+  // 2. Placeholder secret
+  config.WHATSAPP_APP_SECRET = 'test_meta_app_secret_123';
+  const resPlaceholder = validateConfig();
+  assert.strictEqual(resPlaceholder.valid, false);
+  assert.ok(resPlaceholder.errors.some((e) => e.includes('WHATSAPP_APP_SECRET')));
+
+  config.NODE_ENV = originalEnv;
+  config.WHATSAPP_APP_SECRET = originalSecret;
 });

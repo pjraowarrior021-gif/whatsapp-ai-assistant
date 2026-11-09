@@ -1,6 +1,7 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import url from 'url';
+import crypto from 'crypto';
 import { config, validateConfig, getSafeConfigSummary } from './config.js';
 import { privacyLog, startSessionSweeper, getRecentLogs } from './privacy.js';
 import { getActiveModel } from './gemini.js';
@@ -11,6 +12,9 @@ import { initTodos } from './todos.js';
 
 export const app = express();
 
+// Security: Disable X-Powered-By fingerprinting header
+app.disable('x-powered-by');
+
 // Enable trust proxy for reverse proxies and tunnels (Cloudflare Tunnel, ngrok, Render)
 app.set('trust proxy', 1);
 
@@ -20,29 +24,48 @@ app.use((req, _res, next) => {
   next();
 });
 
-// 1. Preserve raw body buffer for HMAC-SHA256 webhook signature validation
-app.use(
-  express.json({
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-    limit: '1mb',
-  })
-);
-
-// 2. Parse URL-encoded bodies if needed
-app.use(express.urlencoded({ extended: true }));
-
-// 3. Security headers middleware (lightweight defense-in-depth)
+// Security headers middleware (lightweight defense-in-depth)
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'no-referrer');
+  if (config.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
   next();
 });
 
-// 4. Rate Limiting to protect against DoS attacks & abuse
+// Timing-safe authentication middleware for operational endpoints (/metrics, /diagnostic)
+export function requireOpsAuth(req, res, next) {
+  const opsToken = config.OPS_TOKEN;
+
+  if (opsToken) {
+    const authHeader = req.headers['authorization'] || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized: Missing or invalid Authorization header.' });
+    }
+    const token = authHeader.substring(7).trim();
+    const expectedBuf = Buffer.from(opsToken, 'utf-8');
+    const actualBuf = Buffer.from(token, 'utf-8');
+
+    if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid operational token.' });
+    }
+    return next();
+  }
+
+  // If OPS_TOKEN is not set
+  if (config.NODE_ENV === 'production') {
+    return res.status(401).json({
+      error: 'Unauthorized: Operational endpoints require OPS_TOKEN in production environment.',
+    });
+  }
+
+  next();
+}
+
+// Rate Limiting to protect against DoS attacks & abuse
 // Skips rate limiting for internal platform health checks and Prometheus metrics scrapers
 const limiter = rateLimit({
   windowMs: config.RATE_LIMIT_WINDOW_MS,
@@ -61,10 +84,10 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// 5. Mount WhatsApp Cloud API Webhook routes
+// Mount WhatsApp Cloud API Webhook routes
 app.use('/webhook', webhookRouter);
 
-// 6. Health Check Endpoint
+// Health Check Endpoint (Public unauthenticated probe)
 app.get('/health', (_req, res) => {
   res.status(200).json({
     status: 'healthy',
@@ -76,19 +99,20 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// 7. Safe Diagnostics Endpoint (Redacts all sensitive tokens)
-app.get('/diagnostic', (_req, res) => {
+// Safe Diagnostics Endpoint (Protected by OPS_TOKEN in production)
+app.get('/diagnostic', requireOpsAuth, (_req, res) => {
+  const isProduction = config.NODE_ENV === 'production';
   res.status(200).json({
     app: 'whatsapp-gemini-assistant',
     status: 'online',
     timestamp: new Date().toISOString(),
-    config: getSafeConfigSummary(),
+    config: isProduction && !config.OPS_TOKEN ? undefined : getSafeConfigSummary(),
     recentLogs: getRecentLogs(),
   });
 });
 
-// 8. Prometheus Metrics Endpoint
-app.get('/metrics', (_req, res) => {
+// Prometheus Metrics Endpoint (Protected by OPS_TOKEN in production)
+app.get('/metrics', requireOpsAuth, (_req, res) => {
   res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
   res.status(200).send(getPrometheusMetrics());
 });
@@ -172,9 +196,13 @@ if (isMainModule) {
   console.log('====================================================');
 
   if (!validation.valid) {
-    console.warn('\n⚠️  CONFIGURATION WARNINGS / MISSING KEYS:');
-    validation.errors.forEach((err) => console.warn(`   ❌ ${err}`));
+    console.error('\n❌ CONFIGURATION ERROR(S):');
+    validation.errors.forEach((err) => console.error(`   ❌ ${err}`));
     validation.warnings.forEach((warn) => console.warn(`   ⚠️  ${warn}`));
+    if (config.NODE_ENV === 'production') {
+      console.error('\n🛑 Fatal: Server refusing to start in production with invalid configuration.\n');
+      process.exit(1);
+    }
     console.log('\n👉 Update your .env file with your credentials.\n');
   } else {
     console.log('✅ Configuration validated successfully.');

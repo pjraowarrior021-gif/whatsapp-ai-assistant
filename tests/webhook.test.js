@@ -43,10 +43,13 @@ test('Webhook HMAC: verifyMetaSignature rejects tampered body or invalid signatu
   // Wrong secret
   assert.strictEqual(verifyMetaSignature(rawBody, validHeader, 'wrong_secret'), false);
 
-  // Malformed header
+  // Malformed header or empty secret (fail-closed)
   assert.strictEqual(verifyMetaSignature(rawBody, 'invalid_header', secret), false);
   assert.strictEqual(verifyMetaSignature(rawBody, '', secret), false);
   assert.strictEqual(verifyMetaSignature(null, validHeader, secret), false);
+  assert.strictEqual(verifyMetaSignature(rawBody, validHeader, ''), false);
+  assert.strictEqual(verifyMetaSignature(rawBody, validHeader, null), false);
+  assert.strictEqual(verifyMetaSignature(rawBody, validHeader, undefined), false);
 });
 
 import { resetUserRateLimit, getAnonymizedId } from '../src/privacy.js';
@@ -171,28 +174,111 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
     config.NODE_ENV = origEnv;
   });
 
-  await t.test(
-    'POST /webhook bypasses signature check when WHATSAPP_APP_SECRET is placeholder test_meta_app_secret',
-    async () => {
-      const origSecret = config.WHATSAPP_APP_SECRET;
-      config.WHATSAPP_APP_SECRET = 'test_meta_app_secret_1234567890';
+  await t.test('POST /webhook rejects invalid signature even when WHATSAPP_APP_SECRET is a placeholder', async () => {
+    const origSecret = config.WHATSAPP_APP_SECRET;
+    config.WHATSAPP_APP_SECRET = 'test_meta_app_secret_1234567890';
 
-      const body = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
-      const res = await fetch(`${baseUrl}/webhook`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-hub-signature-256': 'sha256=some_signature_from_meta',
-        },
-        body,
-      });
-      assert.strictEqual(res.status, 200);
-      const reply = await res.text();
-      assert.strictEqual(reply, 'EVENT_RECEIVED');
+    const body = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
+    const res = await fetch(`${baseUrl}/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-signature-256': 'sha256=invalid_signature_from_meta',
+      },
+      body,
+    });
+    assert.strictEqual(res.status, 401);
 
-      config.WHATSAPP_APP_SECRET = origSecret;
-    }
-  );
+    config.WHATSAPP_APP_SECRET = origSecret;
+  });
+
+  await t.test('POST /webhook rejects unsigned POST in production with 401', async () => {
+    const origEnv = config.NODE_ENV;
+    const origSecret = config.WHATSAPP_APP_SECRET;
+    config.NODE_ENV = 'production';
+    config.WHATSAPP_APP_SECRET = 'real_production_secret_12345';
+
+    const body = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
+    const res = await fetch(`${baseUrl}/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body,
+    });
+    assert.strictEqual(res.status, 401);
+
+    config.NODE_ENV = origEnv;
+    config.WHATSAPP_APP_SECRET = origSecret;
+  });
+
+  await t.test('GET /metrics returns 401 without token in production, 200 with token', async () => {
+    const origEnv = config.NODE_ENV;
+    const origToken = config.OPS_TOKEN;
+
+    config.NODE_ENV = 'production';
+    config.OPS_TOKEN = 'secret_ops_token_xyz_987';
+
+    // 1. Without Authorization header in production -> 401
+    const resNoAuth = await fetch(`${baseUrl}/metrics`);
+    assert.strictEqual(resNoAuth.status, 401);
+
+    // 2. With wrong token -> 401
+    const resWrongAuth = await fetch(`${baseUrl}/metrics`, {
+      headers: { Authorization: 'Bearer wrong_token' },
+    });
+    assert.strictEqual(resWrongAuth.status, 401);
+
+    // 3. With correct token -> 200
+    const resAuth = await fetch(`${baseUrl}/metrics`, {
+      headers: { Authorization: 'Bearer secret_ops_token_xyz_987' },
+    });
+    assert.strictEqual(resAuth.status, 200);
+
+    // 4. In production without OPS_TOKEN configured -> 401
+    config.OPS_TOKEN = '';
+    const resProdNoOps = await fetch(`${baseUrl}/metrics`);
+    assert.strictEqual(resProdNoOps.status, 401);
+
+    config.NODE_ENV = origEnv;
+    config.OPS_TOKEN = origToken;
+  });
+
+  await t.test('GET /diagnostic respects OPS_TOKEN in production', async () => {
+    const origEnv = config.NODE_ENV;
+    const origToken = config.OPS_TOKEN;
+
+    config.NODE_ENV = 'production';
+    config.OPS_TOKEN = 'secret_ops_token_xyz_987';
+
+    // 1. Without token in production -> 401
+    const resNoAuth = await fetch(`${baseUrl}/diagnostic`);
+    assert.strictEqual(resNoAuth.status, 401);
+
+    // 2. With token in production -> 200
+    const resAuth = await fetch(`${baseUrl}/diagnostic`, {
+      headers: { Authorization: 'Bearer secret_ops_token_xyz_987' },
+    });
+    assert.strictEqual(resAuth.status, 200);
+    const data = await resAuth.json();
+    assert.strictEqual(data.status, 'online');
+    assert.ok(data.config);
+
+    config.NODE_ENV = origEnv;
+    config.OPS_TOKEN = origToken;
+  });
+
+  await t.test('Security headers: X-Powered-By is disabled and HSTS header set in production', async () => {
+    const origEnv = config.NODE_ENV;
+    config.NODE_ENV = 'production';
+
+    const res = await fetch(`${baseUrl}/health`);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.headers.get('x-powered-by'), null);
+    assert.ok(res.headers.get('strict-transport-security')?.includes('max-age=31536000'));
+
+    config.NODE_ENV = origEnv;
+  });
 
   // 5. Test incoming webhook with authorized /help command
   await t.test('POST /webhook handles incoming WhatsApp message payload and triggers commands', async () => {
