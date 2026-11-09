@@ -10,8 +10,8 @@ import { privacyLog } from './privacy.js';
  */
 const todoStore = new Map();
 
-const PERSISTENCE_DIR = path.resolve('.data');
-const PERSISTENCE_FILE = path.join(PERSISTENCE_DIR, 'todos.json');
+const getPersistenceDir = () => config.DATA_DIR || path.resolve('.data');
+const getPersistenceFile = () => path.join(getPersistenceDir(), 'todos.json');
 
 /**
  * Loads persisted todos from disk on startup if REMINDERS_PERSIST is enabled.
@@ -20,8 +20,9 @@ export function initTodos() {
   if (!config.REMINDERS_PERSIST) return;
 
   try {
-    if (!fs.existsSync(PERSISTENCE_FILE)) return;
-    const raw = fs.readFileSync(PERSISTENCE_FILE, 'utf-8');
+    const file = getPersistenceFile();
+    if (!fs.existsSync(file)) return;
+    const raw = fs.readFileSync(file, 'utf-8');
     const parsed = JSON.parse(raw);
 
     if (Array.isArray(parsed)) {
@@ -51,8 +52,10 @@ export function persistTodos() {
   if (!config.REMINDERS_PERSIST) return;
 
   try {
-    if (!fs.existsSync(PERSISTENCE_DIR)) {
-      fs.mkdirSync(PERSISTENCE_DIR, { recursive: true });
+    const dir = getPersistenceDir();
+    const file = getPersistenceFile();
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
 
     const flatList = [];
@@ -68,9 +71,9 @@ export function persistTodos() {
       }
     }
 
-    const tmpPath = `${PERSISTENCE_FILE}.tmp.${Date.now()}`;
+    const tmpPath = `${file}.tmp.${Date.now()}`;
     fs.writeFileSync(tmpPath, JSON.stringify(flatList, null, 2), 'utf-8');
-    fs.renameSync(tmpPath, PERSISTENCE_FILE);
+    fs.renameSync(tmpPath, file);
   } catch (err) {
     privacyLog('warn', 'TODOS_PERSIST_FAILED', { error: err.message });
   }

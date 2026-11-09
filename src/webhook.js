@@ -46,7 +46,9 @@ import { extractUrl, fetchAndExtractArticle } from './web-scraper.js';
 import { synthesizeSpeech } from './tts.js';
 import { checkAndIncrementUserQuota, recordGeminiDailyUsage, getUserQuotaReport } from './quota.js';
 import { recordMessageMetric, recordErrorMetric, recordMediaBytes, recordGeminiMetric } from './metrics.js';
+import { messageQueue } from './queue.js';
 
+export { messageQueue };
 export const webhookRouter = express.Router();
 
 // Mount JSON body parser (with raw buffer capture for HMAC) and URL-encoded parser strictly on /webhook
@@ -198,13 +200,18 @@ webhookRouter.post('/', async (req, res) => {
         }
 
         for (const message of messages) {
-          privacyLog('info', 'PROCESSING_INCOMING_MESSAGE', {
+          privacyLog('info', 'ENQUEUEING_INCOMING_MESSAGE', {
             requestId,
             id: message.id,
             type: message.type,
             fromEnding: message.from ? message.from.slice(-4) : 'unknown',
           });
-          await handleIncomingMessage(message, requestId);
+          messageQueue.push({
+            message,
+            requestId,
+            to: message.from,
+            anonId: getAnonymizedId(message.from),
+          });
         }
       }
     }
@@ -308,7 +315,7 @@ export function normalizeCommand(text, hasMedia = false) {
  * @param {object} message - WhatsApp message payload object
  * @param {string} requestId - Traceable request identifier
  */
-async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
+export async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
   const messageId = message.id;
   const from = message.from;
   const messageType = message.type;
@@ -1093,3 +1100,8 @@ async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
     }
   }
 }
+
+// Wire the in-process work queue to the incoming message handler
+messageQueue.setHandler(async ({ message, requestId }) => {
+  await handleIncomingMessage(message, requestId);
+});

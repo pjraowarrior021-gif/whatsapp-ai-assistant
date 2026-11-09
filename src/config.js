@@ -99,14 +99,21 @@ export const config = {
   // Storage & State Configuration
   STATE_BACKEND: process.env.STATE_BACKEND || (process.env.REDIS_URL ? 'redis' : 'memory'),
   REDIS_URL: process.env.REDIS_URL || '',
+  DATA_DIR: process.env.DATA_DIR || path.resolve(__dirname, '../.data'),
 
   // Quotas & Reminders
   MAX_REQUESTS_PER_USER_PER_DAY: parseInt(process.env.MAX_REQUESTS_PER_USER_PER_DAY, 10) || 200,
   MAX_GEMINI_REQUESTS_PER_DAY: parseInt(process.env.MAX_GEMINI_REQUESTS_PER_DAY, 10) || 1400,
-  REMINDERS_PERSIST: process.env.REMINDERS_PERSIST === 'true',
+  REMINDERS_PERSIST: process.env.REMINDERS_PERSIST !== 'false',
   TIMEZONE: process.env.TZ || 'Asia/Kolkata',
   TIMEZONE_OFFSET_HOURS:
     process.env.TIMEZONE_OFFSET_HOURS !== undefined ? parseFloat(process.env.TIMEZONE_OFFSET_HOURS) : 5.5,
+
+  // Message Queue & Concurrency
+  MESSAGE_CONCURRENCY: parseInt(process.env.MESSAGE_CONCURRENCY, 10) || 4,
+  QUEUE_MAX_RETRIES: parseInt(process.env.QUEUE_MAX_RETRIES, 10) || 3,
+  QUEUE_MAX_SIZE: parseInt(process.env.QUEUE_MAX_SIZE, 10) || 1000,
+  SHUTDOWN_TIMEOUT_MS: parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 10000,
 };
 
 /**
@@ -231,6 +238,13 @@ export function getSafeConfigSummary() {
     state: {
       backend: config.STATE_BACKEND,
       hasRedisUrl: Boolean(config.REDIS_URL),
+      dataDir: config.DATA_DIR,
+    },
+    queue: {
+      concurrency: config.MESSAGE_CONCURRENCY,
+      maxRetries: config.QUEUE_MAX_RETRIES,
+      maxSize: config.QUEUE_MAX_SIZE,
+      shutdownTimeoutMs: config.SHUTDOWN_TIMEOUT_MS,
     },
     privacy: {
       authorizedNumbersCount: config.ALLOWED_PHONE_NUMBERS.size,

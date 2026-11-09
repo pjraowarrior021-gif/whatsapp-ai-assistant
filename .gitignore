@@ -32,7 +32,8 @@ desktop.ini
 *.sublime-project
 *.sublime-workspace
 
-# Temporary files
+# Temporary & Persistent local runtime data
 tmp/
 temp/
 scratch/
+.data/

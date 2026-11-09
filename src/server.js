@@ -12,6 +12,7 @@ import { initTodos } from './todos.js';
 import { initQuotas } from './quota.js';
 import { initPrivacyStore } from './privacy.js';
 import { initGeminiStore } from './gemini.js';
+import { messageQueue } from './queue.js';
 
 export const app = express();
 
@@ -235,9 +236,16 @@ if (isMainModule) {
   });
 
   // Graceful shutdown
-  const handleShutdown = (signal) => {
+  const handleShutdown = async (signal) => {
     console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
     if (sweeperInterval) clearInterval(sweeperInterval);
+    try {
+      console.log('⏳ Draining in-process message queue...');
+      await messageQueue.drain(config.SHUTDOWN_TIMEOUT_MS);
+      console.log('✅ Message queue drained.');
+    } catch (drainErr) {
+      console.warn('⚠️ Queue drain encountered an error:', drainErr.message);
+    }
     stopReminders();
     if (serverInstance) {
       serverInstance.close(() => {

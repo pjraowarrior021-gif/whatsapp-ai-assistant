@@ -13,8 +13,8 @@ import { sendWhatsAppMessage } from './whatsapp.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DATA_DIR = path.resolve(__dirname, '../.data');
-const REMINDERS_FILE = path.join(DATA_DIR, 'reminders.json');
+const getDataDir = () => config.DATA_DIR || path.resolve(__dirname, '../.data');
+const getRemindersFile = () => path.join(getDataDir(), 'reminders.json');
 
 const MAX_REMINDERS_PER_USER = 20;
 const MAX_REMINDER_TEXT_LENGTH = 500;
@@ -132,8 +132,10 @@ function savePersistedReminders() {
   if (!config.REMINDERS_PERSIST) return;
 
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    const dataDir = getDataDir();
+    const remindersFile = getRemindersFile();
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
     }
 
     const serializable = Array.from(activeReminders.values()).map((r) => ({
@@ -144,9 +146,9 @@ function savePersistedReminders() {
       targetTimeMs: r.targetTimeMs,
     }));
 
-    const tmpPath = `${REMINDERS_FILE}.${Date.now()}.tmp`;
+    const tmpPath = `${remindersFile}.${Date.now()}.tmp`;
     fs.writeFileSync(tmpPath, JSON.stringify(serializable, null, 2), 'utf-8');
-    fs.renameSync(tmpPath, REMINDERS_FILE);
+    fs.renameSync(tmpPath, remindersFile);
   } catch (err) {
     privacyLog('error', 'REMINDERS_PERSIST_SAVE_FAILED', { error: err.message });
   }
@@ -159,8 +161,9 @@ function loadPersistedReminders() {
   if (!config.REMINDERS_PERSIST) return;
 
   try {
-    if (fs.existsSync(REMINDERS_FILE)) {
-      const data = fs.readFileSync(REMINDERS_FILE, 'utf-8');
+    const remindersFile = getRemindersFile();
+    if (fs.existsSync(remindersFile)) {
+      const data = fs.readFileSync(remindersFile, 'utf-8');
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
