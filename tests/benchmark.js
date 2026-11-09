@@ -26,6 +26,12 @@ import { extractTextFromPptx, extractTextFromDocx, extractTextFromXlsx, isDocume
 import AdmZip from 'adm-zip';
 import { verifyMetaSignature } from '../src/webhook.js';
 import { app } from '../src/server.js';
+import { store } from '../src/store/index.js';
+import { messageQueue } from '../src/queue.js';
+import { setUserLanguage, getUserLanguage, getLanguageInstruction } from '../src/language.js';
+import { addMemoryFact, getMemoryContext, clearUserMemory } from '../src/memory.js';
+import { executeToolCall } from '../src/tools/index.js';
+import { exportUserData } from '../src/export.js';
 
 const results = [];
 
@@ -492,6 +498,90 @@ async function runAllBenchmarks() {
     return { info: `Constructed interactive list menu payload` };
   });
 
+  // --------------------------------------------------------------------------
+  // Group: Durable State & Storage Interface
+  // --------------------------------------------------------------------------
+  await benchmark('Pluggable Store Key-Value Operations (Set -> Get -> Incr -> Keys)', 'Durable State', async () => {
+    const testKey = `bench:key:${Date.now()}`;
+    await store.set(testKey, 'initial_val');
+    const val = await store.get(testKey);
+    if (val !== 'initial_val') throw new Error('Store get returned unexpected value');
+    const counterKey = `bench:count:${Date.now()}`;
+    const count = await store.incr(counterKey);
+    if (count !== 1) throw new Error('Store incr failed');
+    const keys = await store.keys('bench:*');
+    await store.del(testKey);
+    await store.del(counterKey);
+    return { info: `Store operations verified across ${keys.length} temporary keys` };
+  });
+
+  // --------------------------------------------------------------------------
+  // Group: Queue & Concurrency Management
+  // --------------------------------------------------------------------------
+  await benchmark('Message Work Queue Enqueue, Processing & Metrics', 'Queue & Concurrency', async () => {
+    const pushed = messageQueue.push({
+      message: { from: testPhone, id: `bench_msg_${Date.now()}`, type: 'text', text: { body: '/help' } },
+      requestId: `bench_req_${Date.now()}`,
+      anonId: testAnonId,
+    });
+    if (!pushed) throw new Error('Queue push failed');
+    const stats = messageQueue.getStats();
+    return {
+      info: `Queue processed job: concurrency=${stats.concurrency}, active=${stats.active}, enqueued=${stats.enqueued}`,
+    };
+  });
+
+  // --------------------------------------------------------------------------
+  // Group: Multilingual Engine
+  // --------------------------------------------------------------------------
+  await benchmark('Multilingual Preference & System Directive Generation', 'Multilingual Engine', async () => {
+    const anon = testAnonId;
+    await setUserLanguage(anon, 'es');
+    const lang = getUserLanguage(anon);
+    const directive = getLanguageInstruction(lang);
+    if (!directive.includes('Spanish') && !directive.includes('Español')) {
+      throw new Error('Directive does not include Spanish instruction');
+    }
+    await setUserLanguage(anon, 'auto');
+    return { info: `Language configured to ${lang}, directive generated (${directive.length} chars)` };
+  });
+
+  // --------------------------------------------------------------------------
+  // Group: Personal Memory
+  // --------------------------------------------------------------------------
+  await benchmark('Personal Long-Term Fact Memory Storage & Retrieval', 'Personal Memory', async () => {
+    const anon = testAnonId;
+    await addMemoryFact(anon, 'User prefers dark mode and concise summaries');
+    const context = getMemoryContext(anon);
+    if (!context || !context.includes('dark mode')) {
+      throw new Error('Memory context did not return stored fact');
+    }
+    await clearUserMemory(anon);
+    return { info: `Fact successfully stored, recalled, and cleared (${context.length} chars)` };
+  });
+
+  // --------------------------------------------------------------------------
+  // Group: Agentic Function Calling Tools
+  // --------------------------------------------------------------------------
+  await benchmark('Agentic Tool Calling Dispatcher (Time & Weather)', 'Agentic Tools', async () => {
+    const timeRes = await executeToolCall('get_current_time', { timezone: 'Asia/Kolkata' }, { anonId: testAnonId });
+    if (!timeRes.current_time || !timeRes.iso) throw new Error('Time tool failed');
+    const weatherRes = await executeToolCall('get_current_weather', { location: 'Tokyo' }, { anonId: testAnonId });
+    if (!weatherRes.location) throw new Error('Weather tool failed');
+    return {
+      info: `Time returned ${timeRes.current_time} (${timeRes.timezone}), Weather returned ${weatherRes.location}`,
+    };
+  });
+
+  // --------------------------------------------------------------------------
+  // Group: User Data Portability & Export
+  // --------------------------------------------------------------------------
+  await benchmark('User Data Export Compilation (GDPR / DPDP Compliance)', 'Data Export', async () => {
+    const exportData = await exportUserData(testPhone, testAnonId);
+    if (!exportData || !exportData.success) throw new Error('Export payload invalid');
+    return { info: `Export completed successfully: ${exportData.message.substring(0, 60)}...` };
+  });
+
   // Start temporary local server to test live HTTP endpoints
   const serverPort = 3999;
   const server = app.listen(serverPort, '127.0.0.1');
@@ -519,6 +609,18 @@ async function runAllBenchmarks() {
       if (res.status !== 200) throw new Error(`Status ${res.status}`);
       const text = await res.text();
       return { info: `Prometheus text payload: ${text.length} bytes` };
+    });
+
+    await benchmark('GET /admin Dashboard Latency (Token-Gated)', 'HTTP Endpoints', async () => {
+      const token = config.METRICS_AUTH_TOKEN || '';
+      const url = token
+        ? `http://127.0.0.1:${serverPort}/admin?token=${encodeURIComponent(token)}`
+        : `http://127.0.0.1:${serverPort}/admin`;
+      const res = await fetch(url);
+      if (res.status !== 200) throw new Error(`Admin returned status ${res.status}`);
+      const html = await res.text();
+      if (!html.includes('Operational Admin Dashboard')) throw new Error('Admin HTML response missing heading');
+      return { info: `Admin dashboard rendered HTML (${html.length} bytes)` };
     });
 
     await benchmark('POST /webhook Complete Pipeline (Text -> Routing -> 200 OK)', 'HTTP Endpoints', async () => {
