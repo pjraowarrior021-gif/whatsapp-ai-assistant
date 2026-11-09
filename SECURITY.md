@@ -10,13 +10,13 @@ This document details the security model, privacy safeguards, and architectural 
 >
 > ### Crucial Security Disclosure: The Complete System is NOT End-to-End Encrypted
 >
-> While traditional WhatsApp person-to-person chats use the Signal protocol for end-to-end encryption (E2EE), **using the official WhatsApp Cloud API and Google Gemini API changes the security boundary:**
+> While traditional WhatsApp person-to-person chats use the Signal protocol for end-to-end encryption (E2EE), **using the official WhatsApp Cloud API and Google Gemini API changes the security boundary**.
 >
 > 1. **Meta Infrastructure:** Messages sent to this chatbot pass through Meta's WhatsApp Cloud API servers, where they are decrypted to be routed via Webhooks.
 > 2. **Application Server:** Our Node.js backend receives the message via HTTPS, verifies the HMAC signature, applies redaction, and passes the prompt to Google Gemini.
 > 3. **Google Infrastructure:** Google's Gemini API servers receive the prompt to run neural inference and generate the response.
 >
-> **Transport Encryption (TLS 1.3 / HTTPS)** protects your data in transit between your WhatsApp client, Meta servers, your backend, and Google's servers. However, **application-level processing occurs within Meta's and Google's cloud infrastructure**. Do not assume that your messages remain hidden from these platform providers.
+> **Transport Encryption (TLS 1.3 / HTTPS)** protects your data in transit between your WhatsApp client, Meta servers, your backend, and Google's servers. However, **application-level processing and AI inference are not end-to-end encrypted across all systems**.
 
 ---
 
@@ -55,7 +55,7 @@ This document details the security model, privacy safeguards, and architectural 
 - **Process Restart Wipe:** When the server restarts, all in-memory sessions and the internal anonymization salt are irreversibly destroyed.
 - **Single Opt-In Disk Exception (Scheduled Reminders & To-Dos):**
   - By default (`REMINDERS_PERSIST=false`), scheduled reminders and to-do lists are stored strictly in volatile RAM.
-  - When explicitly enabled (`REMINDERS_PERSIST=true`), pending reminders and active to-do items are persisted atomically to `.data/reminders.json` and `.data/todos.json` so users do not miss scheduled tasks across deployments.
+  - When explicitly enabled (`REMINDERS_PERSIST=true`), pending reminders and active to-do items are persisted atomically to `.data/reminders.json` and `.data/todos.json` so users do not miss scheduled tasks.
   - No conversation history, tokens, or personal identifiers are written to these files.
 
 ### B. Data Minimization & Sanitization
@@ -87,7 +87,7 @@ This document details the security model, privacy safeguards, and architectural 
   - When enabled (`/search on` or dynamic location queries), search queries derived from user prompts are executed against Google Search to ground responses in fresh web knowledge.
   - Up to 3 sources are formatted into WhatsApp markdown links with citations.
 - **Quoted-Reply Memory:**
-  - Recent incoming messages are stored in an in-memory sliding cache (`Map<wamid, text>`) with a maximum capacity of 200 items and a 10-minute TTL to provide contextual grounding for WhatsApp reply threads.
+  - Recent incoming messages are stored in an in-memory sliding cache (`Map<wamid, text>`) with a maximum capacity of 200 items and a 10-minute TTL to provide contextual grounding for WhatsApp replies.
 
 ### D. Zero-Content Logging
 
@@ -102,17 +102,17 @@ This document details the security model, privacy safeguards, and architectural 
 
 ## 3. Threat Model & Mitigations
 
-| Threat                                 | Risk Level | Mitigation in Code                                                                                                                                                                         |
-| :------------------------------------- | :--------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Server-Side Request Forgery (SSRF)** | Critical   | Pre-fetch URL parsing in `src/web-scraper.js` strictly blocks private RFC1918 ranges, loopback addresses (`127.0.0.1`, `localhost`), and cloud metadata (`169.254.169.254`).               |
-| **Spoofed Webhook Requests**           | High       | `x-hub-signature-256` HMAC-SHA256 verification using Meta App Secret with `crypto.timingSafeEqual` prevents forged or tampered webhook deliveries. Length mismatches are rejected early.   |
-| **Verify Token Brute-Force**           | High       | Webhook challenge verification compares `hub.verify_token` against `WHATSAPP_VERIFY_TOKEN` strictly using `crypto.timingSafeEqual`. Legacy token bypasses removed.                         |
-| **Slowloris & Resource Exhaustion**    | High       | Media downloads enforce an `AbortSignal.timeout(15000)` and stream-read with a hard `MEDIA_MAX_BYTES` cap (default 16MB) before buffering.                                                 |
-| **Per-User Spam & DoS**                | High       | Dual-tier rate limiting: Global `express-rate-limit` plus per-user sliding window limiter (`USER_RATE_LIMIT_MAX` / `USER_RATE_LIMIT_WINDOW_MS`) and daily quotas (`USER_DAILY_QUOTA_MAX`). |
-| **Unauthorized Bot Usage**             | High       | Whitelist enforcement via `ALLOWED_PHONE_NUMBERS`. Senders not in the whitelist are rejected immediately.                                                                                  |
-| **Replay / Duplicate Messages**        | Medium     | Deduplication cache tracks processed WhatsApp message IDs (`wamid.*`) with a 5-minute auto-expiry window.                                                                                  |
-| **Credential / Key Leakage**           | High       | Secrets stored strictly in `.env` (gitignored). Safe masking in diagnostics (`AIz***xyz`). Sanitized error messages strip keys from stack traces.                                          |
-| **Accidental PII Ingestion by AI**     | Medium     | Client-side sanitization layer strips detected credit cards (Luhn-verified), PINs, and password strings before sending payload to Google.                                                  |
+| Threat                                 | Risk Level | Mitigation in Code                                                                                                                         |
+| :------------------------------------- | :--------- | :------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Server-Side Request Forgery (SSRF)** | Critical   | Pre-fetch URL parsing in `src/web-scraper.js` strictly blocks private RFC1918 ranges, loopback addresses (`127.0.0.1`, `localhost`), and cloud metadata IPs. |
+| **Spoofed Webhook Requests**           | High       | `x-hub-signature-256` HMAC-SHA256 verification using Meta App Secret with `crypto.timingSafeEqual` prevents forged or tampered webhook deliveries. |
+| **Verify Token Brute-Force**           | High       | Webhook challenge verification compares `hub.verify_token` against `WHATSAPP_VERIFY_TOKEN` strictly using `crypto.timingSafeEqual`. |
+| **Slowloris & Resource Exhaustion**    | High       | Media downloads enforce strict size and timeout caps before buffering. |
+| **Per-User Spam & DoS**                | High       | Dual-tier rate limiting: Global `express-rate-limit` plus per-user sliding window limiter. |
+| **Unauthorized Bot Usage**             | High       | Whitelist enforcement via `ALLOWED_PHONE_NUMBERS`. Senders not in the whitelist are rejected immediately. |
+| **Replay / Duplicate Messages**        | Medium     | Deduplication cache tracks processed WhatsApp message IDs (`wamid.*`) with a 5-minute auto-expiry window. |
+| **Credential / Key Leakage**           | High       | Secrets stored strictly in `.env` (gitignored). Safe masking in diagnostics. |
+| **Accidental PII Ingestion by AI**     | Medium     | Client-side sanitization layer strips detected credit cards (Luhn-validated), PINs, and password strings before sending payload to Google. |
 
 ---
 
@@ -134,4 +134,14 @@ This document details the security model, privacy safeguards, and architectural 
 If you identify a vulnerability in this project:
 
 1. Please do not open a public issue on GitHub.
-2. Review the code locally and fix the defect following the zero-bypass protocol.
+2. Report it privately through the repository's GitHub Security Advisories page: `Security` -> `Report a vulnerability`.
+3. If you cannot access GitHub Security Advisories, reach out through a private maintainer channel and wait for triage before discussing it publicly.
+4. Do not disclose the issue publicly until a fix is available and the maintainers have confirmed the disclosure plan.
+
+---
+
+## 6. Responsible Disclosure Expectations
+
+- We appreciate responsible disclosure and will triage security reports promptly.
+- Once verified, maintainers will work to fix the issue and coordinate a public disclosure if needed.
+- For non-sensitive questions or general feedback, public issues are welcome.
