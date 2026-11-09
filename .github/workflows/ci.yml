@@ -29,11 +29,38 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Security audit dependencies
+        run: npm audit --audit-level=high
+
       - name: Check code formatting
         run: npm run format:check
 
       - name: Run ESLint
         run: npm run lint
 
-      - name: Run Test Suite
-        run: npm test
+      - name: Run Test Suite with Coverage
+        run: node --test --experimental-test-coverage tests/**/*.test.js
+        env:
+          NODE_ENV: test
+          SKIP_SIGNATURE_VERIFICATION: 'true'
+
+      - name: Run Performance Benchmark (non-blocking)
+        run: npm run benchmark
+        continue-on-error: true
+
+  docker-build:
+    name: Verify Docker Container Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: whatsapp-ai-assistant:test

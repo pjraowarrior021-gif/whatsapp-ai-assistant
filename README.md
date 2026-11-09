@@ -264,6 +264,9 @@ You can send these commands in your WhatsApp chat at any time:
 | `/done <id>`            | Marks a task as completed                                                                                          |
 | `/clear_todos`          | Clears all completed to-do items                                                                                   |
 | `/persona [name]`       | Views or switches persona: `/persona coder`, `/persona tutor`, `/persona executive`, `/persona default`            |
+| `/language [code]`      | Sets preferred reply language (`/language hi` for Hindi, `ta`, `te`, `bn`, `es`, `fr`, or `/language auto`)        |
+| `/memory [add\|list]`   | Manages long-term personal facts and preferences (`/memory add ...`, `/memory list`, `/memory clear`)              |
+| `/export`               | Exports a full sanitized copy of your active session, to-dos, and preferences as a JSON document                   |
 | `/voice <on\|off>`      | Toggles audio voice note responses (or append `--voice` to any message)                                            |
 | `/remind <when> <task>` | Sets a reminder. Relative: `/remind 10m Call mom`, 24h: `/remind 18:30 Workout`, Date: `/remind 25-12 09:00 Party` |
 | `/reminders`            | Lists all your pending scheduled reminders with IDs and target times                                               |
@@ -280,31 +283,39 @@ You can send these commands in your WhatsApp chat at any time:
 
 ## ⚙️ Environment Variables Reference
 
-| Variable                    | Type    | Default                    | Description                                                                                    |
-| :-------------------------- | :------ | :------------------------- | :--------------------------------------------------------------------------------------------- |
-| `PORT`                      | Number  | `3000`                     | HTTP server listening port                                                                     |
-| `NODE_ENV`                  | String  | `development`              | Application environment (`development`, `production`, `test`)                                  |
-| `OPS_TOKEN`                 | String  | _Optional_                 | Secret bearer token required to authenticate `/metrics` and `/diagnostic` in production        |
-| `GEMINI_API_KEY`            | String  | _Required_                 | Google AI Studio Gemini API key                                                                |
-| `GEMINI_MODEL`              | String  | `gemini-3.5-flash-lite`    | Single primary Gemini model used for generation                                                |
-| `GEMINI_FALLBACK_MODELS`    | String  | `gemini-3.1-flash-lite...` | Comma-separated list of fallback Gemini model IDs                                              |
-| `WHATSAPP_TOKEN`            | String  | _Required_                 | Meta WhatsApp Cloud API access token                                                           |
-| `WHATSAPP_PHONE_NUMBER_ID`  | String  | _Required_                 | Meta WhatsApp business phone number ID                                                         |
-| `WHATSAPP_APP_SECRET`       | String  | _Required_                 | Meta App Secret for HMAC-SHA256 signature verification                                         |
-| `WHATSAPP_VERIFY_TOKEN`     | String  | _Required_                 | Secret token for Meta Webhook subscription challenge verification                              |
-| `ALLOWED_PHONE_NUMBERS`     | String  | _Required_                 | Comma-separated list of authorized sender phone numbers (e.g. `919876543210`)                  |
-| `MAX_CONTEXT_TURNS`         | Number  | `10`                       | Maximum user/model conversation turns kept in sliding memory window                            |
-| `SESSION_TIMEOUT_MINUTES`   | Number  | `15`                       | Inactivity TTL in minutes before RAM session context is pruned                                 |
-| `MEDIA_MAX_BYTES`           | Number  | `104857600` (100MB)        | Maximum allowed media file size for audio, documents, and images                               |
-| `MEDIA_FETCH_TIMEOUT_MS`    | Number  | `60000` (60s)              | Timeout in ms when fetching media attachments or Pollinations images                           |
-| `USER_RATE_LIMIT_MAX`       | Number  | `10`                       | Maximum messages per user sliding window before throttling                                     |
-| `USER_RATE_LIMIT_WINDOW_MS` | Number  | `60000` (1 min)            | Duration of per-user sliding rate limit window in milliseconds                                 |
-| `USER_DAILY_QUOTA_MAX`      | Number  | `100`                      | Maximum inbound messages per user per UTC day                                                  |
-| `DAILY_GEMINI_BUDGET_MAX`   | Number  | `500`                      | Maximum Gemini API calls across all users per UTC day                                          |
-| `REMINDERS_PERSIST`         | Boolean | `false`                    | When `true`, persists scheduled reminders to `.data/reminders.json` across server restarts     |
-| `LOG_FORMAT`                | String  | `text`                     | Output logging format: `text` (human-readable timestamps) or `json` (machine-readable newline) |
-| `STATE_BACKEND`             | String  | `memory`                   | State persistence backend (`memory` for in-RAM or `redis` for shared state)                    |
-| `REDIS_URL`                 | String  | _Optional_                 | Redis connection URL (e.g. `redis://localhost:6379`)                                           |
+| Variable                        | Type    | Default                    | Description                                                                                    |
+| :------------------------------ | :------ | :------------------------- | :--------------------------------------------------------------------------------------------- |
+| `PORT`                          | Number  | `3000`                     | HTTP server listening port                                                                     |
+| `NODE_ENV`                      | String  | `development`              | Application environment (`development`, `production`, `test`)                                  |
+| `OPS_TOKEN`                     | String  | _Optional_                 | Secret bearer token required to authenticate `/metrics`, `/diagnostic`, and `/admin` in prod   |
+| `GEMINI_API_KEY`                | String  | _Required_                 | Google AI Studio Gemini API key                                                                |
+| `GEMINI_MODEL`                  | String  | `gemini-3.5-flash-lite`    | Single primary Gemini model used for generation                                                |
+| `GEMINI_FALLBACK_MODELS`        | String  | `gemini-3.1-flash-lite...` | Comma-separated list of fallback Gemini model IDs                                              |
+| `WHATSAPP_TOKEN`                | String  | _Required_                 | Meta WhatsApp Cloud API access token                                                           |
+| `WHATSAPP_PHONE_NUMBER_ID`      | String  | _Required_                 | Meta WhatsApp business phone number ID                                                         |
+| `WHATSAPP_APP_SECRET`           | String  | _Required_                 | Meta App Secret for HMAC-SHA256 signature verification (fail-closed in production)             |
+| `WHATSAPP_VERIFY_TOKEN`         | String  | _Required_                 | Secret token for Meta Webhook subscription challenge verification                              |
+| `ALLOWED_PHONE_NUMBERS`         | String  | _Required_                 | Comma-separated list of authorized sender phone numbers (e.g. `919876543210`)                  |
+| `MAX_CONTEXT_TURNS`             | Number  | `10`                       | Maximum user/model conversation turns kept in sliding memory window                            |
+| `SESSION_TIMEOUT_MINUTES`       | Number  | `15`                       | Inactivity TTL in minutes before RAM session context is pruned                                 |
+| `MEDIA_MAX_BYTES`               | Number  | `104857600` (100MB)        | Maximum allowed media file size for audio, documents, and images                               |
+| `MEDIA_FETCH_TIMEOUT_MS`        | Number  | `60000` (60s)              | Timeout in ms when fetching media attachments or Pollinations images                           |
+| `USER_RATE_LIMIT_MAX`           | Number  | `10`                       | Maximum messages per user sliding window before throttling                                     |
+| `USER_RATE_LIMIT_WINDOW_MS`     | Number  | `60000` (1 min)            | Duration of per-user sliding rate limit window in milliseconds                                 |
+| `MAX_REQUESTS_PER_USER_PER_DAY` | Number  | `200`                      | Maximum inbound messages per user per UTC day (resets at 00:00 UTC)                            |
+| `MAX_GEMINI_REQUESTS_PER_DAY`   | Number  | `1400`                     | Maximum Gemini API calls across all users per UTC day                                          |
+| `STATE_BACKEND`                 | String  | `memory`                   | State persistence backend: `memory` (default in-RAM) or `redis` (shared cache)                 |
+| `REDIS_URL`                     | String  | _Optional_                 | Redis connection URL (e.g. `redis://localhost:6379`)                                           |
+| `DATA_DIR`                      | String  | `.data`                    | Directory for persistent disk files (reminders, todos)                                         |
+| `REMINDERS_PERSIST`             | Boolean | `true`                     | When `true`, persists scheduled reminders and todos to disk across server restarts             |
+| `MESSAGE_CONCURRENCY`           | Number  | `4`                        | Max concurrent message pipelines processed simultaneously in-process                           |
+| `QUEUE_MAX_RETRIES`             | Number  | `3`                        | Retry count for transient 429/5xx errors before dead-letter routing                            |
+| `QUEUE_MAX_SIZE`                | Number  | `1000`                     | Maximum buffer size before queue backpressure drops requests                                   |
+| `SHUTDOWN_TIMEOUT_MS`           | Number  | `10000` (10s)              | Grace period for in-flight tasks to complete during SIGINT/SIGTERM                             |
+| `ENABLE_AI_TOOLS`               | Boolean | `false`                    | Enables Gemini function calling (real-time weather, clock, auto-reminders)                     |
+| `ALLOWED_GROUP_IDS`             | String  | _Optional_                 | Comma-separated list of authorized WhatsApp Group IDs                                          |
+| `GROUP_TRIGGER_PREFIX`          | String  | `/`                        | Prefix required in group messages to trigger assistant replies                                 |
+| `LOG_FORMAT`                    | String  | `text`                     | Output logging format: `text` (human-readable timestamps) or `json` (machine-readable newline) |
 
 ---
 
@@ -353,28 +364,54 @@ Verifies your live Gemini API key and Meta token without exposing secrets.
 c:\Users\PJ\Documents\WHATSAPP bot\
 │
 ├── src/
-│   ├── server.js            # Express app, security middleware, rate limiter, Prometheus /metrics
+│   ├── server.js            # Express app, security middleware, rate limiter, admin dashboard, /metrics
 │   ├── webhook.js           # Webhook routes, HMAC signature validation, commands, media dispatch
-│   ├── gemini.js            # Google Gen AI SDK integration, model fallback, search grounding
-│   ├── whatsapp.js          # WhatsApp Cloud API client, message chunking, buttons, media I/O
+│   ├── queue.js             # Bounded in-process FIFO message queue with backpressure & exponential retries
+│   ├── gemini.js            # Google Gen AI SDK integration, model fallback, search grounding, function calling
+│   ├── language.js          # Multilingual translation directives & user language preference store
+│   ├── memory.js            # Long-term personal fact memory & system prompt injection
+│   ├── export.js            # User data export generator delivering sanitized JSON via WhatsApp
+│   ├── whatsapp.js          # WhatsApp Cloud API client, message chunking, buttons, media I/O, templates
 │   ├── privacy.js           # Whitelist guard, Luhn PII redactor, in-memory store, zero-logging
 │   ├── image-gen.js         # Prompt detection, Pollinations client, Sharp corner crop
-│   ├── reminders.js         # Scheduled alarms, time parser, in-memory timers, optional persistence
+│   ├── reminders.js         # Scheduled alarms, time parser, durable storage sweeper, timers
+│   ├── todos.js             # Personal task to-do manager with durable persistence
+│   ├── document.js          # Multimodal document parser (PDF, PPTX, DOCX, XLSX, TXT, CSV)
+│   ├── web-scraper.js       # SSRF-guarded web reader & article extractor
+│   ├── tts.js               # Voice synthesizer client for WhatsApp voice note replies
 │   ├── quota.js             # Daily per-user request limits & global Gemini budget guard
 │   ├── metrics.js           # In-memory metrics counters & Prometheus exporter
 │   ├── config.js            # Environment validation, secret masking, configuration
-│   └── test-connection.js   # Preflight diagnostic runner
+│   ├── test-connection.js   # Preflight diagnostic runner
+│   ├── store/
+│   │   ├── index.js         # Pluggable storage facade (memory vs redis)
+│   │   ├── memory.js        # RAM store with automated 30s TTL eviction
+│   │   └── redis.js         # Distributed Redis store client with retry failover
+│   └── tools/
+│       ├── index.js         # Tool registry and dispatcher for Gemini function calling
+│       ├── time.js          # Real-time world clock and timezone tool
+│       └── weather.js       # Zero-cost Open-Meteo real-time weather tool
 │
 ├── tests/
+│   ├── server.test.js       # Full HTTP E2E tests across health, ops, admin, and webhook
+│   ├── queue.test.js        # Concurrency capping, backpressure, retries & dead-letter tests
+│   ├── store.test.js        # Durable store interface & backend contract tests
+│   ├── language.test.js     # Multilingual switching and directive tests
+│   ├── memory.test.js       # Long-term memory facts, toggle & prompt injection tests
+│   ├── tools.test.js        # Function calling tools (time, weather, reminder, todo) tests
+│   ├── export.test.js       # User data JSON compilation and transmission tests
 │   ├── config.test.js       # Configuration & model parsing tests
 │   ├── privacy.test.js      # Privacy, Luhn redaction, rate limiting & cache tests
 │   ├── whatsapp.test.js     # WhatsApp chunking, media timeout/cap, & interactive button tests
 │   ├── gemini.test.js       # Gemini model switcher, fallbacks, & search grounding tests
 │   ├── webhook.test.js      # HMAC validation, voice/document routing, & quoted context tests
 │   ├── reminders.test.js    # Time parsing, relative/absolute timers & reminder lifecycle tests
+│   ├── todos.test.js        # To-do list lifecycle & formatting tests
+│   ├── document.test.js     # Multimodal document parsing tests
 │   ├── quota.test.js        # Daily user and global quota limit tests
 │   ├── metrics.test.js      # Prometheus exposition tests
-│   └── image-gen.test.js    # Image prompt extraction & watermark removal tests
+│   ├── image-gen.test.js    # Image prompt extraction & watermark removal tests
+│   └── benchmark.js         # Latency, throughput, and memory profiling suite
 │
 ├── .github/workflows/
 │   └── ci.yml               # GitHub Actions CI matrix (Node 20 & 22)
