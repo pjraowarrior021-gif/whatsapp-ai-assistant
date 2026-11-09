@@ -96,6 +96,10 @@ export const config = {
   USER_RATE_LIMIT_MAX: parseInt(process.env.USER_RATE_LIMIT_MAX, 10) || 10, // 10 requests per user per window
   USER_RATE_LIMIT_WINDOW_MS: parseInt(process.env.USER_RATE_LIMIT_WINDOW_MS, 10) || 60 * 1000, // 1 minute
 
+  // Storage & State Configuration
+  STATE_BACKEND: process.env.STATE_BACKEND || (process.env.REDIS_URL ? 'redis' : 'memory'),
+  REDIS_URL: process.env.REDIS_URL || '',
+
   // Quotas & Reminders
   MAX_REQUESTS_PER_USER_PER_DAY: parseInt(process.env.MAX_REQUESTS_PER_USER_PER_DAY, 10) || 200,
   MAX_GEMINI_REQUESTS_PER_DAY: parseInt(process.env.MAX_GEMINI_REQUESTS_PER_DAY, 10) || 1400,
@@ -223,6 +227,10 @@ export function getSafeConfigSummary() {
     },
     ops: {
       hasOpsToken: Boolean(config.OPS_TOKEN),
+    },
+    state: {
+      backend: config.STATE_BACKEND,
+      hasRedisUrl: Boolean(config.REDIS_URL),
     },
     privacy: {
       authorizedNumbersCount: config.ALLOWED_PHONE_NUMBERS.size,

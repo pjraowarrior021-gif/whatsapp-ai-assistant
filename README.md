@@ -303,6 +303,8 @@ You can send these commands in your WhatsApp chat at any time:
 | `DAILY_GEMINI_BUDGET_MAX`   | Number  | `500`                      | Maximum Gemini API calls across all users per UTC day                                          |
 | `REMINDERS_PERSIST`         | Boolean | `false`                    | When `true`, persists scheduled reminders to `.data/reminders.json` across server restarts     |
 | `LOG_FORMAT`                | String  | `text`                     | Output logging format: `text` (human-readable timestamps) or `json` (machine-readable newline) |
+| `STATE_BACKEND`             | String  | `memory`                   | State persistence backend (`memory` for in-RAM or `redis` for shared state)                    |
+| `REDIS_URL`                 | String  | _Optional_                 | Redis connection URL (e.g. `redis://localhost:6379`)                                           |
 
 ---
 

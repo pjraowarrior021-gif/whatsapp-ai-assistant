@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { config, normalizePhoneNumber } from './config.js';
+import { store } from './store/index.js';
 
 // Internal session store: In-Memory ONLY (zero disk writes)
 // Map<anonymizedUserId, { messages: Array<{role: string, parts: Array<{text: string}>}>, lastActivity: number }>
@@ -387,6 +388,9 @@ export function saveTurn(anonId, sanitizedUserMessage, assistantResponse) {
     messages: currentMessages,
     lastActivity: Date.now(),
   });
+
+  const sessionTtlSec = config.SESSION_TIMEOUT_MINUTES * 60;
+  store.set(`session:${anonId}`, currentMessages, sessionTtlSec).catch(() => {});
 }
 
 /**
@@ -397,6 +401,7 @@ export function saveTurn(anonId, sanitizedUserMessage, assistantResponse) {
 export function resetConversation(anonId) {
   const hadSession = sessionStore.has(anonId);
   sessionStore.delete(anonId);
+  store.del(`session:${anonId}`).catch(() => {});
   privacyLog('info', 'CONVERSATION_RESET', { user: anonId, hadActiveSession: hadSession });
   return hadSession;
 }
@@ -419,6 +424,7 @@ export function isVoiceReplyEnabled(anonId) {
 export function setVoiceReplyEnabled(anonId, enabled) {
   if (anonId) {
     userVoicePreferences.set(anonId, Boolean(enabled));
+    store.set(`voice:${anonId}`, Boolean(enabled)).catch(() => {});
     privacyLog('info', 'VOICE_MODE_TOGGLED', { user: anonId, enabled: Boolean(enabled) });
   }
 }
@@ -431,7 +437,27 @@ export function setVoiceReplyEnabled(anonId, enabled) {
 export function deleteUserData(anonId) {
   resetUserRateLimit(anonId);
   userVoicePreferences.delete(anonId);
+  store.del(`voice:${anonId}`).catch(() => {});
+  store.del(`ratelimit:${anonId}`).catch(() => {});
   return resetConversation(anonId);
+}
+
+/**
+ * Initializes and restores privacy preferences from store on startup.
+ */
+export async function initPrivacyStore() {
+  try {
+    const voiceKeys = await store.keys('voice:*');
+    for (const key of voiceKeys) {
+      const anonId = key.substring(6);
+      const val = await store.get(key);
+      if (anonId && typeof val === 'boolean') {
+        userVoicePreferences.set(anonId, val);
+      }
+    }
+  } catch (err) {
+    privacyLog('warn', 'PRIVACY_STORE_INIT_FAILED', { error: err.message });
+  }
 }
 
 /**

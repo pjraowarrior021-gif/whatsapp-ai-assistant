@@ -1,9 +1,11 @@
 /**
  * Daily Quota Management Module
- * Tracks per-user and global daily request limits in memory, resetting on UTC date rollover.
+ * Tracks per-user and global daily request limits with persistent store backing,
+ * resetting on UTC date rollover.
  */
 import { config } from './config.js';
 import { privacyLog } from './privacy.js';
+import { store } from './store/index.js';
 
 let currentDateUtc = getUtcDateString();
 const userDailyCounters = new Map(); // Map<anonId, number>
@@ -15,6 +17,39 @@ let globalGeminiCount = 0;
  */
 export function getUtcDateString() {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Initializes and restores quota state from persistent store if available.
+ */
+export async function initQuotas() {
+  try {
+    const today = getUtcDateString();
+    currentDateUtc = today;
+
+    const geminiVal = await store.get(`quota:gemini:${today}`);
+    if (typeof geminiVal === 'number') {
+      globalGeminiCount = geminiVal;
+    }
+
+    const userKeys = await store.keys(`quota:user:${today}:*`);
+    for (const key of userKeys) {
+      const parts = key.split(':');
+      const anonId = parts[parts.length - 1];
+      const count = await store.get(key);
+      if (anonId && typeof count === 'number') {
+        userDailyCounters.set(anonId, count);
+      }
+    }
+
+    privacyLog('info', 'QUOTAS_RESTORED_FROM_STORE', {
+      today,
+      activeUsers: userDailyCounters.size,
+      globalGeminiCount,
+    });
+  } catch (err) {
+    privacyLog('warn', 'QUOTAS_STORE_LOAD_FAILED', { error: err.message });
+  }
 }
 
 /**
@@ -68,10 +103,17 @@ export function checkAndIncrementUserQuota(anonId) {
     };
   }
 
-  userDailyCounters.set(anonId, currentCount + 1);
+  const newCount = currentCount + 1;
+  userDailyCounters.set(anonId, newCount);
+
+  // Asynchronously persist to store (48h TTL)
+  const today = currentDateUtc;
+  const TTL_2DAYS = 48 * 3600;
+  store.set(`quota:user:${today}:${anonId}`, newCount, TTL_2DAYS).catch(() => {});
+
   return {
     allowed: true,
-    userCount: currentCount + 1,
+    userCount: newCount,
     userMax,
   };
 }
@@ -82,6 +124,9 @@ export function checkAndIncrementUserQuota(anonId) {
 export function recordGeminiDailyUsage() {
   rolloverIfNewDay();
   globalGeminiCount++;
+  const today = currentDateUtc;
+  const TTL_2DAYS = 48 * 3600;
+  store.set(`quota:gemini:${today}`, globalGeminiCount, TTL_2DAYS).catch(() => {});
 }
 
 /**
@@ -107,4 +152,12 @@ export function resetDailyQuotas() {
   userDailyCounters.clear();
   globalGeminiCount = 0;
   currentDateUtc = getUtcDateString();
+  const today = currentDateUtc;
+  store.del(`quota:gemini:${today}`).catch(() => {});
+  store
+    .keys(`quota:user:${today}:*`)
+    .then((keys) => {
+      for (const k of keys) store.del(k).catch(() => {});
+    })
+    .catch(() => {});
 }

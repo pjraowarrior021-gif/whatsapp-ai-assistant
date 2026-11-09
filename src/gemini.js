@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { config } from './config.js';
 import { privacyLog } from './privacy.js';
+import { store } from './store/index.js';
 
 let aiClient = null;
 let activeModel = config.GEMINI_MODEL;
@@ -102,6 +103,7 @@ export function setPersona(anonId, personaName) {
     };
   }
   userPersonas.set(anonId, key);
+  store.set(`persona:${anonId}`, key).catch(() => {});
   privacyLog('info', 'PERSONA_SWITCHED', { user: anonId, persona: key });
   return { success: true, persona: PERSONAS[key] };
 }
@@ -113,6 +115,7 @@ export function setPersona(anonId, personaName) {
 export function resetPersona(anonId) {
   if (anonId) {
     userPersonas.delete(anonId);
+    store.del(`persona:${anonId}`).catch(() => {});
   }
 }
 
@@ -179,6 +182,30 @@ export function isSearchGroundingEnabled() {
  */
 export function setSearchGrounding(enabled) {
   searchGroundingEnabled = Boolean(enabled);
+  store.set('search_grounding', searchGroundingEnabled).catch(() => {});
+}
+
+/**
+ * Initializes and restores Gemini preferences from store on startup.
+ */
+export async function initGeminiStore() {
+  try {
+    const personaKeys = await store.keys('persona:*');
+    for (const key of personaKeys) {
+      const anonId = key.substring(8);
+      const val = await store.get(key);
+      if (anonId && val && PERSONAS[val]) {
+        userPersonas.set(anonId, val);
+      }
+    }
+
+    const grounding = await store.get('search_grounding');
+    if (typeof grounding === 'boolean') {
+      searchGroundingEnabled = grounding;
+    }
+  } catch (err) {
+    privacyLog('warn', 'GEMINI_STORE_INIT_FAILED', { error: err.message });
+  }
 }
 
 /**

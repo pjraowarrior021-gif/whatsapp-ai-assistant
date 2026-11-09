@@ -9,6 +9,9 @@ import { webhookRouter } from './webhook.js';
 import { getPrometheusMetrics } from './metrics.js';
 import { initReminders, stopReminders } from './reminders.js';
 import { initTodos } from './todos.js';
+import { initQuotas } from './quota.js';
+import { initPrivacyStore } from './privacy.js';
+import { initGeminiStore } from './gemini.js';
 
 export const app = express();
 
@@ -214,6 +217,9 @@ if (isMainModule) {
   sweeperInterval = startSessionSweeper();
   initReminders();
   initTodos();
+  initQuotas().catch(() => {});
+  initPrivacyStore().catch(() => {});
+  initGeminiStore().catch(() => {});
 
   serverInstance = app.listen(config.PORT, '0.0.0.0', () => {
     privacyLog('info', 'SERVER_STARTED', {
