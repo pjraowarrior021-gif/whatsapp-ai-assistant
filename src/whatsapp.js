@@ -726,3 +726,144 @@ export async function sendWhatsAppAudio(to, audioSource) {
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * Sends a document file (e.g. PDF, JSON export) via WhatsApp Cloud API.
+ *
+ * @param {string} to
+ * @param {Buffer|string} documentSource - Buffer or URL string
+ * @param {string} filename - Display filename
+ * @param {string} [caption='']
+ * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
+ */
+export async function sendWhatsAppDocument(to, documentSource, filename = 'document.json', caption = '') {
+  const normalizedTo = normalizePhoneNumber(to);
+
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID) {
+    privacyLog('warn', 'WHATSAPP_DOCUMENT_SEND_SKIPPED', {
+      note: 'Missing token, phone ID, or document source',
+    });
+    return { success: false, error: 'Missing configuration' };
+  }
+
+  if (
+    config.NODE_ENV === 'test' ||
+    normalizedTo === '910000000000' ||
+    normalizedTo.startsWith('0000') ||
+    normalizedTo.startsWith('9999')
+  ) {
+    return { success: true, messageId: `sim_test_doc_${Date.now()}` };
+  }
+
+  let docPayload;
+  if (Buffer.isBuffer(documentSource)) {
+    const uploadRes = await uploadWhatsAppMedia(documentSource, 'application/json');
+    if (!uploadRes.success) {
+      return { success: false, error: uploadRes.error };
+    }
+    docPayload = { id: uploadRes.mediaId, filename, caption };
+  } else if (typeof documentSource === 'string') {
+    docPayload = { link: documentSource, filename, caption };
+  } else {
+    return { success: false, error: 'Invalid document source' };
+  }
+
+  const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: normalizedTo,
+    type: 'document',
+    document: docPayload,
+  };
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      privacyLog('error', 'WHATSAPP_DOCUMENT_SEND_FAILED', {
+        status: res.status,
+        error: data?.error?.message,
+      });
+      return { success: false, error: data?.error?.message };
+    }
+
+    const messageId = data?.messages?.[0]?.id;
+    return { success: true, messageId };
+  } catch (err) {
+    privacyLog('error', 'WHATSAPP_DOCUMENT_SEND_NETWORK_ERROR', { error: err.message });
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Sends a pre-approved Meta message template (for proactive messaging outside 24h window).
+ *
+ * @param {string} to
+ * @param {string} templateName
+ * @param {string} [languageCode='en']
+ * @param {Array<object>} [components=[]]
+ * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
+ */
+export async function sendWhatsAppTemplate(to, templateName, languageCode = 'en', components = []) {
+  const normalizedTo = normalizePhoneNumber(to);
+
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !templateName) {
+    return { success: false, error: 'Missing token, phone ID, or template name' };
+  }
+
+  if (
+    config.NODE_ENV === 'test' ||
+    normalizedTo === '910000000000' ||
+    normalizedTo.startsWith('0000') ||
+    normalizedTo.startsWith('9999')
+  ) {
+    return { success: true, messageId: `sim_test_tpl_${Date.now()}` };
+  }
+
+  const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: normalizedTo,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+      components: components.length > 0 ? components : undefined,
+    },
+  };
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      privacyLog('error', 'WHATSAPP_TEMPLATE_SEND_FAILED', {
+        status: res.status,
+        error: data?.error?.message,
+      });
+      return { success: false, error: data?.error?.message };
+    }
+
+    return { success: true, messageId: data?.messages?.[0]?.id };
+  } catch (err) {
+    privacyLog('error', 'WHATSAPP_TEMPLATE_NETWORK_ERROR', { error: err.message });
+    return { success: false, error: err.message };
+  }
+}

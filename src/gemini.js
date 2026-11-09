@@ -2,6 +2,9 @@ import { GoogleGenAI } from '@google/genai';
 import { config } from './config.js';
 import { privacyLog } from './privacy.js';
 import { store } from './store/index.js';
+import { getUserLanguage, getLanguageInstruction } from './language.js';
+import { getMemoryContext } from './memory.js';
+import { toolDeclarations, executeToolCall } from './tools/index.js';
 
 let aiClient = null;
 let activeModel = config.GEMINI_MODEL;
@@ -257,7 +260,20 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
 
   const personaKey = options.persona || (options.anonId ? getPersona(options.anonId) : 'default');
   const personaConfig = PERSONAS[personaKey] || PERSONAS.default;
-  const activeInstruction = options.systemInstruction || personaConfig.instruction || SYSTEM_INSTRUCTION;
+  let activeInstruction = options.systemInstruction || personaConfig.instruction || SYSTEM_INSTRUCTION;
+
+  if (options.anonId) {
+    const memory = getMemoryContext(options.anonId);
+    if (memory) {
+      activeInstruction += `\n\n${memory}`;
+    }
+    const userLang = getUserLanguage(options.anonId);
+    const langDirective = getLanguageInstruction(userLang);
+    if (langDirective) {
+      activeInstruction += `\n\n${langDirective}`;
+    }
+  }
+
   const shouldGround = searchGroundingEnabled || Boolean(options.forceGrounding);
 
   const userParts = [];
@@ -309,6 +325,8 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
 
         if (enableSearch) {
           genConfig.tools = [{ googleSearch: {} }];
+        } else if (config.ENABLE_AI_TOOLS) {
+          genConfig.tools = [{ functionDeclarations: toolDeclarations }];
         }
 
         const generatePromise = client.models.generateContent({
@@ -357,8 +375,48 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
       const latencyMs = Date.now() - startTime;
       let responseText = response.text ? response.text.trim() : '';
 
-      // Append search grounding sources if available
+      // Handle Gemini Function/Tool Calls
       const candidate = response.candidates?.[0];
+      const candidateParts = candidate?.content?.parts || [];
+      const functionCalls = candidateParts.filter((p) => p.functionCall).map((p) => p.functionCall);
+
+      if (functionCalls.length > 0 && config.ENABLE_AI_TOOLS) {
+        const toolResponses = [];
+        for (const call of functionCalls) {
+          const toolResult = await executeToolCall(call.name, call.args, {
+            anonId: options.anonId,
+            from: options.from,
+          });
+          toolResponses.push({
+            functionResponse: {
+              name: call.name,
+              response: toolResult,
+            },
+          });
+        }
+
+        const followUpContents = [
+          ...contents,
+          { role: 'model', parts: candidateParts },
+          { role: 'user', parts: toolResponses },
+        ];
+
+        const followUpRes = await client.models.generateContent({
+          model: modelToTry,
+          contents: followUpContents,
+          config: {
+            systemInstruction: activeInstruction,
+            temperature: config.GEMINI_TEMPERATURE,
+            maxOutputTokens: config.GEMINI_MAX_OUTPUT_TOKENS,
+          },
+        });
+
+        if (followUpRes.text) {
+          responseText = followUpRes.text.trim();
+        }
+      }
+
+      // Append search grounding sources if available
       if (candidate?.groundingMetadata) {
         const sourcesText = formatGroundingSources(candidate.groundingMetadata);
         if (sourcesText) {

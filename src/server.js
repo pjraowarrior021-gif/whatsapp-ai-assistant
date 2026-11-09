@@ -4,7 +4,7 @@ import url from 'url';
 import crypto from 'crypto';
 import { config, validateConfig, getSafeConfigSummary } from './config.js';
 import { privacyLog, startSessionSweeper, getRecentLogs } from './privacy.js';
-import { getActiveModel } from './gemini.js';
+import { getActiveModel, setActiveModel, listPersonas } from './gemini.js';
 import { webhookRouter } from './webhook.js';
 import { getPrometheusMetrics } from './metrics.js';
 import { initReminders, stopReminders } from './reminders.js';
@@ -40,16 +40,22 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Timing-safe authentication middleware for operational endpoints (/metrics, /diagnostic)
+// Timing-safe authentication middleware for operational endpoints (/metrics, /diagnostic, /admin)
 export function requireOpsAuth(req, res, next) {
   const opsToken = config.OPS_TOKEN;
 
   if (opsToken) {
+    let token = '';
     const authHeader = req.headers['authorization'] || '';
-    if (!authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid Authorization header.' });
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7).trim();
+    } else if (req.query && req.query.token) {
+      token = String(req.query.token).trim();
     }
-    const token = authHeader.substring(7).trim();
+
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized: Missing or invalid Authorization header or token param.' });
+    }
     const expectedBuf = Buffer.from(opsToken, 'utf-8');
     const actualBuf = Buffer.from(token, 'utf-8');
 
@@ -119,6 +125,105 @@ app.get('/diagnostic', requireOpsAuth, (_req, res) => {
 app.get('/metrics', requireOpsAuth, (_req, res) => {
   res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
   res.status(200).send(getPrometheusMetrics());
+});
+
+// Admin Ops Dashboard (Protected by OPS_TOKEN in production)
+app.get('/admin', requireOpsAuth, (req, res) => {
+  const qStats = messageQueue.getStats();
+  const mem = process.memoryUsage();
+  const rssMb = Math.round(mem.rss / (1024 * 1024));
+  const heapMb = Math.round(mem.heapUsed / (1024 * 1024));
+  const model = getActiveModel();
+  const logs = getRecentLogs();
+  const personas = listPersonas();
+  const tokenQuery = req.query.token ? `?token=${encodeURIComponent(req.query.token)}` : '';
+
+  // Handle optional quick model switch via ?switch_model=...
+  if (req.query.switch_model) {
+    setActiveModel(String(req.query.switch_model));
+    return res.redirect(`/admin${tokenQuery}`);
+  }
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Ops Admin Dashboard - WhatsApp Assistant</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, sans-serif; max-width: 950px; margin: 30px auto; padding: 20px; line-height: 1.5; color: #222; background: #fdfdfd; }
+        h1 { color: #075E54; margin-bottom: 4px; display: flex; align-items: center; gap: 10px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin: 20px 0; }
+        .card { background: #fff; border: 1px solid #e1e8e1; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .card h4 { margin: 0 0 10px 0; color: #555; text-transform: uppercase; font-size: 0.8em; letter-spacing: 0.5px; }
+        .card .val { font-size: 1.8em; font-weight: bold; color: #075E54; }
+        .badge { display: inline-block; background: #25D366; color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em; }
+        th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee; }
+        th { background: #f5f8f5; color: #333; }
+        pre { background: #282c34; color: #abb2bf; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 0.85em; max-height: 250px; }
+        select, button { padding: 6px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.95em; }
+        button { background: #075E54; color: white; cursor: pointer; border: none; font-weight: bold; }
+        button:hover { background: #128C7E; }
+      </style>
+    </head>
+    <body>
+      <h1>🛠️ Operational Admin Dashboard <span class="badge">ONLINE</span></h1>
+      <p style="color:#666;">Instance Uptime: <b>${Math.floor(process.uptime())}s</b> | Environment: <b>${config.NODE_ENV}</b> | RAM Usage: <b>${rssMb}MB (Heap: ${heapMb}MB)</b></p>
+
+      <div class="grid">
+        <div class="card">
+          <h4>Active AI Model</h4>
+          <div class="val" style="font-size:1.3em;">${model}</div>
+          <form method="GET" action="/admin" style="margin-top:10px;">
+            <input type="hidden" name="token" value="${req.query.token || ''}" />
+            <select name="switch_model">
+              <option value="gemini-3.5-flash-lite" ${model === 'gemini-3.5-flash-lite' ? 'selected' : ''}>gemini-3.5-flash-lite</option>
+              <option value="gemini-3.1-flash-lite" ${model === 'gemini-3.1-flash-lite' ? 'selected' : ''}>gemini-3.1-flash-lite</option>
+              <option value="gemini-3.5-flash" ${model === 'gemini-3.5-flash' ? 'selected' : ''}>gemini-3.5-flash</option>
+            </select>
+            <button type="submit">Switch</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h4>Queue Inflight</h4>
+          <div class="val">${qStats.active} <span style="font-size:0.5em;color:#888;">active / ${qStats.concurrency} max</span></div>
+          <p style="margin:5px 0 0 0;font-size:0.85em;color:#666;">Pending: <b>${qStats.pending}</b> (Buffer: ${qStats.maxSize})</p>
+        </div>
+
+        <div class="card">
+          <h4>Processed Messages</h4>
+          <div class="val">${qStats.processed}</div>
+          <p style="margin:5px 0 0 0;font-size:0.85em;color:#666;">Retries: <b>${qStats.retried}</b> | Dead-letter: <b>${qStats.deadLettered}</b></p>
+        </div>
+
+        <div class="card">
+          <h4>Storage Backend</h4>
+          <div class="val" style="font-size:1.4em;">${config.STATE_BACKEND.toUpperCase()}</div>
+          <p style="margin:5px 0 0 0;font-size:0.85em;color:#666;">Persist Reminders: <b>${config.REMINDERS_PERSIST ? 'ON' : 'OFF'}</b></p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h4>Configured Personas</h4>
+        <ul>
+          ${Object.values(personas)
+            .map((p) => `<li><b>${p.name}</b> (${p.title}): <i>${p.description}</i></li>`)
+            .join('')}
+        </ul>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h4>Recent Operational Logs (Privacy Redacted)</h4>
+        <pre>${logs.length > 0 ? logs.map((l) => JSON.stringify(l)).join('\n') : 'No recent operational events.'}</pre>
+      </div>
+
+      <p><a href="/health" style="color:#075E54;">&larr; View Public Health Check</a> | <a href="/metrics${tokenQuery}" style="color:#075E54;">Prometheus Metrics</a></p>
+    </body>
+    </html>
+  `;
+  res.status(200).send(html);
 });
 
 // 9. Root Welcome / Dashboard

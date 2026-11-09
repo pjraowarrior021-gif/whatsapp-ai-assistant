@@ -47,6 +47,9 @@ import { synthesizeSpeech } from './tts.js';
 import { checkAndIncrementUserQuota, recordGeminiDailyUsage, getUserQuotaReport } from './quota.js';
 import { recordMessageMetric, recordErrorMetric, recordMediaBytes, recordGeminiMetric } from './metrics.js';
 import { messageQueue } from './queue.js';
+import { handleLanguageCommand } from './language.js';
+import { handleMemoryCommand } from './memory.js';
+import { exportUserData } from './export.js';
 
 export { messageQueue };
 export const webhookRouter = express.Router();
@@ -257,6 +260,9 @@ export function normalizeCommand(text, hasMedia = false) {
     cmd_todos: '/todos',
     cmd_persona: '/persona',
     cmd_voice: '/voice',
+    cmd_language: '/language',
+    cmd_memory: '/memory',
+    cmd_export: '/export',
     cmd_img_lion: '/image a majestic male lion in a thunderstorm --photo',
     cmd_img_wall: '/image a neon cyberpunk alleyway in Tokyo rain --wallpaper',
     cmd_img_anime: '/image a girl reading in an enchanted sunlit library --anime',
@@ -294,13 +300,27 @@ export function normalizeCommand(text, hasMedia = false) {
     'voice off': '/voice off',
     'search on': '/search on',
     'search off': '/search off',
+    language: '/language',
+    memory: '/memory',
+    export: '/export',
   };
   if (exactMap[lower]) {
     return exactMap[lower];
   }
 
   // 3. Prefix slashless commands (followed by space)
-  const prefixes = ['remind ', 'todo ', 'done ', 'persona ', 'model ', 'image ', 'draw ', 'imagine '];
+  const prefixes = [
+    'remind ',
+    'todo ',
+    'done ',
+    'persona ',
+    'model ',
+    'image ',
+    'draw ',
+    'imagine ',
+    'language ',
+    'memory ',
+  ];
   for (const prefix of prefixes) {
     if (lower.startsWith(prefix)) {
       return `/${trimmed}`;
@@ -319,7 +339,9 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   const messageId = message.id;
   const from = message.from;
   const messageType = message.type;
-  const anonId = getAnonymizedId(from);
+  const isGroup = Boolean(from && (from.includes('@g.us') || from.includes('-group') || message.author));
+  const senderPhone = message.author || from;
+  const anonId = getAnonymizedId(senderPhone);
 
   // 1. Deduplication Check
   if (messageId && processedMessageIds.has(messageId)) {
@@ -330,8 +352,47 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     processedMessageIds.set(messageId, Date.now());
   }
 
-  // 2. Authorization Whitelist Check
-  if (!isAuthorized(from)) {
+  // 1b. Fast-path unhandled message types
+  if (messageType === 'reaction') {
+    privacyLog('debug', 'REACTION_SKIPPED', { requestId, user: anonId });
+    return;
+  }
+  if (messageType === 'sticker') {
+    await sendWhatsAppMessage(
+      from,
+      '🎨 *Sticker Received:* I cannot analyze animated or image stickers yet. Feel free to send text, documents, or photos!'
+    );
+    return;
+  }
+  if (messageType === 'contacts' || messageType === 'contact') {
+    await sendWhatsAppMessage(
+      from,
+      '👤 *Contact Card Received:* Contact cards cannot be processed automatically. Please share contact details as text if you need assistance.'
+    );
+    return;
+  }
+  if (messageType === 'video') {
+    await sendWhatsAppMessage(
+      from,
+      '🎥 *Video Received:* Full video analysis is not supported yet. Please send a screenshot, image, or text question instead.'
+    );
+    return;
+  }
+
+  // 2. Authorization Whitelist & Group Check
+  if (isGroup) {
+    const groupId = from.replace('@g.us', '');
+    const isAllowedGroup =
+      config.ALLOWED_GROUP_IDS.has(groupId) || config.ALLOWED_GROUP_IDS.has(normalizePhoneNumber(groupId));
+    if (!isAllowedGroup) {
+      privacyLog('debug', 'GROUP_MESSAGE_IGNORED_UNAUTHORIZED', { groupId });
+      return;
+    }
+    const textBody = message.text?.body?.trim() || '';
+    if (!textBody.startsWith(config.GROUP_TRIGGER_PREFIX)) {
+      return;
+    }
+  } else if (!isAuthorized(from)) {
     privacyLog('warn', 'UNAUTHORIZED_ACCESS_ATTEMPT', {
       requestId,
       user: anonId,
@@ -969,6 +1030,30 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     return;
   }
 
+  // 9n. Multilingual Language Selection
+  if (effectiveCommand === '/language' || effectiveCommand.startsWith('/language ')) {
+    const langArg = effectiveCommand.length > 9 ? effectiveCommand.substring(9).trim() : '';
+    const reply = await handleLanguageCommand(anonId, langArg);
+    await sendWhatsAppMessage(from, reply);
+    recordMessageMetric('command', 'success');
+    return;
+  }
+
+  // 9o. Long-Term Personal Memory
+  if (effectiveCommand === '/memory' || effectiveCommand.startsWith('/memory ')) {
+    const reply = await handleMemoryCommand(anonId, effectiveCommand);
+    await sendWhatsAppMessage(from, reply);
+    recordMessageMetric('command', 'success');
+    return;
+  }
+
+  // 9p. User Data Export
+  if (effectiveCommand === '/export' || effectiveCommand.startsWith('/export')) {
+    await exportUserData(from, anonId);
+    recordMessageMetric('command', 'success');
+    return;
+  }
+
   // Check for inline --voice flag
   const hasVoiceFlag = rawText.includes('--voice');
   const cleanRawText = rawText.replace(/--voice/gi, '').trim();
@@ -1056,6 +1141,7 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   recordGeminiMetric(getActiveModel(), 'success');
   const aiResponse = await generateAIResponse(fullPromptForGemini, history, mediaPart, {
     anonId,
+    from,
     forceGrounding: Boolean(forceGrounding),
   });
 

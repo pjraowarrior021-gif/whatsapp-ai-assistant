@@ -114,6 +114,13 @@ export const config = {
   QUEUE_MAX_RETRIES: parseInt(process.env.QUEUE_MAX_RETRIES, 10) || 3,
   QUEUE_MAX_SIZE: parseInt(process.env.QUEUE_MAX_SIZE, 10) || 1000,
   SHUTDOWN_TIMEOUT_MS: parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 10000,
+
+  // Feature Flags & Extended Integrations
+  ENABLE_AI_TOOLS: process.env.ENABLE_AI_TOOLS === 'true',
+  ALLOWED_GROUP_IDS: parseAllowedNumbers(process.env.ALLOWED_GROUP_IDS),
+  GROUP_TRIGGER_PREFIX: process.env.GROUP_TRIGGER_PREFIX || '/',
+  TEMPLATE_DIGEST_NAME: process.env.TEMPLATE_DIGEST_NAME || '',
+  TEMPLATE_DIGEST_LANG: process.env.TEMPLATE_DIGEST_LANG || 'en',
 };
 
 /**
@@ -245,6 +252,12 @@ export function getSafeConfigSummary() {
       maxRetries: config.QUEUE_MAX_RETRIES,
       maxSize: config.QUEUE_MAX_SIZE,
       shutdownTimeoutMs: config.SHUTDOWN_TIMEOUT_MS,
+    },
+    features: {
+      aiTools: config.ENABLE_AI_TOOLS,
+      allowedGroupsCount: config.ALLOWED_GROUP_IDS.size,
+      groupTriggerPrefix: config.GROUP_TRIGGER_PREFIX,
+      hasDigestTemplate: Boolean(config.TEMPLATE_DIGEST_NAME),
     },
     privacy: {
       authorizedNumbersCount: config.ALLOWED_PHONE_NUMBERS.size,
