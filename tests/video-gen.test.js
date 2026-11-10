@@ -11,7 +11,13 @@ import {
   MOCK_MP4_BUFFER,
   isFfmpegAvailable,
   synthesizeMotionVideo,
+  synthesizeStoryboardVideo,
 } from '../src/video-gen.js';
+import {
+  buildFallbackStoryboard,
+  generateVideoStoryboard,
+  generateVideoStoryboardFromImage,
+} from '../src/gemini.js';
 
 test('VideoGen: parseVideoPrompt detects explicit slash commands', () => {
   assert.strictEqual(
@@ -240,4 +246,79 @@ test('VideoGen: generateVideo enforces minimum 10 to 15 seconds duration', async
     mockBuffer: dummy,
   });
   assert.strictEqual(res15.duration, 15);
+});
+
+test('VideoGen: buildFallbackStoryboard produces exactly 4 chronological narrative stages', () => {
+  const stages = buildFallbackStoryboard('a cyberpunk hoverbike racing through Tokyo', 'pan');
+  assert.ok(Array.isArray(stages));
+  assert.strictEqual(stages.length, 4);
+  assert.ok(stages[0].includes('Stage 1 (Opening)'));
+  assert.ok(stages[1].includes('Stage 2 (Development)'));
+  assert.ok(stages[2].includes('Stage 3 (Climax)'));
+  assert.ok(stages[3].includes('Stage 4 (Resolution)'));
+  for (const s of stages) {
+    assert.ok(s.includes('cyberpunk hoverbike'));
+    assert.ok(s.includes('no watermarks'));
+  }
+});
+
+test('VideoGen: generateVideoStoryboard falls back deterministically on empty or error', async () => {
+  const stages = await generateVideoStoryboard('');
+  assert.ok(Array.isArray(stages));
+  assert.strictEqual(stages.length, 4);
+  assert.ok(stages[0].includes('Stage 1'));
+});
+
+test('VideoGen: generateVideoStoryboardFromImage handles image buffer and falls back cleanly', async () => {
+  const testImg = await sharp({
+    create: { width: 100, height: 100, channels: 3, background: { r: 120, g: 60, b: 30 } },
+  })
+    .jpeg()
+    .toBuffer();
+
+  const stages = await generateVideoStoryboardFromImage(testImg, 'a red sports car');
+  assert.ok(Array.isArray(stages));
+  assert.strictEqual(stages.length, 4);
+  assert.ok(stages[0].includes('red sports car'));
+});
+
+test('VideoGen: synthesizeStoryboardVideo produces a valid MP4 from 4 keyframe buffers', async () => {
+  const img1 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 200, g: 50, b: 50 } } }).jpeg().toBuffer();
+  const img2 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 50, g: 200, b: 50 } } }).jpeg().toBuffer();
+  const img3 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 50, g: 50, b: 200 } } }).jpeg().toBuffer();
+  const img4 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 200, g: 150, b: 50 } } }).jpeg().toBuffer();
+
+  if (isFfmpegAvailable()) {
+    const vidBuf = synthesizeStoryboardVideo([img1, img2, img3, img4], {
+      width: 320,
+      height: 180,
+      duration: 11.6,
+    });
+    assert.ok(vidBuf);
+    assert.ok(Buffer.isBuffer(vidBuf));
+    assert.ok(vidBuf.length > 1000);
+    assert.ok(vidBuf.includes(Buffer.from('ftyp')));
+  } else {
+    const vidBuf = synthesizeStoryboardVideo([img1, img2, img3, img4]);
+    assert.strictEqual(vidBuf, null);
+  }
+});
+
+test('VideoGen: generateVideo handles Image-to-Video workflow with imageBuffer', async () => {
+  const testImg = await sharp({
+    create: { width: 100, height: 100, channels: 3, background: { r: 20, g: 80, b: 140 } },
+  })
+    .jpeg()
+    .toBuffer();
+
+  const dummy = Buffer.from('mock_img2vid_mp4');
+  const res = await generateVideo('animate this scene smoothly', {
+    imageBuffer: testImg,
+    mockBuffer: dummy,
+  });
+  assert.ok(res.ok);
+  assert.strictEqual(res.isImageToVideo, true);
+  assert.strictEqual(res.isStoryboardVideo, true);
+  assert.strictEqual(res.isFreeVideo, true);
+  assert.strictEqual(res.buffer, dummy);
 });

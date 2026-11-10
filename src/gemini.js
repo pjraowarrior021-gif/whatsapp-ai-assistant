@@ -605,6 +605,139 @@ export async function enhanceVideoPrompt(prompt, motion = null) {
 }
 
 /**
+ * Deterministic fallback storyboard builder when LLM is unavailable.
+ * Generates 4 progressive chronological narrative prompts preserving subject and style.
+ *
+ * @param {string} rawPrompt
+ * @param {string | null} [motion=null]
+ * @returns {string[]} Exactly 4 progressive prompt strings
+ */
+export function buildFallbackStoryboard(rawPrompt, motion = null) {
+  const base = (rawPrompt || 'Cinematic scene').trim();
+  const motionPrefix = motion ? `${motion} camera motion, ` : '';
+  const cleanSuffix =
+    '8k, ultra-detailed, photorealistic, cinematic lighting, masterpiece, no watermarks, no text overlay';
+
+  return [
+    `Stage 1 (Opening): Establishing shot of ${base}, ${motionPrefix}initial calm posture, wide angle, ${cleanSuffix}`,
+    `Stage 2 (Development): Dynamic motion starts, ${base} accelerates into motion, medium shot, shifting perspective, ${cleanSuffix}`,
+    `Stage 3 (Climax): Full kinetic movement, dramatic angle, ${base} in active traversal, high velocity, ${cleanSuffix}`,
+    `Stage 4 (Resolution): Grand cinematic conclusion, ${base} arriving at dramatic viewpoint, golden hour light, epic framing, ${cleanSuffix}`,
+  ];
+}
+
+/**
+ * Deconstructs a video prompt into a 4-stage chronological narrative storyboard
+ * for genuine multi-keyframe AI video generation (10-15s sequence).
+ *
+ * @param {string} userPrompt - User prompt
+ * @param {object} [options]
+ * @param {string} [options.motion] - Optional motion preset
+ * @returns {Promise<string[]>} Array of 4 progressive keyframe prompts
+ */
+export async function generateVideoStoryboard(userPrompt, options = {}) {
+  const trimmed = (userPrompt || '').trim();
+  if (!trimmed) {
+    return buildFallbackStoryboard('A scenic cinematic view', options.motion);
+  }
+
+  try {
+    const motionHint = options.motion ? `incorporating ${options.motion} motion` : 'with dynamic cinematic motion';
+    const systemInstruction = [
+      'You are a cinematic AI video director.',
+      'Deconstruct the user prompt into a continuous 4-stage chronological narrative for a 12-second video,',
+      motionHint + '.',
+      'Maintain absolute temporal consistency: keep the exact same subject, art style, color palette, and lighting across all 4 stages.',
+      'Stage 1 (t=0s): Initial scene establishment and posture.',
+      'Stage 2 (t=3.5s): Action initiates, perspective begins panning or zooming.',
+      'Stage 3 (t=7s): Peak kinetic motion or traversal.',
+      'Stage 4 (t=11s): Climax and dramatic resolution framing.',
+      'Ensure every stage includes: "photorealistic, cinematic lighting, 8k, no watermarks, no text".',
+      'Return a valid JSON array of exactly 4 strings: ["stage 1 prompt", "stage 2 prompt", "stage 3 prompt", "stage 4 prompt"]. Output ONLY the JSON array without markdown formatting.',
+    ].join(' ');
+
+    const rawResponse = await generateAIResponse(`Video Prompt: "${trimmed}"`, [], null, {
+      systemInstruction,
+    });
+
+    if (rawResponse) {
+      const jsonMatch = rawResponse.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed) && parsed.length >= 4) {
+          return parsed.slice(0, 4).map((s) => String(s).trim());
+        }
+      }
+    }
+  } catch (err) {
+    privacyLog('warn', 'STORYBOARD_LLM_FALLBACK', { error: err.message });
+  }
+
+  return buildFallbackStoryboard(trimmed, options.motion);
+}
+
+/**
+ * Generates a 4-stage narrative storyboard from an uploaded user image (Image-to-Video).
+ * Uses Gemini Vision to analyze the image and project 3 chronological follow-up beats.
+ *
+ * @param {Buffer} imageBuffer - In-memory image buffer
+ * @param {string} [caption=''] - User caption or instruction
+ * @param {object} [options]
+ * @returns {Promise<string[]>} Array of 4 progressive prompts
+ */
+export async function generateVideoStoryboardFromImage(imageBuffer, caption = '', options = {}) {
+  const userCaption = (caption || '').trim();
+  const fallback = buildFallbackStoryboard(userCaption || 'The subject in the image', options.motion);
+
+  if (!imageBuffer || !Buffer.isBuffer(imageBuffer)) {
+    return fallback;
+  }
+
+  try {
+    const systemInstruction = [
+      'You are an expert film director specializing in Image-to-Video generation.',
+      'Analyze the provided image and generate 3 consecutive follow-up narrative beats that logically animate what happens next over 12 seconds.',
+      'Beat 1 is the existing image.',
+      'Beat 2 (t=3.5s): Subject starts moving, slight angle shift.',
+      'Beat 3 (t=7s): Main dynamic action, traversal, or camera pan.',
+      'Beat 4 (t=11s): Climax and dramatic resolution.',
+      'Preserve the exact visual identity, colors, background, and character details from the image.',
+      'Return a valid JSON array of 3 strings for Beats 2, 3, and 4: ["beat 2", "beat 3", "beat 4"]. Output ONLY the JSON array.',
+    ].join(' ');
+
+    const promptText = userCaption
+      ? `User animation instruction: "${userCaption}". Project what happens next.`
+      : 'Project the natural 12-second cinematic continuation of this scene.';
+
+    const rawResponse = await generateAIResponse(
+      promptText,
+      [],
+      { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') },
+      { systemInstruction }
+    );
+
+    if (rawResponse) {
+      const jsonMatch = rawResponse.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const beats = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(beats) && beats.length >= 3) {
+          return [
+            userCaption || 'Initial scene establishment matching reference image',
+            String(beats[0]).trim(),
+            String(beats[1]).trim(),
+            String(beats[2]).trim(),
+          ];
+        }
+      }
+    }
+  } catch (err) {
+    privacyLog('warn', 'IMAGE_TO_VIDEO_STORYBOARD_FALLBACK', { error: err.message });
+  }
+
+  return fallback;
+}
+
+/**
  * Uploads an in-memory document/file buffer to Gemini Files API for large payloads (>20MB).
  *
  * @param {Buffer} buffer - In-memory file buffer

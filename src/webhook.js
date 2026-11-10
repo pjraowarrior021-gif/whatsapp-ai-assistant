@@ -770,8 +770,9 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     return;
   }
 
-  // 9a-2. Video Generation
-  const videoPrompt = !mediaPart ? parseVideoPrompt(effectiveCommand || rawText) : null;
+  // 9a-2. Video Generation (Text-to-Video & Image-to-Video)
+  const isImageToVideo = Boolean(mediaPart && messageType === 'image');
+  const videoPrompt = (!mediaPart || isImageToVideo) ? parseVideoPrompt(effectiveCommand || rawText) : null;
   if (videoPrompt) {
     const parsedVidOptions = parseVideoPromptOptions(videoPrompt);
     privacyLog('info', 'VIDEO_GENERATION_REQUESTED', {
@@ -780,21 +781,28 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       promptLength: parsedVidOptions.prompt.length,
       duration: parsedVidOptions.duration,
       dimensions: `${parsedVidOptions.width}x${parsedVidOptions.height}`,
+      isImageToVideo,
     });
 
     // Notify user immediately that generation is underway
     await sendWhatsAppMessage(
       from,
-      '🎬 *Generating your video...*\n_Directing cinematography & rendering frames. This usually takes 15–30 seconds. Hang tight!_'
+      isImageToVideo
+        ? '🎬 *Animating your photo...*\n_Directing AI motion & synthesizing follow-up scenes. This usually takes 15–30 seconds. Hang tight!_'
+        : '🎬 *Generating your video...*\n_Directing cinematography & rendering frames. This usually takes 15–30 seconds. Hang tight!_'
     );
 
     try {
-      const vidResult = await generateVideo(videoPrompt);
+      const vidOptions = isImageToVideo && mediaPart?.data
+        ? { imageBuffer: Buffer.from(mediaPart.data, 'base64') }
+        : {};
+      const vidResult = await generateVideo(videoPrompt, vidOptions);
       if (vidResult && vidResult.ok && vidResult.buffer) {
+        const typeBadge = vidResult.isImageToVideo ? 'Image-to-Video Animation' : 'AI Generated Video';
         const motionBadge = parsedVidOptions.motion ? ` | 🎥 ${parsedVidOptions.motion}` : '';
-        const engineBadge = vidResult.isFreeVideo ? ' (Free Cloud AI)' : '';
+        const engineBadge = vidResult.isFreeVideo ? ' (100% Free AI)' : '';
         const caption = [
-          `🎬 *AI Generated Video*${engineBadge} (${vidResult.duration || parsedVidOptions.duration}s${motionBadge})`,
+          `🎬 *${typeBadge}*${engineBadge} (${vidResult.duration || parsedVidOptions.duration}s${motionBadge})`,
           `📐 _Resolution:_ ${vidResult.width || parsedVidOptions.width}x${vidResult.height || parsedVidOptions.height}`,
           ``,
           `_Prompt:_ "${parsedVidOptions.prompt}"`,
@@ -1272,11 +1280,35 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
           );
           return;
         }
-        await sendWhatsAppMessage(
-          from,
-          `⚠️ *Webpage Error:* Failed to fetch webpage content (${article.reason || 'Could not load URL'}).`
-        );
-        return;
+
+        // For rate-limited, bot-challenged, paywalled, or short SPA stubs, fall back to Google Search Grounding
+        if (
+          article.reason === 'http_429' ||
+          article.reason === 'content_too_short' ||
+          article.reason === 'http_403' ||
+          article.reason === 'http_401'
+        ) {
+          const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
+          privacyLog('info', 'WEBPAGE_FETCH_FALLBACK_GROUNDING', { reason: article.reason, url: foundUrl });
+          forceGrounding = true;
+          effectivePrompt = [
+            `The user shared this link: ${foundUrl}`,
+            userPromptAside
+              ? `User instruction: "${userPromptAside}"`
+              : 'Please summarize the content and topic of this webpage.',
+            'Note: Direct HTML fetching was blocked or limited by the host server. Use Google Search Grounding to look up details about this URL and topic, providing clear highlights and key takeaway points for WhatsApp.',
+          ].join('\n\n');
+          articleHeader = {
+            title: `🔗 ${foundUrl}`,
+            url: foundUrl,
+          };
+        } else {
+          await sendWhatsAppMessage(
+            from,
+            `⚠️ *Webpage Error:* Failed to fetch webpage content (${article.reason || 'Could not load URL'}).`
+          );
+          return;
+        }
       }
 
       if (article.needsGrounding) {

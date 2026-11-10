@@ -9,7 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { config } from './config.js';
-import { enhanceVideoPrompt } from './gemini.js';
+import {
+  enhanceVideoPrompt,
+  generateVideoStoryboard,
+  generateVideoStoryboardFromImage,
+} from './gemini.js';
 import { generateCleanImage } from './image-gen.js';
 import { privacyLog } from './privacy.js';
 
@@ -327,6 +331,95 @@ export function synthesizeMotionVideo(imageBuffer, options = {}) {
 }
 
 /**
+ * Synthesizes a genuine 10-15s AI video sequence from multiple progressive AI keyframes.
+ * Applies directional camera motion to each distinct narrative beat, stitches them with
+ * cinematic crossfade transitions, generates silent AAC audio track for WhatsApp player
+ * compatibility, and encodes with faststart H.264.
+ *
+ * @param {Buffer[]} keyframeBuffers - Array of 4 distinct AI keyframe buffers
+ * @param {object} [options]
+ * @param {number} [options.width=960]
+ * @param {number} [options.height=540]
+ * @param {number} [options.duration=11.6]
+ * @param {string} [options.motion='zoom']
+ * @returns {Buffer | null} Finished MP4 video buffer
+ */
+export function synthesizeStoryboardVideo(keyframeBuffers, options = {}) {
+  if (!Array.isArray(keyframeBuffers) || keyframeBuffers.length === 0) return null;
+  if (!isFfmpegAvailable()) return null;
+
+  if (keyframeBuffers.length === 1) {
+    return synthesizeMotionVideo(keyframeBuffers[0], options);
+  }
+
+  // Ensure exactly 4 frames for the 4-stage narrative synthesis
+  const validBuffers = keyframeBuffers.filter((b) => b && Buffer.isBuffer(b));
+  if (validBuffers.length === 0) return null;
+  const frames = [...validBuffers];
+  while (frames.length < 4) {
+    frames.push(frames[frames.length - 1]);
+  }
+
+  const width = options.width || 960;
+  const height = options.height || 540;
+  const targetDuration = Math.min(15, Math.max(10, options.duration || config.VIDEO_DEFAULT_DURATION || 11.6));
+
+  const tmpFiles = frames.slice(0, 4).map((buf, i) => {
+    const f = path.join(os.tmpdir(), `sb_key_${i}_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`);
+    fs.writeFileSync(f, buf);
+    return f;
+  });
+  const tempOut = path.join(os.tmpdir(), `sb_out_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
+
+  try {
+    const filterGraph = [
+      `[0:v]scale=${width}:${height},zoompan=z='min(zoom+0.0015,1.2)':d=88:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=25[v0]`,
+      `[1:v]scale=${width}:${height},zoompan=z='1.15':d=88:x='if(lte(on,1),0,min(x+1.2,iw-iw/zoom))':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=25[v1]`,
+      `[2:v]scale=${width}:${height},zoompan=z='min(zoom+0.002,1.25)':d=88:x='if(lte(on,1),(iw-iw/zoom)/2,x+0.8)':y='if(lte(on,1),(ih-ih/zoom)/2,y-0.4)':s=${width}x${height}:fps=25[v2]`,
+      `[3:v]scale=${width}:${height},zoompan=z='min(zoom+0.0012,1.18)':d=88:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=25[v3]`,
+      `[v0][v1]xfade=transition=fade:duration=0.8:offset=2.7[f0]`,
+      `[f0][v2]xfade=transition=fade:duration=0.8:offset=5.4[f1]`,
+      `[f1][v3]xfade=transition=fade:duration=0.8:offset=8.1[vfinal]`,
+    ].join(';');
+
+    const args = [
+      '-y',
+      '-loop', '1', '-t', '3.6', '-i', tmpFiles[0],
+      '-loop', '1', '-t', '3.6', '-i', tmpFiles[1],
+      '-loop', '1', '-t', '3.6', '-i', tmpFiles[2],
+      '-loop', '1', '-t', '3.6', '-i', tmpFiles[3],
+      '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+      '-filter_complex', filterGraph,
+      '-map', '[vfinal]',
+      '-map', '4:a',
+      '-c:v', 'libx264',
+      '-pix_fmt', 'yuv420p',
+      '-preset', 'ultrafast',
+      '-c:a', 'aac',
+      '-b:a', '64k',
+      '-shortest',
+      '-t', String(targetDuration),
+      '-movflags', '+faststart',
+      tempOut,
+    ];
+
+    const res = spawnSync('ffmpeg', args, { timeout: 30000 });
+    if (res.status === 0 && fs.existsSync(tempOut)) {
+      return fs.readFileSync(tempOut);
+    }
+    return null;
+  } catch (err) {
+    privacyLog('warn', 'STORYBOARD_SYNTHESIS_FAILED', { error: err.message });
+    return null;
+  } finally {
+    for (const f of tmpFiles) {
+      try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
+    }
+    try { if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut); } catch {}
+  }
+}
+
+/**
  * Generates an AI video using free cloud GPU (Hugging Face ZeroGPU / ByteDance AnimateDiff Lightning).
  * Requires zero API keys and generates genuine frame-by-frame temporal video in ~5 seconds.
  *
@@ -449,6 +542,8 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
     effectivePrompt += `, ${options.motion}`;
   }
 
+  const isImageToVideo = Boolean(userOptions.imageBuffer && Buffer.isBuffer(userOptions.imageBuffer));
+
   // Hermetic testing & offline simulation bypass
   if (options.mockBuffer && !userOptions.engine && !userOptions.testEngine) {
     return {
@@ -460,6 +555,9 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
       width: options.width,
       height: options.height,
       duration: options.duration,
+      isImageToVideo: isImageToVideo || undefined,
+      isStoryboardVideo: isImageToVideo || undefined,
+      isFreeVideo: isImageToVideo || undefined,
     };
   }
 
@@ -492,6 +590,80 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
     finalPrompt += ', pristine cinematography, watermark-free, no logo, no timestamps, no text overlay';
   }
 
+  // Handle Image-to-Video Workflow
+  if (userOptions.imageBuffer && Buffer.isBuffer(userOptions.imageBuffer)) {
+    privacyLog('info', 'IMAGE_TO_VIDEO_REQUESTED', { prompt: parsed.prompt });
+    const storyboardPrompts = await generateVideoStoryboardFromImage(
+      userOptions.imageBuffer,
+      finalPrompt,
+      options
+    );
+
+    if (userOptions.mockBuffer) {
+      return {
+        ok: true,
+        buffer: userOptions.mockBuffer,
+        mimeType: 'video/mp4',
+        prompt: parsed.prompt,
+        enhancedPrompt: finalPrompt,
+        width: options.width,
+        height: options.height,
+        duration: options.duration,
+        isImageToVideo: true,
+        isStoryboardVideo: true,
+        isFreeVideo: true,
+      };
+    }
+
+    if (config.NODE_ENV === 'test' && !userOptions.allowLiveNetwork) {
+      return {
+        ok: true,
+        buffer: MOCK_MP4_BUFFER,
+        mimeType: 'video/mp4',
+        prompt: parsed.prompt,
+        enhancedPrompt: finalPrompt,
+        width: options.width,
+        height: options.height,
+        duration: options.duration,
+        isImageToVideo: true,
+        isStoryboardVideo: true,
+        isFreeVideo: true,
+      };
+    }
+
+    const keyframes = [userOptions.imageBuffer];
+    for (let i = 1; i < storyboardPrompts.length; i++) {
+      const kfImg = await generateCleanImage(storyboardPrompts[i], {
+        width: options.width,
+        height: options.height,
+        mockBuffer: userOptions.mockFallbackImage,
+        enhance: false,
+      });
+      if (kfImg?.buffer) {
+        keyframes.push(kfImg.buffer);
+      }
+    }
+
+    if (keyframes.length >= 2 && isFfmpegAvailable()) {
+      const storyboardVid = synthesizeStoryboardVideo(keyframes, options);
+      if (storyboardVid) {
+        return {
+          ok: true,
+          buffer: storyboardVid,
+          mimeType: 'video/mp4',
+          prompt: parsed.prompt,
+          enhancedPrompt: finalPrompt,
+          width: options.width,
+          height: options.height,
+          duration: options.duration,
+          isImageToVideo: true,
+          isStoryboardVideo: true,
+          isFreeVideo: true,
+        };
+      }
+    }
+  }
+
   const engine = userOptions.engine || config.VIDEO_ENGINE || 'free';
 
   // Option 1: Free Cloud AI Video Engine (ByteDance AnimateDiff Lightning via Hugging Face ZeroGPU)
@@ -514,6 +686,78 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
         duration: freeRes.duration || options.duration,
         isFreeVideo: true,
       };
+    }
+  }
+
+  // Option 2: Autonomous Multi-Keyframe Generative Storyboard Engine (10-15s, New Frames Throughout)
+  if (
+    (engine === 'free' || engine === 'storyboard') &&
+    !userOptions.forceCloud &&
+    !userOptions.disableFreeRecovery &&
+    isFfmpegAvailable()
+  ) {
+    privacyLog('info', 'VIDEO_STORYBOARD_SYNTHESIS_REQUESTED', { prompt: parsed.prompt });
+    const storyboardPrompts = await generateVideoStoryboard(finalPrompt, options);
+
+    if (userOptions.mockBuffer) {
+      return {
+        ok: true,
+        buffer: userOptions.mockBuffer,
+        mimeType: 'video/mp4',
+        prompt: parsed.prompt,
+        enhancedPrompt: finalPrompt,
+        width: options.width,
+        height: options.height,
+        duration: options.duration,
+        isStoryboardVideo: true,
+        isFreeVideo: true,
+      };
+    }
+
+    if (config.NODE_ENV === 'test' && !userOptions.allowLiveNetwork) {
+      return {
+        ok: true,
+        buffer: MOCK_MP4_BUFFER,
+        mimeType: 'video/mp4',
+        prompt: parsed.prompt,
+        enhancedPrompt: finalPrompt,
+        width: options.width,
+        height: options.height,
+        duration: options.duration,
+        isStoryboardVideo: true,
+        isFreeVideo: true,
+      };
+    }
+
+    const keyframes = [];
+    for (const promptStage of storyboardPrompts) {
+      const kfImg = await generateCleanImage(promptStage, {
+        width: options.width,
+        height: options.height,
+        mockBuffer: userOptions.mockFallbackImage,
+        enhance: false,
+      });
+      if (kfImg?.buffer) {
+        keyframes.push(kfImg.buffer);
+      }
+    }
+
+    if (keyframes.length >= 2) {
+      const storyboardVid = synthesizeStoryboardVideo(keyframes, options);
+      if (storyboardVid) {
+        return {
+          ok: true,
+          buffer: storyboardVid,
+          mimeType: 'video/mp4',
+          prompt: parsed.prompt,
+          enhancedPrompt: finalPrompt,
+          width: options.width,
+          height: options.height,
+          duration: options.duration,
+          isStoryboardVideo: true,
+          isFreeVideo: true,
+        };
+      }
     }
   }
 
