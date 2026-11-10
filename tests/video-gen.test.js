@@ -7,6 +7,7 @@ import {
   parseVideoPromptOptions,
   buildVideoUrl,
   generateVideo,
+  generateVideoWithGradio,
   MOCK_MP4_BUFFER,
   isFfmpegAvailable,
   synthesizeMotionVideo,
@@ -122,6 +123,7 @@ test('VideoGen: generateVideo gracefully returns fallback concept still and miss
       apiKey: '',
       forceCloud: true,
       disableMotionRecovery: true,
+      disableFreeRecovery: true,
     });
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.reason, 'missing_api_key');
@@ -179,4 +181,43 @@ test('VideoGen: exports valid ISO Base Media MOCK_MP4_BUFFER fixture', () => {
   assert.ok(Buffer.isBuffer(MOCK_MP4_BUFFER));
   assert.ok(MOCK_MP4_BUFFER.length > 20);
   assert.ok(MOCK_MP4_BUFFER.includes(Buffer.from('ftyp')));
+});
+
+test('VideoGen: generateVideoWithGradio returns mockBuffer in hermetic test mode', async () => {
+  const dummy = Buffer.from('mock_gradio_mp4_bytes');
+  const res = await generateVideoWithGradio('a sunset over mountains', { mockBuffer: dummy });
+  assert.ok(res.ok);
+  assert.strictEqual(res.buffer, dummy);
+  assert.strictEqual(res.mimeType, 'video/mp4');
+});
+
+test('VideoGen: generateVideo supports engine free returning isFreeVideo badge', async () => {
+  const dummy = Buffer.from('free_engine_mp4');
+  const res = await generateVideo('cinematic cyberpunk street', {
+    engine: 'free',
+    mockBuffer: dummy,
+  });
+  assert.ok(res.ok);
+  assert.strictEqual(res.isFreeVideo, true);
+  assert.strictEqual(res.buffer, dummy);
+  assert.strictEqual(res.width, 512);
+  assert.strictEqual(res.height, 512);
+});
+
+test('VideoGen: generateVideo automatically recovers via Free Gradio engine when cloud API key is missing', async () => {
+  const prevKey = config.POLLINATIONS_API_KEY;
+  config.POLLINATIONS_API_KEY = '';
+  try {
+    const dummy = Buffer.from('auto_recovered_free_mp4');
+    const res = await generateVideo('ocean waves at dusk', {
+      engine: 'cloud',
+      apiKey: '',
+      mockBuffer: dummy,
+    });
+    assert.ok(res.ok);
+    assert.strictEqual(res.isFreeVideo, true);
+    assert.strictEqual(res.buffer, dummy);
+  } finally {
+    config.POLLINATIONS_API_KEY = prevKey;
+  }
 });

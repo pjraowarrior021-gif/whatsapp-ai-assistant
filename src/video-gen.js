@@ -315,6 +315,78 @@ export function synthesizeMotionVideo(imageBuffer, options = {}) {
 }
 
 /**
+ * Generates an AI video using free cloud GPU (Hugging Face ZeroGPU / ByteDance AnimateDiff Lightning).
+ * Requires zero API keys and generates genuine frame-by-frame temporal video in ~5 seconds.
+ *
+ * @param {string} prompt - Final enhanced prompt
+ * @param {object} [options] - Video options
+ * @returns {Promise<{ ok: boolean, buffer?: Buffer, mimeType?: string, error?: string }>}
+ */
+export async function generateVideoWithGradio(prompt, options = {}) {
+  if (options.mockBuffer) {
+    return { ok: true, buffer: options.mockBuffer, mimeType: 'video/mp4' };
+  }
+  try {
+    const { Client } = await import('@gradio/client');
+    const space = options.gradioSpace || 'ByteDance/AnimateDiff-Lightning';
+    privacyLog('info', 'GRADIO_VIDEO_GENERATION_STARTED', { space, promptLength: prompt.length });
+
+    const client = await Client.connect(space);
+    // 8 inference steps for high visual fidelity on ByteDance AnimateDiff Lightning
+    const result = await client.predict('/generate_image', [
+      prompt,
+      options.baseModel || 'epiCRealism',
+      options.motionLoRA || '',
+      options.inferenceSteps || 8,
+    ]);
+
+    if (!result?.data?.[0]?.video?.url) {
+      return { ok: false, error: 'Empty video payload returned from Gradio space' };
+    }
+
+    const videoUrl = result.data[0].video.url;
+    const res = await fetch(videoUrl);
+    if (!res.ok) {
+      return { ok: false, error: `Failed to download video file: HTTP ${res.status}` };
+    }
+
+    const arrayBuffer = await res.arrayBuffer();
+    let videoBuffer = Buffer.from(arrayBuffer);
+
+    // Smoothly loop 2x (to ~4.8s) for WhatsApp if ffmpeg is available and not disabled
+    if (isFfmpegAvailable() && videoBuffer.length > 0 && !options.noLoop) {
+      const tempIn = path.join(os.tmpdir(), `gradio_in_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.mp4`);
+      const tempOut = path.join(os.tmpdir(), `gradio_out_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.mp4`);
+      try {
+        fs.writeFileSync(tempIn, videoBuffer);
+        const ffmpegRes = spawnSync(
+          'ffmpeg',
+          ['-y', '-stream_loop', '2', '-i', tempIn, '-c', 'copy', tempOut],
+          { timeout: 10000 }
+        );
+        if (ffmpegRes.status === 0 && fs.existsSync(tempOut)) {
+          videoBuffer = fs.readFileSync(tempOut);
+        }
+      } catch {
+        // Fall back to unlooped video
+      } finally {
+        try { if (fs.existsSync(tempIn)) fs.unlinkSync(tempIn); } catch {}
+        try { if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut); } catch {}
+      }
+    }
+
+    return {
+      ok: true,
+      buffer: videoBuffer,
+      mimeType: 'video/mp4',
+    };
+  } catch (err) {
+    privacyLog('warn', 'GRADIO_VIDEO_GENERATION_FAILED', { error: err.message });
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
  * Generates an AI video from a text prompt in volatile memory.
  * Employs Gemini Video Prompt Engineer to enhance cinematography and motion trajectory.
  * Incorporates bounded timeouts (45s) and automatic visual fallback to concept still image
@@ -357,7 +429,7 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
   }
 
   // Hermetic testing & offline simulation bypass
-  if (options.mockBuffer) {
+  if (options.mockBuffer && !userOptions.engine && !userOptions.testEngine) {
     return {
       ok: true,
       buffer: options.mockBuffer,
@@ -370,8 +442,8 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
     };
   }
 
-  // During automated unit tests or mock mode, return valid mock MP4 buffer
-  if ((config.NODE_ENV === 'test' || options.mock) && !userOptions.allowLiveNetwork) {
+  // During automated unit tests or mock mode, return valid mock MP4 buffer unless testing specific engine
+  if ((config.NODE_ENV === 'test' || options.mock) && !userOptions.allowLiveNetwork && !userOptions.testEngine && !userOptions.engine) {
     return {
       ok: true,
       buffer: MOCK_MP4_BUFFER,
@@ -399,7 +471,30 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
     finalPrompt += ', pristine cinematography, watermark-free, no logo, no timestamps, no text overlay';
   }
 
-  const engine = userOptions.engine || config.VIDEO_ENGINE || 'cloud';
+  const engine = userOptions.engine || config.VIDEO_ENGINE || 'free';
+
+  // Option 1: Free Cloud AI Video Engine (ByteDance AnimateDiff Lightning via Hugging Face ZeroGPU)
+  if ((engine === 'free' || engine === 'gradio' || engine === 'hf') && !userOptions.forceCloud) {
+    privacyLog('info', 'VIDEO_FREE_ENGINE_REQUESTED', { prompt: parsed.prompt });
+    const freeRes = await generateVideoWithGradio(finalPrompt, {
+      ...options,
+      mockBuffer: userOptions.mockBuffer,
+    });
+
+    if (freeRes.ok && freeRes.buffer) {
+      return {
+        ok: true,
+        buffer: freeRes.buffer,
+        mimeType: 'video/mp4',
+        prompt: parsed.prompt,
+        enhancedPrompt: finalPrompt,
+        width: 512,
+        height: 512,
+        duration: 5,
+        isFreeVideo: true,
+      };
+    }
+  }
 
   // Explicit motion synthesis only if specifically opted-in via engine: 'motion'
   if (engine === 'motion') {
@@ -436,6 +531,26 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
 
   if (!apiKey) {
     privacyLog('warn', 'VIDEO_API_KEY_MISSING', { prompt: parsed.prompt });
+    if (!userOptions.disableFreeRecovery) {
+      const freeRecovery = await generateVideoWithGradio(finalPrompt, {
+        ...options,
+        mockBuffer: userOptions.mockBuffer,
+      });
+      if (freeRecovery.ok && freeRecovery.buffer) {
+        return {
+          ok: true,
+          buffer: freeRecovery.buffer,
+          mimeType: 'video/mp4',
+          prompt: parsed.prompt,
+          enhancedPrompt: finalPrompt,
+          width: 512,
+          height: 512,
+          duration: 5,
+          isFreeVideo: true,
+        };
+      }
+    }
+
     const fallbackImage = await generateCleanImage(finalPrompt, {
       width: options.width > options.height ? 1280 : 720,
       height: options.width > options.height ? 720 : 1280,
@@ -468,6 +583,29 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
       const errData = await res.json().catch(() => null);
       const apiMessage = errData?.error?.message || null;
       privacyLog('warn', 'VIDEO_API_RESPONSE_NOT_OK', { status: res.status, apiMessage });
+
+      // Automatically recover via Free Cloud AI Video Engine when cloud API has insufficient balance or unauthorized key
+      if (!userOptions.disableFreeRecovery && (res.status === 401 || res.status === 402)) {
+        const freeRecovery = await generateVideoWithGradio(finalPrompt, {
+          ...options,
+          mockBuffer: userOptions.mockBuffer,
+        });
+        if (freeRecovery.ok && freeRecovery.buffer) {
+          return {
+            ok: true,
+            buffer: freeRecovery.buffer,
+            mimeType: 'video/mp4',
+            prompt: parsed.prompt,
+            enhancedPrompt: finalPrompt,
+            width: 512,
+            height: 512,
+            duration: 5,
+            isFreeVideo: true,
+            recoveredFromError: res.status,
+          };
+        }
+      }
+
       // Generate immediate high-definition visual concept still image as fallback
       const fallbackImage = await generateCleanImage(finalPrompt, {
         width: options.width > options.height ? 1280 : 720,

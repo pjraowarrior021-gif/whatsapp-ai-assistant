@@ -792,9 +792,10 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       const vidResult = await generateVideo(videoPrompt);
       if (vidResult && vidResult.ok && vidResult.buffer) {
         const motionBadge = parsedVidOptions.motion ? ` | 🎥 ${parsedVidOptions.motion}` : '';
+        const engineBadge = vidResult.isFreeVideo ? ' (Free Cloud AI)' : '';
         const caption = [
-          `🎬 *AI Generated Video* (${parsedVidOptions.duration}s${motionBadge})`,
-          `📐 _Resolution:_ ${parsedVidOptions.width}x${parsedVidOptions.height}`,
+          `🎬 *AI Generated Video*${engineBadge} (${vidResult.duration || parsedVidOptions.duration}s${motionBadge})`,
+          `📐 _Resolution:_ ${vidResult.width || parsedVidOptions.width}x${vidResult.height || parsedVidOptions.height}`,
           ``,
           `_Prompt:_ "${parsedVidOptions.prompt}"`,
         ].join('\n');

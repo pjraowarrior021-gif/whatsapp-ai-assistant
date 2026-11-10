@@ -88,7 +88,7 @@ export const config = {
   MEDIA_FETCH_TIMEOUT_MS: parseInt(process.env.MEDIA_FETCH_TIMEOUT_MS, 10) || 60000, // 60 seconds
 
   // AI Media & Video Generation Configuration
-  VIDEO_ENGINE: process.env.VIDEO_ENGINE || 'cloud', // 'cloud' (true AI video) or 'motion'
+  VIDEO_ENGINE: process.env.VIDEO_ENGINE || 'free', // 'free' (Hugging Face ZeroGPU AI Video), 'cloud' (Pollinations Wan-2.2), or 'motion'
   POLLINATIONS_API_KEY: process.env.POLLINATIONS_API_KEY || '',
   POLLINATIONS_VIDEO_MODEL: process.env.POLLINATIONS_VIDEO_MODEL || 'alibaba/wan-2.2-fast',
 
