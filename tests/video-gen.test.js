@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import sharp from 'sharp';
+import { config } from '../src/config.js';
 import {
   parseVideoPrompt,
   parseVideoPromptOptions,
@@ -82,12 +84,46 @@ test('VideoGen: parseVideoPromptOptions parses aspect ratios, duration, motion p
   assert.strictEqual(anime.motion, 'slow motion 120fps');
 });
 
-test('VideoGen: buildVideoUrl constructs valid URL endpoint with parameters', () => {
-  const url = buildVideoUrl('a dolphin leaping out of the water', { width: 960, height: 540, duration: 5 });
+test('VideoGen: buildVideoUrl constructs valid URL endpoint with parameters and model', () => {
+  const url = buildVideoUrl('a dolphin leaping out of the water', {
+    width: 960,
+    height: 540,
+    duration: 5,
+    model: 'google/veo-3.1-fast',
+  });
   assert.ok(url.startsWith('https://gen.pollinations.ai/video/'));
   assert.ok(url.includes('width=960'));
   assert.ok(url.includes('height=540'));
   assert.ok(url.includes('duration=5'));
+  assert.ok(url.includes('model=google%2Fveo-3.1-fast'));
+  assert.ok(url.includes('nologo=true'));
+});
+
+test('VideoGen: generateVideo gracefully returns fallback concept still and missing_api_key when key is unset', async () => {
+  const prevConfigKey = config.POLLINATIONS_API_KEY;
+  const prevEnvKey = process.env.POLLINATIONS_API_KEY;
+  config.POLLINATIONS_API_KEY = '';
+  delete process.env.POLLINATIONS_API_KEY;
+  try {
+    const mockImg = await sharp({
+      create: {
+        width: 120,
+        height: 120,
+        channels: 3,
+        background: { r: 100, g: 150, b: 200 },
+      },
+    })
+      .jpeg()
+      .toBuffer();
+    const result = await generateVideo('sunset over calm sea', { mockFallbackImage: mockImg, apiKey: '' });
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.reason, 'missing_api_key');
+    assert.strictEqual(result.statusCode, 401);
+    assert.ok(result.fallbackImage);
+  } finally {
+    config.POLLINATIONS_API_KEY = prevConfigKey;
+    if (prevEnvKey) process.env.POLLINATIONS_API_KEY = prevEnvKey;
+  }
 });
 
 test('VideoGen: generateVideo succeeds with test bypass returning valid MP4 buffer', async () => {

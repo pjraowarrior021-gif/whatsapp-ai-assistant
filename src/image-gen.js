@@ -6,6 +6,7 @@
 import sharp from 'sharp';
 import { config } from './config.js';
 import { enhanceImagePrompt } from './gemini.js';
+import { privacyLog } from './privacy.js';
 
 /**
  * Parses user input to detect if it is an image generation request.
@@ -189,7 +190,7 @@ export function generateImageUrl(prompt, options = {}) {
   const encoded = encodeURIComponent(cleanPrompt);
   const enhanceParam = options.enhance ? '&enhance=true' : '';
 
-  const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&seed=${seed}&model=${model}&nologo=true${enhanceParam}`;
+  const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&seed=${seed}&model=${model}&nologo=true&nofeed=true&private=true${enhanceParam}`;
 
   return {
     imageUrl,
@@ -254,6 +255,11 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
     }
   }
 
+  // Deterministic watermark-free directive guarantee across all prompts
+  if (!finalPrompt.toLowerCase().includes('watermark-free')) {
+    finalPrompt += ', clean composition, watermark-free, no logos, no text';
+  }
+
   const { imageUrl } = generateImageUrl(finalPrompt, options);
 
   try {
@@ -262,7 +268,20 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
       rawBuffer = options.mockBuffer;
     } else {
       const signal = AbortSignal.timeout(config.MEDIA_FETCH_TIMEOUT_MS);
-      const res = await fetch(imageUrl, { signal });
+      let res = await fetch(imageUrl, { signal });
+      if (!res.ok && (res.status === 402 || res.status === 429)) {
+        try {
+          const errData = await res.json();
+          const match = (errData?.error?.message || '').match(/Retry after (\d+)s/i);
+          const waitSec = match ? Math.min(20, parseInt(match[1], 10) + 1) : 10;
+          privacyLog('info', 'IMAGE_GEN_RATE_LIMIT_BACKOFF', { waitSec });
+          await new Promise((r) => setTimeout(r, waitSec * 1000));
+          const retrySignal = AbortSignal.timeout(config.MEDIA_FETCH_TIMEOUT_MS);
+          res = await fetch(imageUrl, { signal: retrySignal });
+        } catch {
+          // Ignore parse failure and check status below
+        }
+      }
       if (!res.ok) {
         return null;
       }
@@ -289,15 +308,22 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
     const metadata = await sharp(rawBuffer).metadata();
 
     // The platform watermark resides in the bottom-right corner (~45px high).
-    // Extracting height minus 45px removes the text and vector mark cleanly in memory.
-    const origHeight = metadata.height || options.height || 1024;
-    const cropHeight = Math.max(10, origHeight - 45);
+    // Extracting height minus 45px removes the text and vector mark cleanly in memory,
+    // followed by Lanczos3 resampling to preserve the exact requested dimensions without distortion.
+    const targetWidth = metadata.width || options.width || 1024;
+    const targetHeight = metadata.height || options.height || 1024;
+    const cropHeight = Math.max(10, targetHeight - 45);
+
     const cleanBuffer = await sharp(rawBuffer)
       .extract({
         left: 0,
         top: 0,
-        width: metadata.width || options.width || 1024,
+        width: targetWidth,
         height: cropHeight,
+      })
+      .resize(targetWidth, targetHeight, {
+        kernel: sharp.kernel.lanczos3,
+        fit: 'fill',
       })
       .jpeg({ quality: 95 })
       .toBuffer();

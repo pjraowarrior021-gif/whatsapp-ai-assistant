@@ -813,12 +813,44 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       } else {
         recordErrorMetric('video_gen');
         if (vidResult?.fallbackImage) {
-          const fallbackCaption = [
-            `🎬 *Video Concept Preview* (Generation queued/busy)`,
-            `⚠️ _Video cloud render is currently busy. Here is your high-definition concept still:_`,
-            ``,
-            `_Prompt:_ "${parsedVidOptions.prompt}"`,
-          ].join('\n');
+          const isApiKeyIssue =
+            vidResult.statusCode === 401 ||
+            vidResult.reason === 'missing_api_key' ||
+            vidResult.reason === 'unauthorized_api_key' ||
+            String(vidResult.reason).includes('401');
+          const isCreditsIssue =
+            vidResult.statusCode === 402 ||
+            vidResult.reason === 'credits_exhausted' ||
+            String(vidResult.reason).includes('402');
+
+          let header = '🎬 *Video Concept Preview* (Generation queued/busy)';
+          let statusText = '⚠️ _Video cloud render is currently busy. Here is your high-definition concept still:_';
+
+          if (isApiKeyIssue) {
+            header = '🎬 *Video Concept Preview* (API Key Setup Required)';
+            statusText = [
+              '⚠️ *Video Generation Setup Required:*',
+              '_Text-to-video rendering requires an active Pollinations API key._',
+              '_1. Get a free key with starter pollen credits at:_ https://enter.pollinations.ai/keys',
+              '_2. Add_ `POLLINATIONS_API_KEY=your_key` _to your bot `.env` file and restart._',
+              '',
+              '🖼️ _In the meantime, here is your generated high-definition concept still:_',
+            ].join('\n');
+          } else if (isCreditsIssue) {
+            header = '🎬 *Video Concept Preview* (Paid Pollen Required)';
+            statusText = [
+              '⚠️ *Paid Pollen Balance Required:*',
+              vidResult.apiMessage
+                ? `_${vidResult.apiMessage}_`
+                : '_GPU video rendering requires Paid Pollen (from ~$0.05 per clip)._',
+              '',
+              '👉 _Top up your Pollinations balance at:_ https://enter.pollinations.ai/top-up',
+              '',
+              '🖼️ _In the meantime, here is your generated high-definition concept still:_',
+            ].join('\n');
+          }
+
+          const fallbackCaption = [header, statusText, '', `_Prompt:_ "${parsedVidOptions.prompt}"`].join('\n');
           await sendWhatsAppImage(from, vidResult.fallbackImage, fallbackCaption);
           saveTurn(anonId, rawText, `[Generated video concept preview image: ${parsedVidOptions.prompt}]`);
         } else {

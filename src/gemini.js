@@ -537,6 +537,7 @@ export async function enhanceImagePrompt(prompt) {
       'You are a professional generative AI prompt engineer for the FLUX.1 text-to-image model.',
       'Enrich the user input into a vivid, photorealistic, highly detailed image generation prompt (max 35 words).',
       'Focus on lighting, atmospheric mood, cinematic camera perspective, and artistic fidelity.',
+      'Ensure the composition is pristine, watermark-free, with no logos, no text, and no captions.',
       'Preserve the core subject.',
       'Output ONLY the enhanced prompt string. Do NOT add conversational filler, markdown formatting, or quotes.',
     ].join(' ');
@@ -580,6 +581,7 @@ export async function enhanceVideoPrompt(prompt, motion = null) {
       'Enrich the user input into a vivid, cinematic text-to-video prompt (max 30 words).',
       motionDirective,
       'Focus on temporal movement, cinematic lighting, realistic physics, and camera angle.',
+      'Ensure the cinematography is pristine, watermark-free, with no logos, no text overlay, and no timestamps.',
       'Preserve the core subject.',
       'Output ONLY the enhanced video prompt string without quotes or conversational filler.',
     ].join(' ');

@@ -227,8 +227,9 @@ export function buildVideoUrl(prompt, options = {}) {
   const width = options.width || 960;
   const height = options.height || 540;
   const duration = options.duration || 5;
+  const model = options.model || config.POLLINATIONS_VIDEO_MODEL || 'google/veo-3.1-fast';
 
-  return `https://gen.pollinations.ai/video/${encoded}?width=${width}&height=${height}&duration=${duration}`;
+  return `https://gen.pollinations.ai/video/${encoded}?width=${width}&height=${height}&duration=${duration}&model=${encodeURIComponent(model)}&nologo=true&nofeed=true&private=true`;
 }
 
 /**
@@ -311,19 +312,50 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
     }
   }
 
+  // Deterministic watermark-free directive guarantee across all video prompts
+  if (!finalPrompt.toLowerCase().includes('watermark-free')) {
+    finalPrompt += ', pristine cinematography, watermark-free, no logo, no timestamps, no text overlay';
+  }
+
+  const apiKey =
+    userOptions.apiKey !== undefined
+      ? userOptions.apiKey
+      : config.POLLINATIONS_API_KEY || process.env.POLLINATIONS_API_KEY;
+
+  if (!apiKey) {
+    privacyLog('warn', 'VIDEO_API_KEY_MISSING', { prompt: parsed.prompt });
+    const fallbackImage = await generateCleanImage(finalPrompt, {
+      width: options.width > options.height ? 1280 : 720,
+      height: options.width > options.height ? 720 : 1280,
+      mockBuffer: userOptions.mockFallbackImage,
+    });
+    return {
+      ok: false,
+      prompt: parsed.prompt,
+      enhancedPrompt: finalPrompt,
+      width: options.width,
+      height: options.height,
+      duration: options.duration,
+      fallbackImage,
+      statusCode: 401,
+      reason: 'missing_api_key',
+    };
+  }
+
   const videoUrl = buildVideoUrl(finalPrompt, options);
 
   try {
     // 45s bounded timeout to prevent queue worker starvation
     const signal = AbortSignal.timeout(45000);
-    const headers = {};
-    if (process.env.POLLINATIONS_API_KEY) {
-      headers['Authorization'] = `Bearer ${process.env.POLLINATIONS_API_KEY}`;
-    }
+    const headers = {
+      Authorization: `Bearer ${apiKey}`,
+    };
 
     const res = await fetch(videoUrl, { signal, headers });
     if (!res.ok) {
-      privacyLog('warn', 'VIDEO_API_RESPONSE_NOT_OK', { status: res.status });
+      const errData = await res.json().catch(() => null);
+      const apiMessage = errData?.error?.message || null;
+      privacyLog('warn', 'VIDEO_API_RESPONSE_NOT_OK', { status: res.status, apiMessage });
       // Generate immediate high-definition visual concept still image as fallback
       const fallbackImage = await generateCleanImage(finalPrompt, {
         width: options.width > options.height ? 1280 : 720,
@@ -337,7 +369,14 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
         height: options.height,
         duration: options.duration,
         fallbackImage,
-        reason: `Video API returned status ${res.status}`,
+        statusCode: res.status,
+        apiMessage,
+        reason:
+          res.status === 401
+            ? 'unauthorized_api_key'
+            : res.status === 402
+              ? 'credits_exhausted'
+              : `Video API returned status ${res.status}`,
       };
     }
 
@@ -404,6 +443,7 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
     const fallbackImage = await generateCleanImage(finalPrompt, {
       width: options.width > options.height ? 1280 : 720,
       height: options.width > options.height ? 720 : 1280,
+      mockBuffer: userOptions.mockFallbackImage,
     });
     return {
       ok: false,

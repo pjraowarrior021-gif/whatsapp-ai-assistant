@@ -87,6 +87,10 @@ export const config = {
   MEDIA_MAX_BYTES: parseInt(process.env.MEDIA_MAX_BYTES, 10) || 100 * 1024 * 1024, // 100MB
   MEDIA_FETCH_TIMEOUT_MS: parseInt(process.env.MEDIA_FETCH_TIMEOUT_MS, 10) || 60000, // 60 seconds
 
+  // AI Media & Video Generation Configuration (Pollinations)
+  POLLINATIONS_API_KEY: process.env.POLLINATIONS_API_KEY || '',
+  POLLINATIONS_VIDEO_MODEL: process.env.POLLINATIONS_VIDEO_MODEL || 'google/veo-3.1-fast',
+
   // Privacy & Access Control Configuration
   ALLOWED_PHONE_NUMBERS: parseAllowedNumbers(process.env.ALLOWED_PHONE_NUMBERS),
   SESSION_TIMEOUT_MINUTES: parseInt(process.env.SESSION_TIMEOUT_MINUTES, 10) || 15,
@@ -234,6 +238,11 @@ export function getSafeConfigSummary() {
     media: {
       maxBytes: config.MEDIA_MAX_BYTES,
       fetchTimeoutMs: config.MEDIA_FETCH_TIMEOUT_MS,
+    },
+    video: {
+      hasApiKey: Boolean(config.POLLINATIONS_API_KEY),
+      apiKeyMasked: maskSecret(config.POLLINATIONS_API_KEY),
+      model: config.POLLINATIONS_VIDEO_MODEL,
     },
     timezone: {
       zone: config.TIMEZONE,

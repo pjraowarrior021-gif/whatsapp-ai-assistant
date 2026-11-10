@@ -7,6 +7,7 @@ import { config } from '../src/config.js';
 import { setGeminiClient } from '../src/gemini.js';
 
 // Hermetic mock client to prevent any external Gemini calls during integration tests
+config.NODE_ENV = 'test';
 setGeminiClient({
   models: {
     generateContent: async () => ({
@@ -1058,10 +1059,10 @@ test('POST /webhook handles YouTube link message submission and queues processin
             field: 'messages',
             value: {
               messaging_product: 'whatsapp',
-              contacts: [{ profile: { name: 'Alice' }, wa_id: '918217426307' }],
+              contacts: [{ profile: { name: 'Alice' }, wa_id: '910000000000' }],
               messages: [
                 {
-                  from: '918217426307',
+                  from: '910000000000',
                   id: `wamid.yt_test_${Date.now()}`,
                   timestamp: String(Math.floor(Date.now() / 1000)),
                   type: 'text',
@@ -1114,10 +1115,10 @@ test('POST /webhook handles video generation command submission and queues proce
             field: 'messages',
             value: {
               messaging_product: 'whatsapp',
-              contacts: [{ profile: { name: 'Alice' }, wa_id: '918217426307' }],
+              contacts: [{ profile: { name: 'Alice' }, wa_id: '910000000000' }],
               messages: [
                 {
-                  from: '918217426307',
+                  from: '910000000000',
                   id: `wamid.vid_test_${Date.now()}`,
                   timestamp: String(Math.floor(Date.now() / 1000)),
                   type: 'text',
