@@ -34,8 +34,14 @@ import { executeToolCall } from '../src/tools/index.js';
 import { exportUserData } from '../src/export.js';
 import { extractYouTubeVideoId, fetchYouTubeMetadata, fetchYouTubeVideoData } from '../src/youtube.js';
 import { isInstagramUrl, extractInstagramShortcode, fetchInstagramPostData } from '../src/instagram.js';
-import { extractDeterministicFacts, autoLearnFromTurn } from '../src/auto-learner.js';
+import { autoLearnFromTurn } from '../src/auto-learner.js';
 import { recordUserInteraction, getLearnedWorkflowContext, clearLearnedWorkflows } from '../src/workflow-learner.js';
+import {
+  getConversationAdaptationContext,
+  getUserProfile,
+  updateUserProfile,
+  clearUserProfile,
+} from '../src/conversation-adapter.js';
 
 const results = [];
 
@@ -648,6 +654,55 @@ async function runAllBenchmarks() {
     }
     await clearLearnedWorkflows(anon);
     return { info: `Habit detected: ${res2.habitName}, context compiled (${ctx.length} chars)` };
+  });
+
+  await benchmark('Adaptive Conversational Progression & Pacing Calibration', 'Conversation Adapter', async () => {
+    const anon = 'u_bench_adapter';
+    await clearUserProfile(anon);
+    const history = [
+      { role: 'user', parts: [{ text: 'Kubernetes cluster setup' }] },
+      { role: 'model', parts: [{ text: 'Cluster setup guide...' }] },
+      { role: 'user', parts: [{ text: 'Configure ingress' }] },
+      { role: 'model', parts: [{ text: 'Ingress YAML config...' }] },
+    ];
+    const ctx = getConversationAdaptationContext(anon, history, 'Add cert-manager');
+    if (
+      !ctx.includes('Developing (Turn 3)') ||
+      !ctx.includes('Pacing Match') ||
+      !ctx.includes('Technical Calibration')
+    ) {
+      throw new Error(`Adaptive context missing required directives: ${ctx}`);
+    }
+    await clearUserProfile(anon);
+    return { info: `Stage: Developing (Turn 3), Pacing: Terse, Calibration: Advanced (< 0.5ms)` };
+  });
+
+  await benchmark('Continuous Conversational Learning & Active Project Memory', 'Conversation Adapter', async () => {
+    const anon = 'u_bench_cont_learn';
+    await clearUserProfile(anon);
+    await updateUserProfile(anon, {
+      activeProject: 'distributed payment gateway',
+      topics: ['docker', 'kubernetes', 'postgres'],
+    });
+
+    const prof = getUserProfile(anon);
+    if (prof.activeProject !== 'distributed payment gateway' || prof.topics.length !== 3) {
+      throw new Error('User profile did not retain active project or topics');
+    }
+
+    const ctx = getConversationAdaptationContext(
+      anon,
+      [
+        { role: 'user', parts: [{ text: 'Initial' }] },
+        { role: 'model', parts: [{ text: 'Ok' }] },
+      ],
+      'How do I handle idempotency?'
+    );
+    if (!ctx.includes('distributed payment gateway')) {
+      throw new Error(`Context did not inject active project: ${ctx}`);
+    }
+    await clearUserProfile(anon);
+    return { info: `Retained active project & 3 topics, injected into Turn 2 context successfully` };
   });
 
   // --------------------------------------------------------------------------

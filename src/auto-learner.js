@@ -8,6 +8,7 @@ import { recordUserInteraction } from './workflow-learner.js';
 import { extractYouTubeVideoId } from './youtube.js';
 import { isInstagramUrl } from './instagram.js';
 import { extractUrl } from './web-scraper.js';
+import { updateUserProfile, detectActiveProject } from './conversation-adapter.js';
 import { privacyLog } from './privacy.js';
 
 /**
@@ -91,6 +92,14 @@ const DETERMINISTIC_PATTERNS = [
     regex:
       /\b(?:i work as an?|i am an?)\s+(software engineer|developer|designer|product manager|data scientist|doctor|lawyer|teacher|student|architect|researcher)\b/i,
     transform: (match) => `User works as a ${match[1].toLowerCase()}`,
+    confidence: 0.95,
+  },
+  // 7. Active Project / Goal
+  {
+    category: 'project_goal',
+    regex:
+      /\b(?:i am|i'm|currently)\s+(?:working on|building|creating|developing|deploying|learning|studying)\s+([A-Za-z0-9\s_-]{3,35})(?=[.,!?]|\s+(?:and|but|with|for)|$)/i,
+    transform: (match) => `User is currently working on ${match[1].trim()}`,
     confidence: 0.95,
   },
 ];
@@ -197,6 +206,24 @@ export async function autoLearnFromTurn({ anonId, userMessage, _assistantReply, 
     } catch (err) {
       privacyLog('debug', 'AUTO_LEARN_FACT_SAVE_FAILED', { error: err.message });
     }
+  }
+
+  // 4. Continuous Adaptive Profile Learning (Topics of Interest & Active Projects)
+  try {
+    const activeProject = detectActiveProject(userMessage);
+    const topicMatches = userMessage.match(
+      /\b(docker|kubernetes|k8s|aws|azure|gcp|react|nextjs|flutter|vue|node|express|fastapi|django|postgres|mongodb|redis|graphql|typescript|python|rust|golang|ai|llm|gemini|devops|security|crypto|fitness|finance)\b/gi
+    );
+    const uniqueTopics = topicMatches ? Array.from(new Set(topicMatches.map((t) => t.toLowerCase()))) : [];
+
+    if (activeProject || uniqueTopics.length > 0) {
+      await updateUserProfile(anonId, {
+        activeProject: activeProject || undefined,
+        topics: uniqueTopics,
+      });
+    }
+  } catch (profErr) {
+    privacyLog('debug', 'AUTO_LEARN_PROFILE_UPDATE_FAILED', { error: profErr.message });
   }
 
   return { deterministicFactsLearned: learnedCount, interactionType };

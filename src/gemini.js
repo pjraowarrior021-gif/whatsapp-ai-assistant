@@ -5,6 +5,7 @@ import { store } from './store/index.js';
 import { getUserLanguage, getLanguageInstruction } from './language.js';
 import { getMemoryContext } from './memory.js';
 import { getLearnedWorkflowContext } from './workflow-learner.js';
+import { getConversationAdaptationContext } from './conversation-adapter.js';
 import { toolDeclarations, executeToolCall } from './tools/index.js';
 
 let aiClient = null;
@@ -283,6 +284,10 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
     const workflows = getLearnedWorkflowContext(options.anonId);
     if (workflows) {
       activeInstruction += `\n\n${workflows}`;
+    }
+    const adaptiveContext = getConversationAdaptationContext(options.anonId, conversationHistory, userMessage);
+    if (adaptiveContext) {
+      activeInstruction += `\n\n${adaptiveContext}`;
     }
     const userLang = getUserLanguage(options.anonId);
     const langDirective = getLanguageInstruction(userLang);

@@ -52,6 +52,7 @@ import { messageQueue } from './queue.js';
 import { handleLanguageCommand } from './language.js';
 import { handleMemoryCommand, clearUserMemory, addAutoMemoryFact } from './memory.js';
 import { clearLearnedWorkflows } from './workflow-learner.js';
+import { clearUserProfile } from './conversation-adapter.js';
 import { autoLearnFromTurn, extractDeterministicFacts } from './auto-learner.js';
 import { exportUserData } from './export.js';
 
@@ -821,6 +822,7 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     deleteUserData(anonId);
     await clearUserMemory(anonId);
     await clearLearnedWorkflows(anonId);
+    await clearUserProfile(anonId);
     await sendWhatsAppMessage(
       from,
       `🗑️ *Data Purged:*\nAll temporary in-memory session data, learned habits, and personal memory have been completely wiped.`
