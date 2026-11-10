@@ -322,3 +322,31 @@ test('VideoGen: generateVideo handles Image-to-Video workflow with imageBuffer',
   assert.strictEqual(res.isFreeVideo, true);
   assert.strictEqual(res.buffer, dummy);
 });
+
+test('VideoGen: parseVideoPromptOptions parses model selection flags (--wan, --animatediff, --storyboard)', () => {
+  const optWan = parseVideoPromptOptions('/video eagle in sky --wan');
+  assert.strictEqual(optWan.model, 'wan2.1');
+  assert.strictEqual(optWan.prompt, '/video eagle in sky');
+
+  const optWan21 = parseVideoPromptOptions('neon racing car --wan2.1 --12s');
+  assert.strictEqual(optWan21.model, 'wan2.1');
+  assert.strictEqual(optWan21.duration, 12);
+
+  const optAd = parseVideoPromptOptions('cherry blossom park --animatediff');
+  assert.strictEqual(optAd.model, 'animatediff');
+
+  const optSb = parseVideoPromptOptions('mountain peak at sunset --storyboard');
+  assert.strictEqual(optSb.model, 'storyboard');
+});
+
+test('VideoGen: generateVideo supports Alibaba Wan 2.1 model returning isWanVideo badge', async () => {
+  const dummy = Buffer.from('mock_wan21_mp4_bytes');
+  const res = await generateVideo('futuristic spaceship launch --wan', {
+    mockBuffer: dummy,
+  });
+  assert.ok(res.ok);
+  assert.strictEqual(res.isFreeVideo, true);
+  assert.strictEqual(res.isWanVideo, true);
+  assert.strictEqual(res.model, 'wan2.1');
+  assert.strictEqual(res.buffer, dummy);
+});

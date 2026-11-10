@@ -88,8 +88,10 @@ export const config = {
   MEDIA_FETCH_TIMEOUT_MS: parseInt(process.env.MEDIA_FETCH_TIMEOUT_MS, 10) || 60000, // 60 seconds
 
   // AI Media & Video Generation Configuration
-  VIDEO_ENGINE: process.env.VIDEO_ENGINE || 'free', // 'free' (Hugging Face ZeroGPU AI Video), 'cloud' (Pollinations Wan-2.2), or 'motion'
+  VIDEO_ENGINE: process.env.VIDEO_ENGINE || 'free', // 'free' (Hugging Face ZeroGPU AI Video / Storyboard), 'storyboard', 'gradio', or 'motion'
+  VIDEO_MODEL: process.env.VIDEO_MODEL || 'storyboard', // 'storyboard' (Gemini+FLUX.1 4-Stage Diffusion), 'wan2.1' (Alibaba Wan 2.1), or 'animatediff'
   VIDEO_DEFAULT_DURATION: parseInt(process.env.VIDEO_DEFAULT_DURATION, 10) || 12, // Minimum 10 to 15 seconds (default: 12s)
+  HF_TOKEN: process.env.HF_TOKEN || '', // Optional Hugging Face access token for ZeroGPU Spaces
   POLLINATIONS_API_KEY: process.env.POLLINATIONS_API_KEY || '',
   POLLINATIONS_VIDEO_MODEL: process.env.POLLINATIONS_VIDEO_MODEL || 'alibaba/wan-2.2-fast',
 

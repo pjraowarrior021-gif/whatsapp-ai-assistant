@@ -220,6 +220,19 @@ export function parseVideoPromptOptions(rawPrompt) {
     text = text.replace(/(?:^|\s+)--cinematic\b/gi, ' ');
   }
 
+  // 6. Video model selection flags (--wan, --wan2.1, --animatediff, --storyboard)
+  let model = null;
+  if (/(?:^|\s+)--(?:wan|wan2\.1|wan21)\b/i.test(text)) {
+    model = 'wan2.1';
+    text = text.replace(/(?:^|\s+)--(?:wan|wan2\.1|wan21)\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:animatediff|animate|ad)\b/i.test(text)) {
+    model = 'animatediff';
+    text = text.replace(/(?:^|\s+)--(?:animatediff|animate|ad)\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:storyboard|flux|sana)\b/i.test(text)) {
+    model = 'storyboard';
+    text = text.replace(/(?:^|\s+)--(?:storyboard|flux|sana)\b/gi, ' ');
+  }
+
   text = text.replace(/\s{2,}/g, ' ').trim();
 
   return {
@@ -231,6 +244,7 @@ export function parseVideoPromptOptions(rawPrompt) {
     motion,
     style,
     enhance,
+    model,
   };
 }
 
@@ -420,74 +434,107 @@ export function synthesizeStoryboardVideo(keyframeBuffers, options = {}) {
 }
 
 /**
- * Generates an AI video using free cloud GPU (Hugging Face ZeroGPU / ByteDance AnimateDiff Lightning).
- * Requires zero API keys and generates genuine frame-by-frame temporal video in ~5 seconds.
+ * Generates an AI video using free cloud GPU (Alibaba Wan 2.1 / ByteDance AnimateDiff Lightning).
+ * Requires zero API keys and generates genuine frame-by-frame temporal video via Hugging Face Spaces.
+ * Supports both Text-to-Video and Image-to-Video.
  *
  * @param {string} prompt - Final enhanced prompt
  * @param {object} [options] - Video options
- * @returns {Promise<{ ok: boolean, buffer?: Buffer, mimeType?: string, error?: string }>}
+ * @returns {Promise<{ ok: boolean, buffer?: Buffer, mimeType?: string, model?: string, error?: string }>}
  */
 export async function generateVideoWithGradio(prompt, options = {}) {
   if (options.mockBuffer) {
-    return { ok: true, buffer: options.mockBuffer, mimeType: 'video/mp4' };
+    return {
+      ok: true,
+      buffer: options.mockBuffer,
+      mimeType: 'video/mp4',
+      model: options.model || (options.gradioSpace?.includes('wan') ? 'wan2.1' : 'animatediff'),
+    };
   }
   try {
     const { Client } = await import('@gradio/client');
-    const space = options.gradioSpace || 'ByteDance/AnimateDiff-Lightning';
-    privacyLog('info', 'GRADIO_VIDEO_GENERATION_STARTED', { space, promptLength: prompt.length });
+    const isWan = Boolean(
+      options.model === 'wan' ||
+      options.model === 'wan2.1' ||
+      (options.gradioSpace && options.gradioSpace.includes('wan'))
+    );
+    const space = options.gradioSpace || (isWan ? 'multimodalart/wan2-1-fast' : 'ByteDance/AnimateDiff-Lightning');
+    privacyLog('info', 'GRADIO_VIDEO_GENERATION_STARTED', {
+      space,
+      model: isWan ? 'wan2.1' : 'animatediff',
+      promptLength: prompt.length,
+    });
 
-    const client = await Client.connect(space);
-    // 8 inference steps for high visual fidelity on ByteDance AnimateDiff Lightning
-    const result = await client.predict('/generate_image', [
-      prompt,
-      options.baseModel || 'epiCRealism',
-      options.motionLoRA || '',
-      options.inferenceSteps || 8,
-    ]);
+    const clientOptions = {};
+    const hfToken = options.hfToken || config.HF_TOKEN || process.env.HF_TOKEN;
+    if (hfToken) {
+      clientOptions.hf_token = hfToken;
+    }
 
-    if (!result?.data?.[0]?.video?.url) {
+    const client = await Client.connect(space, clientOptions);
+    let result;
+
+    if (isWan) {
+      if (options.imageBuffer && Buffer.isBuffer(options.imageBuffer)) {
+        // Image-to-Video via Alibaba Wan 2.1
+        result = await client.predict('/generate_video_from_image', [
+          options.imageBuffer,
+          prompt,
+          options.height || 512,
+          options.width || 896,
+          'Bright tones, static, blurred details, ugly, watermark, text',
+          3.4, // duration_seconds
+          1.0, // guidance_scale
+          4, // steps
+          42, // seed
+          true, // randomize_seed
+        ]);
+      } else {
+        // Text-to-Video via Alibaba Wan 2.1
+        result = await client.predict('/generate_video_from_text', [
+          prompt,
+          options.height || 512,
+          options.width || 896,
+          'Bright tones, static, blurred details, ugly, watermark, text',
+          3.4, // duration_seconds
+          1.0, // guidance_scale
+          4, // steps
+          42, // seed
+          true, // randomize_seed
+        ]);
+      }
+    } else {
+      // ByteDance AnimateDiff Lightning
+      result = await client.predict('/generate_image', [
+        prompt,
+        options.baseModel || 'epiCRealism',
+        options.motionLoRA || '',
+        options.inferenceSteps || 8,
+      ]);
+    }
+
+    const rawVideo = result?.data?.[0]?.video || result?.data?.[0];
+    const videoUrl = typeof rawVideo === 'string' ? rawVideo : rawVideo?.url || rawVideo?.path;
+
+    if (!videoUrl) {
       return { ok: false, error: 'Empty video payload returned from Gradio space' };
     }
 
-    const videoUrl = result.data[0].video.url;
     const res = await fetch(videoUrl);
     if (!res.ok) {
       return { ok: false, error: `Failed to download video file: HTTP ${res.status}` };
     }
 
     const arrayBuffer = await res.arrayBuffer();
-    let videoBuffer = Buffer.from(arrayBuffer);
-
-    // Smoothly loop and extend video to minimum 10–15 seconds for WhatsApp if ffmpeg is available
+    const videoBuffer = Buffer.from(arrayBuffer);
     const targetDuration = Math.min(15, Math.max(options.duration || config.VIDEO_DEFAULT_DURATION || 12, 10));
-    if (isFfmpegAvailable() && videoBuffer.length > 0 && !options.noLoop) {
-      const tempIn = path.join(os.tmpdir(), `gradio_in_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.mp4`);
-      const tempOut = path.join(os.tmpdir(), `gradio_out_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.mp4`);
-      try {
-        fs.writeFileSync(tempIn, videoBuffer);
-        const rawDuration = 1.6;
-        const loopCount = Math.ceil(targetDuration / rawDuration);
-        const ffmpegRes = spawnSync(
-          'ffmpeg',
-          ['-y', '-stream_loop', String(loopCount), '-i', tempIn, '-t', String(targetDuration), '-c', 'copy', tempOut],
-          { timeout: 15000 }
-        );
-        if (ffmpegRes.status === 0 && fs.existsSync(tempOut)) {
-          videoBuffer = fs.readFileSync(tempOut);
-        }
-      } catch {
-        // Fall back to unlooped video
-      } finally {
-        try { if (fs.existsSync(tempIn)) fs.unlinkSync(tempIn); } catch {}
-        try { if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut); } catch {}
-      }
-    }
 
     return {
       ok: true,
       buffer: videoBuffer,
       mimeType: 'video/mp4',
       duration: targetDuration,
+      model: isWan ? 'wan2.1' : 'animatediff',
     };
   } catch (err) {
     privacyLog('warn', 'GRADIO_VIDEO_GENERATION_FAILED', { error: err.message });
@@ -542,6 +589,7 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
     effectivePrompt += `, ${options.motion}`;
   }
 
+  const isWan = Boolean(userOptions.model === 'wan2.1' || parsed.model === 'wan2.1');
   const isImageToVideo = Boolean(userOptions.imageBuffer && Buffer.isBuffer(userOptions.imageBuffer));
 
   // Hermetic testing & offline simulation bypass
@@ -555,9 +603,11 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
       width: options.width,
       height: options.height,
       duration: options.duration,
+      model: parsed.model || userOptions.model,
+      isWanVideo: isWan || undefined,
       isImageToVideo: isImageToVideo || undefined,
       isStoryboardVideo: isImageToVideo || undefined,
-      isFreeVideo: isImageToVideo || undefined,
+      isFreeVideo: isWan || isImageToVideo ? true : undefined,
     };
   }
 
@@ -665,12 +715,26 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
   }
 
   const engine = userOptions.engine || config.VIDEO_ENGINE || 'free';
+  const requestedModel =
+    userOptions.model ||
+    parsed.model ||
+    (engine === 'free' || engine === 'gradio' || engine === 'hf' ? 'animatediff' : config.VIDEO_MODEL || 'storyboard');
 
-  // Option 1: Free Cloud AI Video Engine (ByteDance AnimateDiff Lightning via Hugging Face ZeroGPU)
-  if ((engine === 'free' || engine === 'gradio' || engine === 'hf') && !userOptions.forceCloud) {
-    privacyLog('info', 'VIDEO_FREE_ENGINE_REQUESTED', { prompt: parsed.prompt });
+  // Option 1: Free Cloud AI Video Engine (Alibaba Wan 2.1 or ByteDance AnimateDiff Lightning via Hugging Face ZeroGPU)
+  if (
+    (engine === 'free' ||
+      engine === 'gradio' ||
+      engine === 'hf' ||
+      requestedModel === 'wan2.1' ||
+      requestedModel === 'animatediff') &&
+    userOptions.model !== 'storyboard' &&
+    !userOptions.forceCloud
+  ) {
+    privacyLog('info', 'VIDEO_GRADIO_ENGINE_REQUESTED', { model: requestedModel, prompt: parsed.prompt });
     const freeRes = await generateVideoWithGradio(finalPrompt, {
       ...options,
+      model: requestedModel,
+      imageBuffer: userOptions.imageBuffer,
       mockBuffer: userOptions.mockBuffer,
     });
 
@@ -684,14 +748,20 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
         width: 512,
         height: 512,
         duration: freeRes.duration || options.duration,
+        model: freeRes.model || requestedModel,
         isFreeVideo: true,
+        isWanVideo: (freeRes.model || requestedModel) === 'wan2.1',
       };
     }
+    privacyLog('warn', 'GRADIO_FAILED_FALLING_BACK_TO_STORYBOARD', { error: freeRes.error });
   }
 
   // Option 2: Autonomous Multi-Keyframe Generative Storyboard Engine (10-15s, New Frames Throughout)
   if (
-    (engine === 'free' || engine === 'storyboard') &&
+    (engine === 'free' ||
+      engine === 'storyboard' ||
+      requestedModel === 'storyboard' ||
+      !userOptions.disableFreeRecovery) &&
     !userOptions.forceCloud &&
     !userOptions.disableFreeRecovery &&
     isFfmpegAvailable()
