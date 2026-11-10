@@ -88,9 +88,9 @@ export const config = {
   MEDIA_FETCH_TIMEOUT_MS: parseInt(process.env.MEDIA_FETCH_TIMEOUT_MS, 10) || 60000, // 60 seconds
 
   // AI Media & Video Generation Configuration
-  VIDEO_ENGINE: process.env.VIDEO_ENGINE || 'fast', // 'fast' (instant 2-3s motion synthesis) or 'cloud'
+  VIDEO_ENGINE: process.env.VIDEO_ENGINE || 'cloud', // 'cloud' (true AI video) or 'motion'
   POLLINATIONS_API_KEY: process.env.POLLINATIONS_API_KEY || '',
-  POLLINATIONS_VIDEO_MODEL: process.env.POLLINATIONS_VIDEO_MODEL || 'google/veo-3.1-fast',
+  POLLINATIONS_VIDEO_MODEL: process.env.POLLINATIONS_VIDEO_MODEL || 'alibaba/wan-2.2-fast',
 
   // Privacy & Access Control Configuration
   ALLOWED_PHONE_NUMBERS: parseAllowedNumbers(process.env.ALLOWED_PHONE_NUMBERS),

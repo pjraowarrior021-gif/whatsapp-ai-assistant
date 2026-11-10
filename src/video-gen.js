@@ -231,7 +231,7 @@ export function buildVideoUrl(prompt, options = {}) {
   const width = options.width || 960;
   const height = options.height || 540;
   const duration = options.duration || 5;
-  const model = options.model || config.POLLINATIONS_VIDEO_MODEL || 'google/veo-3.1-fast';
+  const model = options.model || config.POLLINATIONS_VIDEO_MODEL || 'alibaba/wan-2.2-fast';
 
   return `https://gen.pollinations.ai/video/${encoded}?width=${width}&height=${height}&duration=${duration}&model=${encodeURIComponent(model)}&nologo=true&nofeed=true&private=true`;
 }
@@ -399,11 +399,11 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
     finalPrompt += ', pristine cinematography, watermark-free, no logo, no timestamps, no text overlay';
   }
 
-  const engine = userOptions.engine || config.VIDEO_ENGINE || 'fast';
+  const engine = userOptions.engine || config.VIDEO_ENGINE || 'cloud';
 
-  // Fast Motion Synthesis Engine (Instant 2-3s turnaround with smooth camera motion via ffmpeg)
-  if (engine === 'fast' && !userOptions.forceCloud) {
-    privacyLog('info', 'VIDEO_FAST_SYNTHESIS_REQUESTED', { prompt: parsed.prompt, motion: options.motion });
+  // Explicit motion synthesis only if specifically opted-in via engine: 'motion'
+  if (engine === 'motion') {
+    privacyLog('info', 'VIDEO_MOTION_SYNTHESIS_REQUESTED', { prompt: parsed.prompt, motion: options.motion });
     const conceptImage = await generateCleanImage(finalPrompt, {
       width: options.width > options.height ? 1280 : 720,
       height: options.width > options.height ? 720 : 1280,
@@ -423,7 +423,7 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
           width: options.width,
           height: options.height,
           duration: options.duration,
-          isFastMotion: true,
+          isMotionVideo: true,
         };
       }
     }
@@ -472,25 +472,8 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
       const fallbackImage = await generateCleanImage(finalPrompt, {
         width: options.width > options.height ? 1280 : 720,
         height: options.width > options.height ? 720 : 1280,
+        mockBuffer: userOptions.mockFallbackImage,
       });
-
-      // Dynamic motion recovery so user always receives a real playable video
-      if (fallbackImage && fallbackImage.buffer && !userOptions.disableMotionRecovery) {
-        const recoveryVideo = synthesizeMotionVideo(fallbackImage.buffer, options);
-        if (recoveryVideo) {
-          return {
-            ok: true,
-            buffer: recoveryVideo,
-            mimeType: 'video/mp4',
-            prompt: parsed.prompt,
-            enhancedPrompt: finalPrompt,
-            width: options.width,
-            height: options.height,
-            duration: options.duration,
-            isFastMotion: true,
-          };
-        }
-      }
 
       return {
         ok: false,
