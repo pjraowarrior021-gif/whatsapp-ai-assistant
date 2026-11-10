@@ -89,6 +89,7 @@ export const config = {
 
   // AI Media & Video Generation Configuration
   VIDEO_ENGINE: process.env.VIDEO_ENGINE || 'free', // 'free' (Hugging Face ZeroGPU AI Video), 'cloud' (Pollinations Wan-2.2), or 'motion'
+  VIDEO_DEFAULT_DURATION: parseInt(process.env.VIDEO_DEFAULT_DURATION, 10) || 12, // Minimum 10 to 15 seconds (default: 12s)
   POLLINATIONS_API_KEY: process.env.POLLINATIONS_API_KEY || '',
   POLLINATIONS_VIDEO_MODEL: process.env.POLLINATIONS_VIDEO_MODEL || 'alibaba/wan-2.2-fast',
 

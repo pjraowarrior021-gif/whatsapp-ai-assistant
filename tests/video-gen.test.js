@@ -85,6 +85,11 @@ test('VideoGen: parseVideoPromptOptions parses aspect ratios, duration, motion p
   const anime = parseVideoPromptOptions('dragon taking flight --anime --slowmo');
   assert.strictEqual(anime.style, 'anime');
   assert.strictEqual(anime.motion, 'slow motion 120fps');
+
+  // 6. Explicit 15s duration flag
+  const fifteen = parseVideoPromptOptions('aurora borealis --15s');
+  assert.strictEqual(fifteen.duration, 15);
+  assert.strictEqual(fifteen.hasExplicitDuration, true);
 });
 
 test('VideoGen: buildVideoUrl constructs valid URL endpoint with parameters and model', () => {
@@ -220,4 +225,19 @@ test('VideoGen: generateVideo automatically recovers via Free Gradio engine when
   } finally {
     config.POLLINATIONS_API_KEY = prevKey;
   }
+});
+
+test('VideoGen: generateVideo enforces minimum 10 to 15 seconds duration', async () => {
+  const dummy = Buffer.from('mock_12s_mp4');
+  const resDefault = await generateVideo('sunset over calm sea', {
+    engine: 'free',
+    mockBuffer: dummy,
+  });
+  assert.ok(resDefault.duration >= 10 && resDefault.duration <= 15);
+
+  const res15 = await generateVideo('sunset over calm sea --15s', {
+    engine: 'free',
+    mockBuffer: dummy,
+  });
+  assert.strictEqual(res15.duration, 15);
 });

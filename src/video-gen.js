@@ -151,12 +151,23 @@ export function parseVideoPromptOptions(rawPrompt) {
     text = text.replace(/(?:^|\s+)--square\b/gi, ' ').replace(/(?:^|\s+)--ar\s+1:1\b/gi, ' ');
   }
 
-  // 2. Duration flags (--5s, --10s, -d 5, -d 10)
-  if (/(?:^|\s+)--(?:10s|ten)\b/i.test(text) || /(?:^|\s+)-d\s+10\b/i.test(text)) {
+  // 2. Duration flags (--15s, --12s, --10s, --5s, -d 15, -d 12, -d 10, -d 5)
+  let hasExplicitDuration = false;
+  if (/(?:^|\s+)--(?:15s|fifteen)\b/i.test(text) || /(?:^|\s+)-d\s+15\b/i.test(text)) {
+    duration = 15;
+    hasExplicitDuration = true;
+    text = text.replace(/(?:^|\s+)--(?:15s|fifteen)\b/gi, ' ').replace(/(?:^|\s+)-d\s+15\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:12s|twelve)\b/i.test(text) || /(?:^|\s+)-d\s+12\b/i.test(text)) {
+    duration = 12;
+    hasExplicitDuration = true;
+    text = text.replace(/(?:^|\s+)--(?:12s|twelve)\b/gi, ' ').replace(/(?:^|\s+)-d\s+12\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:10s|ten)\b/i.test(text) || /(?:^|\s+)-d\s+10\b/i.test(text)) {
     duration = 10;
+    hasExplicitDuration = true;
     text = text.replace(/(?:^|\s+)--(?:10s|ten)\b/gi, ' ').replace(/(?:^|\s+)-d\s+10\b/gi, ' ');
   } else if (/(?:^|\s+)--(?:5s|five)\b/i.test(text) || /(?:^|\s+)-d\s+5\b/i.test(text)) {
     duration = 5;
+    hasExplicitDuration = true;
     text = text.replace(/(?:^|\s+)--(?:5s|five)\b/gi, ' ').replace(/(?:^|\s+)-d\s+5\b/gi, ' ');
   }
 
@@ -212,6 +223,7 @@ export function parseVideoPromptOptions(rawPrompt) {
     width,
     height,
     duration,
+    hasExplicitDuration,
     motion,
     style,
     enhance,
@@ -230,7 +242,7 @@ export function buildVideoUrl(prompt, options = {}) {
   const encoded = encodeURIComponent(cleanPrompt);
   const width = options.width || 960;
   const height = options.height || 540;
-  const duration = options.duration || 5;
+  const duration = options.duration !== undefined ? options.duration : (config.VIDEO_DEFAULT_DURATION || 12);
   const model = options.model || config.POLLINATIONS_VIDEO_MODEL || 'alibaba/wan-2.2-fast';
 
   return `https://gen.pollinations.ai/video/${encoded}?width=${width}&height=${height}&duration=${duration}&model=${encodeURIComponent(model)}&nologo=true&nofeed=true&private=true`;
@@ -262,7 +274,7 @@ export function synthesizeMotionVideo(imageBuffer, options = {}) {
 
   const width = options.width || 960;
   const height = options.height || 540;
-  const duration = Math.min(10, Math.max(3, options.duration || 5));
+  const duration = Math.min(15, Math.max(3, options.duration || config.VIDEO_DEFAULT_DURATION || 12));
   const totalFrames = duration * 25;
   const motion = (options.motion || '').toLowerCase();
 
@@ -353,16 +365,19 @@ export async function generateVideoWithGradio(prompt, options = {}) {
     const arrayBuffer = await res.arrayBuffer();
     let videoBuffer = Buffer.from(arrayBuffer);
 
-    // Smoothly loop 2x (to ~4.8s) for WhatsApp if ffmpeg is available and not disabled
+    // Smoothly loop and extend video to minimum 10–15 seconds for WhatsApp if ffmpeg is available
+    const targetDuration = Math.min(15, Math.max(options.duration || config.VIDEO_DEFAULT_DURATION || 12, 10));
     if (isFfmpegAvailable() && videoBuffer.length > 0 && !options.noLoop) {
       const tempIn = path.join(os.tmpdir(), `gradio_in_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.mp4`);
       const tempOut = path.join(os.tmpdir(), `gradio_out_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.mp4`);
       try {
         fs.writeFileSync(tempIn, videoBuffer);
+        const rawDuration = 1.6;
+        const loopCount = Math.ceil(targetDuration / rawDuration);
         const ffmpegRes = spawnSync(
           'ffmpeg',
-          ['-y', '-stream_loop', '2', '-i', tempIn, '-c', 'copy', tempOut],
-          { timeout: 10000 }
+          ['-y', '-stream_loop', String(loopCount), '-i', tempIn, '-t', String(targetDuration), '-c', 'copy', tempOut],
+          { timeout: 15000 }
         );
         if (ffmpegRes.status === 0 && fs.existsSync(tempOut)) {
           videoBuffer = fs.readFileSync(tempOut);
@@ -379,6 +394,7 @@ export async function generateVideoWithGradio(prompt, options = {}) {
       ok: true,
       buffer: videoBuffer,
       mimeType: 'video/mp4',
+      duration: targetDuration,
     };
   } catch (err) {
     privacyLog('warn', 'GRADIO_VIDEO_GENERATION_FAILED', { error: err.message });
@@ -409,10 +425,15 @@ export async function generateVideoWithGradio(prompt, options = {}) {
  */
 export async function generateVideo(rawPrompt, userOptions = {}) {
   const parsed = parseVideoPromptOptions(rawPrompt);
+  const defaultMinDuration = config.VIDEO_DEFAULT_DURATION || 12;
+  const targetDuration = userOptions.forceExactDuration
+    ? (userOptions.duration || parsed.duration || 5)
+    : (userOptions.duration || (parsed.hasExplicitDuration ? Math.max(parsed.duration, 10) : defaultMinDuration));
+
   const options = {
     width: userOptions.width || parsed.width || 960,
     height: userOptions.height || parsed.height || 540,
-    duration: userOptions.duration || parsed.duration || 5,
+    duration: targetDuration,
     motion: userOptions.motion || parsed.motion,
     style: userOptions.style || parsed.style,
     enhance: userOptions.enhance !== undefined ? userOptions.enhance : parsed.enhance,
@@ -490,7 +511,7 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
         enhancedPrompt: finalPrompt,
         width: 512,
         height: 512,
-        duration: 5,
+        duration: freeRes.duration || options.duration,
         isFreeVideo: true,
       };
     }
@@ -545,7 +566,7 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
           enhancedPrompt: finalPrompt,
           width: 512,
           height: 512,
-          duration: 5,
+          duration: freeRecovery.duration || options.duration,
           isFreeVideo: true,
         };
       }
@@ -599,7 +620,7 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
             enhancedPrompt: finalPrompt,
             width: 512,
             height: 512,
-            duration: 5,
+            duration: freeRecovery.duration || options.duration,
             isFreeVideo: true,
             recoveredFromError: res.status,
           };
