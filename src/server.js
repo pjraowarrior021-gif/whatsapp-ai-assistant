@@ -267,6 +267,7 @@ app.get('/', (_req, res) => {
         <ul>
           <li><code>/help</code> - Manual & interactive quick action buttons</li>
           <li><code>/image &lt;prompt&gt;</code> - Generate watermark-free AI artwork</li>
+          <li><code>/video &lt;prompt&gt;</code> - Generate cinematic AI video animation</li>
           <li><code>/todo &lt;task&gt;</code> - Add a task to your quick to-do list</li>
           <li><code>/todos</code> - Display active to-dos</li>
           <li><code>/done &lt;id&gt;</code> - Mark a to-do item completed</li>

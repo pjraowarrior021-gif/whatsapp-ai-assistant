@@ -96,6 +96,31 @@ test('ImageGen: parseImagePromptOptions parses models, aspect ratios, and styles
   assert.strictEqual(photo.prompt, 'portrait of astronaut');
   assert.strictEqual(photo.style, 'photo');
   assert.strictEqual(photo.model, 'flux');
+
+  // 6. Upgraded models: kontext and realism
+  const kontext = parseImagePromptOptions('futuristic city --kontext');
+  assert.strictEqual(kontext.model, 'kontext');
+  const realism = parseImagePromptOptions('tiger in forest --realism');
+  assert.strictEqual(realism.model, 'realism');
+
+  // 7. Upgraded aspect ratios: 4:3 and 3:4
+  const standard = parseImagePromptOptions('renaissance painting --standard');
+  assert.strictEqual(standard.width, 1024);
+  assert.strictEqual(standard.height, 768);
+
+  const portraitSd = parseImagePromptOptions('vintage magazine cover --ar 3:4');
+  assert.strictEqual(portraitSd.width, 768);
+  assert.strictEqual(portraitSd.height, 1024);
+
+  // 8. Upgraded artistic styles: pixel, oil, watercolor, sketch
+  const pixel = parseImagePromptOptions('cyberpunk warrior --pixel');
+  assert.strictEqual(pixel.style, 'pixel');
+  const oil = parseImagePromptOptions('stormy ocean --oil');
+  assert.strictEqual(oil.style, 'oil');
+  const water = parseImagePromptOptions('cherry blossoms --watercolor');
+  assert.strictEqual(water.style, 'watercolor');
+  const sketch = parseImagePromptOptions('gothic cathedral --sketch');
+  assert.strictEqual(sketch.style, 'sketch');
 });
 
 test('ImageGen: generateImageUrl includes selected model parameter', () => {
@@ -104,4 +129,7 @@ test('ImageGen: generateImageUrl includes selected model parameter', () => {
 
   const turboUrl = generateImageUrl('an owl in tree', { model: 'turbo' });
   assert.ok(turboUrl.imageUrl.includes('model=turbo'));
+
+  const kontextUrl = generateImageUrl('an owl in tree', { model: 'kontext' });
+  assert.ok(kontextUrl.imageUrl.includes('model=kontext'));
 });

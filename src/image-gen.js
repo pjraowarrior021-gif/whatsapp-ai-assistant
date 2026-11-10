@@ -75,12 +75,24 @@ export function parseImagePromptOptions(rawPrompt) {
   let style = null;
 
   // 1. Model flags
-  if (/(?:^|\s+)--(?:fast|turbo|quick)\b/i.test(text)) {
+  if (/(?:^|\s+)--(?:fast|turbo|quick|lightning)\b/i.test(text)) {
     model = 'turbo';
-    text = text.replace(/(?:^|\s+)--(?:fast|turbo|quick)\b/gi, ' ');
+    text = text.replace(/(?:^|\s+)--(?:fast|turbo|quick|lightning)\b/gi, ' ');
+  } else if (/(?:^|\s+)--kontext\b/i.test(text)) {
+    model = 'kontext';
+    text = text.replace(/(?:^|\s+)--kontext\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:realism|flux-realism)\b/i.test(text)) {
+    model = 'realism';
+    text = text.replace(/(?:^|\s+)--(?:realism|flux-realism)\b/gi, ' ');
   } else if (/(?:^|\s+)--flux\b/i.test(text)) {
     model = 'flux';
     text = text.replace(/(?:^|\s+)--flux\b/gi, ' ');
+  } else {
+    const customModelMatch = text.match(/(?:^|\s+)--model\s+([a-zA-Z0-9_.-]+)\b/i);
+    if (customModelMatch) {
+      model = customModelMatch[1];
+      text = text.replace(/(?:^|\s+)--model\s+[a-zA-Z0-9_.-]+\b/gi, ' ');
+    }
   }
 
   // 2. Aspect ratio / dimension flags
@@ -94,6 +106,14 @@ export function parseImagePromptOptions(rawPrompt) {
     width = 1280;
     height = 720;
     text = text.replace(/(?:^|\s+)--(?:wide|landscape|horizontal)\b/gi, ' ').replace(/(?:^|\s+)--ar\s+16:9\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:standard|classic)\b/i.test(text) || /(?:^|\s+)--ar\s+4:3\b/i.test(text)) {
+    width = 1024;
+    height = 768;
+    text = text.replace(/(?:^|\s+)--(?:standard|classic)\b/gi, ' ').replace(/(?:^|\s+)--ar\s+4:3\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:portrait-sd|tall)\b/i.test(text) || /(?:^|\s+)--ar\s+3:4\b/i.test(text)) {
+    width = 768;
+    height = 1024;
+    text = text.replace(/(?:^|\s+)--(?:portrait-sd|tall)\b/gi, ' ').replace(/(?:^|\s+)--ar\s+3:4\b/gi, ' ');
   } else if (/(?:^|\s+)--square\b/i.test(text) || /(?:^|\s+)--ar\s+1:1\b/i.test(text)) {
     width = 1024;
     height = 1024;
@@ -122,6 +142,18 @@ export function parseImagePromptOptions(rawPrompt) {
   } else if (/(?:^|\s+)--cinematic\b/i.test(text)) {
     style = 'cinematic';
     text = text.replace(/(?:^|\s+)--cinematic\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:pixel|pixelart)\b/i.test(text)) {
+    style = 'pixel';
+    text = text.replace(/(?:^|\s+)--(?:pixel|pixelart)\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:oil|oilpainting)\b/i.test(text)) {
+    style = 'oil';
+    text = text.replace(/(?:^|\s+)--(?:oil|oilpainting)\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:watercolor|watercolour)\b/i.test(text)) {
+    style = 'watercolor';
+    text = text.replace(/(?:^|\s+)--(?:watercolor|watercolour)\b/gi, ' ');
+  } else if (/(?:^|\s+)--(?:sketch|drawing|pencil)\b/i.test(text)) {
+    style = 'sketch';
+    text = text.replace(/(?:^|\s+)--(?:sketch|drawing|pencil)\b/gi, ' ');
   }
 
   // Clean double spaces
@@ -200,6 +232,16 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
     effectivePrompt += ', 3D digital render, Unreal Engine 5, Octane render, smooth lighting, high resolution';
   } else if (options.style === 'cinematic') {
     effectivePrompt += ', cinematic movie still, 35mm anamorphic lens, dramatic lighting, 8k resolution, color graded';
+  } else if (options.style === 'pixel') {
+    effectivePrompt += ', 16-bit pixel art style, retro arcade aesthetic, pixelated detailed textures, sharp pixels';
+  } else if (options.style === 'oil') {
+    effectivePrompt +=
+      ', textured oil painting, visible canvas brushstrokes, rich palette, classical fine art masterpiece';
+  } else if (options.style === 'watercolor') {
+    effectivePrompt += ', soft watercolor wash, delicate ink outlines, textured paper, fluid gradients, artistic';
+  } else if (options.style === 'sketch') {
+    effectivePrompt +=
+      ', detailed graphite pencil sketch, cross-hatching shading, artist sketchbook page, fine line art';
   }
 
   // Gemini AI Prompt Co-Pilot: enrich prompts unless --raw or mockBuffer was specified

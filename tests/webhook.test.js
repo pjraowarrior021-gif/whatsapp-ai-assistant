@@ -996,6 +996,8 @@ test('Webhook: normalizeCommand normalizes button IDs, slashless commands, and p
   assert.strictEqual(normalizeCommand('persona coder'), '/persona coder');
   assert.strictEqual(normalizeCommand('model gemini-3.5-flash-lite'), '/model gemini-3.5-flash-lite');
   assert.strictEqual(normalizeCommand('image a roaring tiger'), '/image a roaring tiger');
+  assert.strictEqual(normalizeCommand('video a soaring falcon'), '/video a soaring falcon');
+  assert.strictEqual(normalizeCommand('animate waves at sunset'), '/animate waves at sunset');
 
   // 4. Preserves already slashed commands
   assert.strictEqual(normalizeCommand('/status'), '/status');
@@ -1093,7 +1095,7 @@ test('POST /webhook handles YouTube link message submission and queues processin
   assert.strictEqual(text, 'EVENT_RECEIVED');
 });
 
-test('POST /webhook handles Instagram Reel link message submission and queues processing', async (t) => {
+test('POST /webhook handles video generation command submission and queues processing', async (t) => {
   const server = app.listen(0);
   const port = server.address().port;
   const baseUrl = `http://localhost:${port}`;
@@ -1116,11 +1118,11 @@ test('POST /webhook handles Instagram Reel link message submission and queues pr
               messages: [
                 {
                   from: '918217426307',
-                  id: `wamid.ig_test_${Date.now()}`,
+                  id: `wamid.vid_test_${Date.now()}`,
                   timestamp: String(Math.floor(Date.now() / 1000)),
                   type: 'text',
                   text: {
-                    body: 'Summarize this food reel https://www.instagram.com/reel/DKn-PT1PMnr/?igsh=MXI4aWUwY29kcWRzMw==',
+                    body: '/video a futuristic cybernetic drone racing through neon canyons --drone --wide',
                   },
                 },
               ],

@@ -560,6 +560,49 @@ export async function enhanceImagePrompt(prompt) {
 }
 
 /**
+ * Uses Gemini to enrich short video prompts with cinematic camera motion, lighting, and temporal visual cues.
+ *
+ * @param {string} prompt - Raw user video prompt
+ * @param {string | null} [motion=null] - Optional motion preset (drone, pan, zoom, orbit)
+ * @returns {Promise<string>} Enhanced video generation prompt
+ */
+export async function enhanceVideoPrompt(prompt, motion = null) {
+  if (!prompt || typeof prompt !== 'string') return prompt;
+  const trimmed = prompt.trim();
+  if (trimmed.length > 250) return trimmed;
+
+  try {
+    const motionDirective = motion
+      ? `Incorporate dynamic ${motion} camera movement.`
+      : 'Describe fluid cinematic motion and dynamic scene progression.';
+    const instruction = [
+      'You are a professional generative AI video director and prompt engineer.',
+      'Enrich the user input into a vivid, cinematic text-to-video prompt (max 30 words).',
+      motionDirective,
+      'Focus on temporal movement, cinematic lighting, realistic physics, and camera angle.',
+      'Preserve the core subject.',
+      'Output ONLY the enhanced video prompt string without quotes or conversational filler.',
+    ].join(' ');
+
+    const enhanced = await generateAIResponse(`Video Prompt: ${trimmed}`, [], null, {
+      systemInstruction: instruction,
+    });
+
+    const cleaned = (enhanced || '').replace(/^["'`]|["'`]$/g, '').trim();
+    if (
+      cleaned.length > 5 &&
+      !cleaned.toLowerCase().includes("i'm currently") &&
+      !cleaned.toLowerCase().includes('cannot generate')
+    ) {
+      return cleaned;
+    }
+    return trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
+/**
  * Uploads an in-memory document/file buffer to Gemini Files API for large payloads (>20MB).
  *
  * @param {Buffer} buffer - In-memory file buffer

@@ -178,3 +178,29 @@ test('WhatsApp Interactive: sendWhatsAppList constructs list payload', async () 
   assert.strictEqual(res.success, true);
   assert.ok(res.messageId);
 });
+
+test('WhatsApp Video: sendWhatsAppVideo validates inputs, size cap, and handles test bypass', async () => {
+  const { sendWhatsAppVideo } = await import('../src/whatsapp.js');
+
+  // 1. Missing parameters
+  const errRes = await sendWhatsAppVideo('', '');
+  assert.strictEqual(errRes.success, false);
+
+  // 2. Oversize video check (> 16MB)
+  const hugeBuffer = Buffer.alloc(17 * 1024 * 1024);
+  // Send with non-simulated number to verify the size guard
+  const oversizeRes = await sendWhatsAppVideo('911234567890', hugeBuffer);
+  assert.strictEqual(oversizeRes.success, false);
+  assert.ok(oversizeRes.error.includes('16MB'));
+
+  // 3. Test recipient simulation with buffer
+  const validBuffer = Buffer.from('mock_video_bytes');
+  const simBufferRes = await sendWhatsAppVideo('910000000000', validBuffer, 'Test video caption');
+  assert.strictEqual(simBufferRes.success, true);
+  assert.ok(simBufferRes.messageId.startsWith('sim_test_vid_'));
+
+  // 4. Test recipient simulation with URL string
+  const simUrlRes = await sendWhatsAppVideo('910000000000', 'https://example.com/video.mp4', 'Test caption');
+  assert.strictEqual(simUrlRes.success, true);
+  assert.ok(simUrlRes.messageId.startsWith('sim_test_vid_'));
+});

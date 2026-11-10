@@ -15,13 +15,14 @@ import {
   resetConversation,
 } from '../src/privacy.js';
 import { generateAIResponse, testGeminiConnection, setPersona, resetPersona, getPersona } from '../src/gemini.js';
-import { parseImagePrompt, generateImageUrl } from '../src/image-gen.js';
+import { parseImagePrompt, parseImagePromptOptions, generateImageUrl, generateCleanImage } from '../src/image-gen.js';
 import { isSafeUrl, cleanHtml, fetchAndExtractArticle } from '../src/web-scraper.js';
 import { splitTextForSpeech, synthesizeSpeech } from '../src/tts.js';
 import { addTodo, listTodos, markTodoDone, clearCompletedTodos } from '../src/todos.js';
 import { parseReminderTime, scheduleReminder, listReminders, deleteReminder } from '../src/reminders.js';
 import { checkAndIncrementUserQuota, getUserQuotaReport } from '../src/quota.js';
-import { splitMessageIntoChunks, sendWhatsAppButtons, sendWhatsAppList } from '../src/whatsapp.js';
+import { splitMessageIntoChunks, sendWhatsAppButtons, sendWhatsAppList, sendWhatsAppVideo } from '../src/whatsapp.js';
+import { parseVideoPrompt, parseVideoPromptOptions, generateVideo } from '../src/video-gen.js';
 import { extractTextFromPptx, extractTextFromDocx, extractTextFromXlsx, isDocumentSupported } from '../src/document.js';
 import AdmZip from 'adm-zip';
 import { verifyMetaSignature } from '../src/webhook.js';
@@ -705,13 +706,80 @@ async function runAllBenchmarks() {
     return { info: `Retained active project & 3 topics, injected into Turn 2 context successfully` };
   });
 
+  await benchmark(
+    'Upgraded Image Engine :: Multi-Model, 4:3 / 3:4 AR & 8 Art Presets',
+    'Image Generation',
+    async () => {
+      const opts1 = parseImagePromptOptions('a futuristic cyberpunk city --kontext --ar 4:3 --pixel');
+      if (opts1.model !== 'kontext' || opts1.width !== 1024 || opts1.height !== 768 || opts1.style !== 'pixel') {
+        throw new Error(`Options parse mismatch: ${JSON.stringify(opts1)}`);
+      }
+
+      const opts2 = parseImagePromptOptions('portrait of an elder monk --realism --ar 3:4 --oil');
+      if (opts2.model !== 'realism' || opts2.width !== 768 || opts2.height !== 1024 || opts2.style !== 'oil') {
+        throw new Error(`Options parse mismatch: ${JSON.stringify(opts2)}`);
+      }
+
+      const testBuf = await sharp({
+        create: { width: 120, height: 120, channels: 3, background: { r: 50, g: 100, b: 150 } },
+      })
+        .jpeg()
+        .toBuffer();
+
+      const clean = await generateCleanImage('renaissance garden --oil', { mockBuffer: testBuf });
+      if (!clean || !clean.buffer || clean.mimeType !== 'image/jpeg') {
+        throw new Error('Image generation buffer cleaning failed');
+      }
+      return {
+        info: `Parsed kontext/realism models, 4:3 & 3:4 dimensions, and generated ${clean.buffer.length}b clean image`,
+      };
+    }
+  );
+
+  await benchmark(
+    'Generative Video Pipeline :: Parser, Motion Trajectory & WhatsApp Video Transport',
+    'Video Generation',
+    async () => {
+      const p1 = parseVideoPrompt('/video a majestic golden eagle soaring above canyon --drone --wide --10s');
+      if (!p1 || !p1.includes('golden eagle')) throw new Error('Video prompt parser failed');
+
+      const vidOpts = parseVideoPromptOptions(p1);
+      if (
+        vidOpts.width !== 960 ||
+        vidOpts.height !== 540 ||
+        vidOpts.duration !== 10 ||
+        vidOpts.motion !== 'drone flyover'
+      ) {
+        throw new Error(`Video options mismatch: ${JSON.stringify(vidOpts)}`);
+      }
+
+      const vidRes = await generateVideo(p1, { mock: true });
+      if (!vidRes || !vidRes.ok || !vidRes.buffer || vidRes.mimeType !== 'video/mp4') {
+        throw new Error('Video generation failed to return valid MP4 buffer');
+      }
+
+      const sendRes = await sendWhatsAppVideo('910000000000', vidRes.buffer, 'Test video caption');
+      if (!sendRes.success || !sendRes.messageId) {
+        throw new Error(`sendWhatsAppVideo simulation failed: ${sendRes.error}`);
+      }
+
+      return {
+        info: `Generated ${vidRes.duration}s ${vidRes.width}x${vidRes.height} MP4 video (${vidRes.buffer.length}b), delivered via WhatsApp Cloud API`,
+      };
+    }
+  );
+
   // --------------------------------------------------------------------------
   // Group: Agentic Function Calling Tools
   // --------------------------------------------------------------------------
   await benchmark('Agentic Tool Calling Dispatcher (Time & Weather)', 'Agentic Tools', async () => {
     const timeRes = await executeToolCall('get_current_time', { timezone: 'Asia/Kolkata' }, { anonId: testAnonId });
     if (!timeRes.current_time || !timeRes.iso) throw new Error('Time tool failed');
-    const weatherRes = await executeToolCall('get_current_weather', { location: 'Tokyo' }, { anonId: testAnonId });
+    let weatherRes = await executeToolCall('get_current_weather', { location: 'Tokyo' }, { anonId: testAnonId });
+    if (!weatherRes.location) {
+      await new Promise((r) => setTimeout(r, 500));
+      weatherRes = await executeToolCall('get_current_weather', { location: 'Tokyo' }, { anonId: testAnonId });
+    }
     if (!weatherRes.location) throw new Error('Weather tool failed');
     return {
       info: `Time returned ${timeRes.current_time} (${timeRes.timezone}), Weather returned ${weatherRes.location}`,

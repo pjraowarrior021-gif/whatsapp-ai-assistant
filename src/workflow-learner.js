@@ -82,7 +82,7 @@ async function saveWorkflowState(anonId) {
  * Records a user interaction and analyzes it for recurring habit patterns.
  *
  * @param {string} anonId
- * @param {'youtube_video' | 'instagram_reel' | 'todo_action' | 'reminder_action' | 'code_query' | 'web_summary' | 'image_gen' | 'chat'} actionType
+ * @param {'youtube_video' | 'instagram_reel' | 'todo_action' | 'reminder_action' | 'code_query' | 'web_summary' | 'image_gen' | 'video_gen' | 'chat'} actionType
  * @param {object} [metadata]
  * @returns {Promise<{ habitDetected: boolean, habitName?: string }>}
  */

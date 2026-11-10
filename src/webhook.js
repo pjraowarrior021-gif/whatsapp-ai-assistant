@@ -33,6 +33,7 @@ import { isDocumentSupported, resolveDocumentMime, extractDocumentContent } from
 import {
   sendWhatsAppMessage,
   sendWhatsAppImage,
+  sendWhatsAppVideo,
   sendWhatsAppAudio,
   sendWhatsAppButtons,
   markMessageAsRead,
@@ -40,6 +41,7 @@ import {
   downloadMediaInMemory,
 } from './whatsapp.js';
 import { parseImagePrompt, parseImagePromptOptions, generateImageUrl, generateCleanImage } from './image-gen.js';
+import { parseVideoPrompt, parseVideoPromptOptions, generateVideo } from './video-gen.js';
 import { scheduleReminder, listReminders, deleteReminder } from './reminders.js';
 import { addTodo, listTodos, markTodoDone, clearCompletedTodos } from './todos.js';
 import { extractUrl, fetchAndExtractArticle } from './web-scraper.js';
@@ -271,6 +273,8 @@ export function normalizeCommand(text, hasMedia = false) {
     cmd_img_lion: '/image a majestic male lion in a thunderstorm --photo',
     cmd_img_wall: '/image a neon cyberpunk alleyway in Tokyo rain --wallpaper',
     cmd_img_anime: '/image a girl reading in an enchanted sunlit library --anime',
+    cmd_vid_drone: '/video a futuristic cybernetic drone racing through neon canyons --drone --wide',
+    cmd_vid_nature: '/video waves gently lapping against a bioluminescent beach at twilight --slowmo',
   };
   if (buttonMap[lower]) {
     return buttonMap[lower];
@@ -323,6 +327,10 @@ export function normalizeCommand(text, hasMedia = false) {
     'image ',
     'draw ',
     'imagine ',
+    'video ',
+    'vid ',
+    'animate ',
+    'motion ',
     'language ',
     'memory ',
   ];
@@ -729,7 +737,14 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     });
 
     const cleanImage = await generateCleanImage(imagePrompt);
-    const modelBadge = parsedOptions.model === 'turbo' ? '⚡ SDXL-Turbo (Fast)' : '✨ FLUX.1 (HD)';
+    const modelBadge =
+      parsedOptions.model === 'turbo'
+        ? '⚡ SDXL-Turbo (Fast)'
+        : parsedOptions.model === 'kontext'
+          ? '✨ FLUX.1 Kontext Pro'
+          : parsedOptions.model === 'realism'
+            ? '📸 FLUX Realism'
+            : '✨ FLUX.1 (HD)';
     const dimBadge = `${parsedOptions.width}x${parsedOptions.height}`;
     const caption = [
       `🎨 *AI Generated Image* (${modelBadge})`,
@@ -755,6 +770,75 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     return;
   }
 
+  // 9a-2. Video Generation
+  const videoPrompt = !mediaPart ? parseVideoPrompt(effectiveCommand || rawText) : null;
+  if (videoPrompt) {
+    const parsedVidOptions = parseVideoPromptOptions(videoPrompt);
+    privacyLog('info', 'VIDEO_GENERATION_REQUESTED', {
+      requestId,
+      user: anonId,
+      promptLength: parsedVidOptions.prompt.length,
+      duration: parsedVidOptions.duration,
+      dimensions: `${parsedVidOptions.width}x${parsedVidOptions.height}`,
+    });
+
+    // Notify user immediately that generation is underway
+    await sendWhatsAppMessage(
+      from,
+      '🎬 *Generating your video...*\n_Directing cinematography & rendering frames. This usually takes 15–30 seconds. Hang tight!_'
+    );
+
+    try {
+      const vidResult = await generateVideo(videoPrompt);
+      if (vidResult && vidResult.ok && vidResult.buffer) {
+        const motionBadge = parsedVidOptions.motion ? ` | 🎥 ${parsedVidOptions.motion}` : '';
+        const caption = [
+          `🎬 *AI Generated Video* (${parsedVidOptions.duration}s${motionBadge})`,
+          `📐 _Resolution:_ ${parsedVidOptions.width}x${parsedVidOptions.height}`,
+          ``,
+          `_Prompt:_ "${parsedVidOptions.prompt}"`,
+        ].join('\n');
+
+        const sendRes = await sendWhatsAppVideo(from, vidResult.buffer, caption);
+        if (sendRes.success) {
+          saveTurn(anonId, rawText, `[Generated and sent video: ${parsedVidOptions.prompt}]`);
+          recordMessageMetric('video_gen', 'success');
+        } else {
+          recordErrorMetric('video_gen');
+          await sendWhatsAppMessage(
+            from,
+            `⚠️ *Video Delivery Notice:*\nCould not deliver video file: ${sendRes.error || 'Server error'}. Please try again.`
+          );
+        }
+      } else {
+        recordErrorMetric('video_gen');
+        if (vidResult?.fallbackImage) {
+          const fallbackCaption = [
+            `🎬 *Video Concept Preview* (Generation queued/busy)`,
+            `⚠️ _Video cloud render is currently busy. Here is your high-definition concept still:_`,
+            ``,
+            `_Prompt:_ "${parsedVidOptions.prompt}"`,
+          ].join('\n');
+          await sendWhatsAppImage(from, vidResult.fallbackImage, fallbackCaption);
+          saveTurn(anonId, rawText, `[Generated video concept preview image: ${parsedVidOptions.prompt}]`);
+        } else {
+          await sendWhatsAppMessage(
+            from,
+            `⚠️ *Video Generation Notice:*\nVideo generation is temporarily busy (${vidResult?.reason || 'Service busy'}). Please try again in a few moments.`
+          );
+        }
+      }
+    } catch (vidErr) {
+      recordErrorMetric('video_gen');
+      privacyLog('error', 'VIDEO_DISPATCH_ERROR', { error: vidErr.message });
+      await sendWhatsAppMessage(
+        from,
+        `⚠️ *Video Generation Error:*\nCould not process video request: ${vidErr.message}.`
+      );
+    }
+    return;
+  }
+
   // 9b. Help Manual
   if (!mediaPart && (effectiveCommand === '/help' || effectiveCommand === 'help')) {
     const helpMessage = [
@@ -762,8 +846,10 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       ``,
       `*Available Commands:*`,
       `• */help* - Display this help manual`,
-      `• */image <prompt>* or */draw <prompt>* - Generate AI artwork (FLUX.1 HD)`,
-      `  _Options: \`--fast\` (1.5s draft), \`--wallpaper\` (phone 9:16), \`--wide\` (16:9), \`--anime\`, \`--photo\`, \`--raw\`_`,
+      `• */image <prompt>* or */draw <prompt>* - Generate AI artwork (FLUX.1, Kontext, Realism)`,
+      `  _Options: \`--fast\`, \`--wallpaper\` (9:16), \`--wide\` (16:9), \`--standard\` (4:3), \`--anime\`, \`--photo\`, \`--pixel\`, \`--oil\`, \`--watercolor\`, \`--sketch\`_`,
+      `• */video <prompt>* or */vid <prompt>* - Generate AI video animation (5s / 10s)`,
+      `  _Options: \`--wide\` (16:9), \`--vertical\` (9:16), \`--drone\`, \`--pan\`, \`--zoom\`, \`--timelapse\`, \`--slowmo\`_`,
       `• */todo <task>* - Add item to your quick to-do list`,
       `• */todos* - List your active to-dos`,
       `• */done <id>* - Mark a task completed`,

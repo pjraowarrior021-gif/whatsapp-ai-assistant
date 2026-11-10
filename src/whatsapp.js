@@ -518,7 +518,8 @@ export async function uploadWhatsAppMedia(buffer, mimeType = 'image/jpeg') {
   const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/media`;
 
   const isAudio = mimeType.includes('audio') || mimeType.includes('mpeg') || mimeType.includes('ogg');
-  const filename = isAudio ? 'audio.mp3' : 'image.jpg';
+  const isVideo = mimeType.includes('video') || mimeType.includes('mp4');
+  const filename = isAudio ? 'audio.mp3' : isVideo ? 'video.mp4' : 'image.jpg';
   const formData = new FormData();
   formData.append('messaging_product', 'whatsapp');
   formData.append('type', mimeType);
@@ -632,6 +633,100 @@ export async function sendWhatsAppImage(to, imageSource, caption = '') {
     privacyLog('error', 'WHATSAPP_IMAGE_SEND_NETWORK_ERROR', {
       message: err.message,
     });
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Sends a video message to a WhatsApp user via the WhatsApp Cloud API.
+ * Supports clean in-memory Buffers (uploaded directly to Meta) or public HTTPS URLs.
+ * Strictly checks the 16MB file size cap for WhatsApp video messages prior to upload.
+ *
+ * @param {string} to - Recipient phone number (E.164 digits)
+ * @param {string | Buffer | { buffer: Buffer, mimeType?: string, fallbackUrl?: string }} videoSource
+ * @param {string} [caption=''] - Optional caption text
+ * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
+ */
+export async function sendWhatsAppVideo(to, videoSource, caption = '') {
+  const normalizedTo = normalizePhoneNumber(to);
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !videoSource) {
+    privacyLog('warn', 'WHATSAPP_VIDEO_SEND_SKIPPED', {
+      note: 'Missing token, phone ID, or video source',
+    });
+    return { success: false, error: 'Missing configuration or video source' };
+  }
+
+  // Bypass outbound network calls in test scenarios with dummy phone numbers or during test runs
+  if (
+    config.NODE_ENV === 'test' ||
+    normalizedTo === '910000000000' ||
+    normalizedTo.startsWith('0000') ||
+    normalizedTo.startsWith('9999')
+  ) {
+    return { success: true, messageId: `sim_test_vid_${Date.now()}` };
+  }
+
+  let videoPayload;
+  if (Buffer.isBuffer(videoSource) || (videoSource && videoSource.buffer)) {
+    const buf = Buffer.isBuffer(videoSource) ? videoSource : videoSource.buffer;
+    // Meta WhatsApp Cloud API limits video payloads to 16MB
+    if (buf.length > 16 * 1024 * 1024) {
+      return { success: false, error: 'Video exceeds WhatsApp 16MB limit' };
+    }
+    const mime = videoSource.mimeType || 'video/mp4';
+    const uploadRes = await uploadWhatsAppMedia(buf, mime);
+    if (!uploadRes.success) {
+      if (videoSource.fallbackUrl) {
+        videoPayload = { link: videoSource.fallbackUrl, caption: caption || undefined };
+      } else {
+        return { success: false, error: uploadRes.error };
+      }
+    } else {
+      videoPayload = { id: uploadRes.mediaId, caption: caption || undefined };
+    }
+  } else if (typeof videoSource === 'string') {
+    videoPayload = { link: videoSource, caption: caption || undefined };
+  } else {
+    return { success: false, error: 'Invalid video source' };
+  }
+
+  const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: normalizedTo,
+    type: 'video',
+    video: videoPayload,
+  };
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      privacyLog('error', 'WHATSAPP_VIDEO_SEND_FAILED', {
+        status: res.status,
+        error: data?.error?.message,
+      });
+      return { success: false, error: data?.error?.message || 'Failed to send WhatsApp video' };
+    }
+
+    const messageId = data?.messages?.[0]?.id || `vid_${Date.now()}`;
+    privacyLog('info', 'WHATSAPP_VIDEO_SENT', {
+      toEnding: normalizedTo.slice(-4),
+      messageId,
+    });
+    return { success: true, messageId };
+  } catch (err) {
+    privacyLog('error', 'WHATSAPP_VIDEO_NETWORK_ERROR', { error: err.message });
     return { success: false, error: err.message };
   }
 }

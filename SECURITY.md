@@ -102,17 +102,17 @@ This document details the security model, privacy safeguards, and architectural 
 
 ## 3. Threat Model & Mitigations
 
-| Threat                                 | Risk Level | Mitigation in Code                                                                                                                         |
-| :------------------------------------- | :--------- | :------------------------------------------------------------------------------------------------------------------------------------------ |
+| Threat                                 | Risk Level | Mitigation in Code                                                                                                                                           |
+| :------------------------------------- | :--------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Server-Side Request Forgery (SSRF)** | Critical   | Pre-fetch URL parsing in `src/web-scraper.js` strictly blocks private RFC1918 ranges, loopback addresses (`127.0.0.1`, `localhost`), and cloud metadata IPs. |
-| **Spoofed Webhook Requests**           | High       | `x-hub-signature-256` HMAC-SHA256 verification using Meta App Secret with `crypto.timingSafeEqual` prevents forged or tampered webhook deliveries. |
-| **Verify Token Brute-Force**           | High       | Webhook challenge verification compares `hub.verify_token` against `WHATSAPP_VERIFY_TOKEN` strictly using `crypto.timingSafeEqual`. |
-| **Slowloris & Resource Exhaustion**    | High       | Media downloads enforce strict size and timeout caps before buffering. |
-| **Per-User Spam & DoS**                | High       | Dual-tier rate limiting: Global `express-rate-limit` plus per-user sliding window limiter. |
-| **Unauthorized Bot Usage**             | High       | Whitelist enforcement via `ALLOWED_PHONE_NUMBERS`. Senders not in the whitelist are rejected immediately. |
-| **Replay / Duplicate Messages**        | Medium     | Deduplication cache tracks processed WhatsApp message IDs (`wamid.*`) with a 5-minute auto-expiry window. |
-| **Credential / Key Leakage**           | High       | Secrets stored strictly in `.env` (gitignored). Safe masking in diagnostics. |
-| **Accidental PII Ingestion by AI**     | Medium     | Client-side sanitization layer strips detected credit cards (Luhn-validated), PINs, and password strings before sending payload to Google. |
+| **Spoofed Webhook Requests**           | High       | `x-hub-signature-256` HMAC-SHA256 verification using Meta App Secret with `crypto.timingSafeEqual` prevents forged or tampered webhook deliveries.           |
+| **Verify Token Brute-Force**           | High       | Webhook challenge verification compares `hub.verify_token` against `WHATSAPP_VERIFY_TOKEN` strictly using `crypto.timingSafeEqual`.                          |
+| **Slowloris & Resource Exhaustion**    | High       | Media downloads enforce strict size and timeout caps before buffering.                                                                                       |
+| **Per-User Spam & DoS**                | High       | Dual-tier rate limiting: Global `express-rate-limit` plus per-user sliding window limiter.                                                                   |
+| **Unauthorized Bot Usage**             | High       | Whitelist enforcement via `ALLOWED_PHONE_NUMBERS`. Senders not in the whitelist are rejected immediately.                                                    |
+| **Replay / Duplicate Messages**        | Medium     | Deduplication cache tracks processed WhatsApp message IDs (`wamid.*`) with a 5-minute auto-expiry window.                                                    |
+| **Credential / Key Leakage**           | High       | Secrets stored strictly in `.env` (gitignored). Safe masking in diagnostics.                                                                                 |
+| **Accidental PII Ingestion by AI**     | Medium     | Client-side sanitization layer strips detected credit cards (Luhn-validated), PINs, and password strings before sending payload to Google.                   |
 
 ---
 

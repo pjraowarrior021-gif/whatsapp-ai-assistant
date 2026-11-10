@@ -137,7 +137,7 @@ export function extractDeterministicFacts(text) {
  *
  * @param {string} text
  * @param {string} messageType
- * @returns {'youtube_video' | 'instagram_reel' | 'todo_action' | 'reminder_action' | 'code_query' | 'web_summary' | 'image_gen' | 'chat'}
+ * @returns {'youtube_video' | 'instagram_reel' | 'todo_action' | 'reminder_action' | 'code_query' | 'web_summary' | 'image_gen' | 'video_gen' | 'chat'}
  */
 export function inferInteractionType(text, messageType) {
   if (messageType === 'image') return 'chat';
@@ -153,6 +153,9 @@ export function inferInteractionType(text, messageType) {
 
   if (/^\/todo|\badd todo\b|\bto-do list\b/i.test(clean)) return 'todo_action';
   if (/^\/remind|\bremind me\b|\breminder\b/i.test(clean)) return 'reminder_action';
+  if (/^\/(?:video|vid|animate|motion|reel)|\bgenerate video\b|\bmake a video\b|\banimate\b/i.test(clean)) {
+    return 'video_gen';
+  }
   if (/^\/image|\bgenerate image\b|\bdraw a\b|\bpicture of\b/i.test(clean)) return 'image_gen';
   if (
     /```|\berror\b|\bstack trace\b|\bfunction\b|\bconst \b|\bdef \b|\bclass \b|\bimport \b|\bcompile error\b/i.test(

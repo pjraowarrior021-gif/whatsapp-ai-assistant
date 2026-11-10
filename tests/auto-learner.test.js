@@ -79,6 +79,9 @@ test('AutoLearner: classifies interaction types accurately', () => {
   );
   assert.strictEqual(inferInteractionType('/todo Buy groceries', 'text'), 'todo_action');
   assert.strictEqual(inferInteractionType('/remind submit report in 2 hours', 'text'), 'reminder_action');
+  assert.strictEqual(inferInteractionType('/image a beautiful sunrise --photo', 'text'), 'image_gen');
+  assert.strictEqual(inferInteractionType('/video a drone flying through mountains --wide', 'text'), 'video_gen');
+  assert.strictEqual(inferInteractionType('make a video of a galloping horse', 'text'), 'video_gen');
   assert.strictEqual(inferInteractionType('```python\ndef hello():\n    print("hi")\n```', 'text'), 'code_query');
   assert.strictEqual(inferInteractionType('Can you explain quantum computing?', 'text'), 'chat');
 });
