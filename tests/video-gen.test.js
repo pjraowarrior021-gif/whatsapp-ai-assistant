@@ -8,6 +8,8 @@ import {
   buildVideoUrl,
   generateVideo,
   MOCK_MP4_BUFFER,
+  isFfmpegAvailable,
+  synthesizeMotionVideo,
 } from '../src/video-gen.js';
 
 test('VideoGen: parseVideoPrompt detects explicit slash commands', () => {
@@ -99,7 +101,7 @@ test('VideoGen: buildVideoUrl constructs valid URL endpoint with parameters and 
   assert.ok(url.includes('nologo=true'));
 });
 
-test('VideoGen: generateVideo gracefully returns fallback concept still and missing_api_key when key is unset', async () => {
+test('VideoGen: generateVideo gracefully returns fallback concept still and missing_api_key when key is unset and recovery disabled', async () => {
   const prevConfigKey = config.POLLINATIONS_API_KEY;
   const prevEnvKey = process.env.POLLINATIONS_API_KEY;
   config.POLLINATIONS_API_KEY = '';
@@ -115,7 +117,12 @@ test('VideoGen: generateVideo gracefully returns fallback concept still and miss
     })
       .jpeg()
       .toBuffer();
-    const result = await generateVideo('sunset over calm sea', { mockFallbackImage: mockImg, apiKey: '' });
+    const result = await generateVideo('sunset over calm sea', {
+      mockFallbackImage: mockImg,
+      apiKey: '',
+      forceCloud: true,
+      disableMotionRecovery: true,
+    });
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.reason, 'missing_api_key');
     assert.strictEqual(result.statusCode, 401);
@@ -123,6 +130,28 @@ test('VideoGen: generateVideo gracefully returns fallback concept still and miss
   } finally {
     config.POLLINATIONS_API_KEY = prevConfigKey;
     if (prevEnvKey) process.env.POLLINATIONS_API_KEY = prevEnvKey;
+  }
+});
+
+test('VideoGen: isFfmpegAvailable detects system ffmpeg binary', () => {
+  assert.strictEqual(typeof isFfmpegAvailable(), 'boolean');
+});
+
+test('VideoGen: synthesizeMotionVideo synthesizes real MP4 buffer with camera motion', async () => {
+  const sampleBuf = await sharp({
+    create: { width: 320, height: 180, channels: 3, background: { r: 60, g: 120, b: 180 } },
+  })
+    .jpeg()
+    .toBuffer();
+
+  const vidBuf = synthesizeMotionVideo(sampleBuf, { width: 320, height: 180, duration: 3, motion: 'pan' });
+  if (isFfmpegAvailable()) {
+    assert.ok(vidBuf);
+    assert.ok(Buffer.isBuffer(vidBuf));
+    assert.ok(vidBuf.length > 500);
+    assert.ok(vidBuf.includes(Buffer.from('ftyp')));
+  } else {
+    assert.strictEqual(vidBuf, null);
   }
 });
 

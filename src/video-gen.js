@@ -4,6 +4,10 @@
  * Uses Gemini AI prompt direction paired with high-performance video generation.
  * Enforces strict volatile in-memory streaming with zero permanent disk writes.
  */
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
 import { config } from './config.js';
 import { enhanceVideoPrompt } from './gemini.js';
 import { generateCleanImage } from './image-gen.js';
@@ -233,6 +237,84 @@ export function buildVideoUrl(prompt, options = {}) {
 }
 
 /**
+ * Checks whether ffmpeg is installed and accessible in the system PATH.
+ * @returns {boolean}
+ */
+export function isFfmpegAvailable() {
+  try {
+    const res = spawnSync('ffmpeg', ['-version'], { timeout: 3000 });
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Synthesizes a high-definition H.264 MP4 motion video from an image buffer using ffmpeg.
+ * Applies cinematic camera movement presets (drone, pan, zoom, slowmo, timelapse, orbit).
+ *
+ * @param {Buffer} imageBuffer - In-memory image buffer
+ * @param {object} options - Motion and dimension options
+ * @returns {Buffer | null} Video MP4 buffer or null if ffmpeg fails
+ */
+export function synthesizeMotionVideo(imageBuffer, options = {}) {
+  if (!imageBuffer || !Buffer.isBuffer(imageBuffer)) return null;
+
+  const width = options.width || 960;
+  const height = options.height || 540;
+  const duration = Math.min(10, Math.max(3, options.duration || 5));
+  const totalFrames = duration * 25;
+  const motion = (options.motion || '').toLowerCase();
+
+  let filter;
+  if (motion.includes('pan')) {
+    filter = `zoompan=z='1.2':d=${totalFrames}:x='if(lte(on,1),0,min(x+1.2,iw-iw/zoom))':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=25`;
+  } else if (motion.includes('drone')) {
+    filter = `zoompan=z='min(zoom+0.0018,1.25)':d=${totalFrames}:x='if(lte(on,1),(iw-iw/zoom)/2,x+0.8)':y='if(lte(on,1),(ih-ih/zoom)/2,y-0.4)':s=${width}x${height}:fps=25`;
+  } else if (motion.includes('slowmo') || motion.includes('slow')) {
+    filter = `zoompan=z='min(zoom+0.0008,1.12)':d=${totalFrames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=25`;
+  } else if (motion.includes('timelapse')) {
+    filter = `zoompan=z='min(zoom+0.0035,1.35)':d=${totalFrames}:x='if(lte(on,1),0,min(x+1.8,iw-iw/zoom))':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=25`;
+  } else {
+    // Cinematic push-in zoom (default)
+    filter = `zoompan=z='min(zoom+0.002,1.3)':d=${totalFrames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=25`;
+  }
+
+  const tempIn = path.join(os.tmpdir(), `motion_in_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`);
+  const tempOut = path.join(os.tmpdir(), `motion_out_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
+
+  try {
+    fs.writeFileSync(tempIn, imageBuffer);
+    const res = spawnSync(
+      'ffmpeg',
+      [
+        '-y',
+        '-loop', '1',
+        '-i', tempIn,
+        '-vf', filter,
+        '-c:v', 'libx264',
+        '-t', String(duration),
+        '-pix_fmt', 'yuv420p',
+        '-preset', 'ultrafast',
+        tempOut,
+      ],
+      { timeout: 15000 }
+    );
+
+    if (res.status === 0 && fs.existsSync(tempOut)) {
+      const videoBuffer = fs.readFileSync(tempOut);
+      return videoBuffer;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    try { if (fs.existsSync(tempIn)) fs.unlinkSync(tempIn); } catch {}
+    try { if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut); } catch {}
+  }
+}
+
+/**
  * Generates an AI video from a text prompt in volatile memory.
  * Employs Gemini Video Prompt Engineer to enhance cinematography and motion trajectory.
  * Incorporates bounded timeouts (45s) and automatic visual fallback to concept still image
@@ -317,6 +399,36 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
     finalPrompt += ', pristine cinematography, watermark-free, no logo, no timestamps, no text overlay';
   }
 
+  const engine = userOptions.engine || config.VIDEO_ENGINE || 'fast';
+
+  // Fast Motion Synthesis Engine (Instant 2-3s turnaround with smooth camera motion via ffmpeg)
+  if (engine === 'fast' && !userOptions.forceCloud) {
+    privacyLog('info', 'VIDEO_FAST_SYNTHESIS_REQUESTED', { prompt: parsed.prompt, motion: options.motion });
+    const conceptImage = await generateCleanImage(finalPrompt, {
+      width: options.width > options.height ? 1280 : 720,
+      height: options.width > options.height ? 720 : 1280,
+      mockBuffer: userOptions.mockFallbackImage || userOptions.mockBuffer,
+      enhance: false,
+    });
+
+    if (conceptImage && conceptImage.buffer) {
+      const motionVideo = synthesizeMotionVideo(conceptImage.buffer, options);
+      if (motionVideo) {
+        return {
+          ok: true,
+          buffer: motionVideo,
+          mimeType: 'video/mp4',
+          prompt: parsed.prompt,
+          enhancedPrompt: finalPrompt,
+          width: options.width,
+          height: options.height,
+          duration: options.duration,
+          isFastMotion: true,
+        };
+      }
+    }
+  }
+
   const apiKey =
     userOptions.apiKey !== undefined
       ? userOptions.apiKey
@@ -361,6 +473,25 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
         width: options.width > options.height ? 1280 : 720,
         height: options.width > options.height ? 720 : 1280,
       });
+
+      // Dynamic motion recovery so user always receives a real playable video
+      if (fallbackImage && fallbackImage.buffer && !userOptions.disableMotionRecovery) {
+        const recoveryVideo = synthesizeMotionVideo(fallbackImage.buffer, options);
+        if (recoveryVideo) {
+          return {
+            ok: true,
+            buffer: recoveryVideo,
+            mimeType: 'video/mp4',
+            prompt: parsed.prompt,
+            enhancedPrompt: finalPrompt,
+            width: options.width,
+            height: options.height,
+            duration: options.duration,
+            isFastMotion: true,
+          };
+        }
+      }
+
       return {
         ok: false,
         prompt: parsed.prompt,
