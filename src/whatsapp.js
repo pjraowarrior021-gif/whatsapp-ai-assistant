@@ -167,36 +167,68 @@ export async function sendWhatsAppMessage(to, messageText) {
 }
 
 /**
- * Marks an incoming WhatsApp message as read (displays the blue ticks).
- * @param {string} messageId
+ * Marks an incoming WhatsApp message as read (displays the blue ticks)
+ * and displays the native animated typing indicator in WhatsApp.
+ *
+ * @param {string} messageId - Incoming message WAMID
+ * @param {{ typing?: boolean }} [options] - Whether to show the typing indicator (defaults to true)
  * @returns {Promise<boolean>}
  */
-export async function markMessageAsRead(messageId) {
+export async function markMessageAsRead(messageId, options = {}) {
   if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !messageId) {
     return false;
   }
 
   const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
+  const payload = {
+    messaging_product: 'whatsapp',
+    status: 'read',
+    message_id: messageId,
+  };
+
+  if (options.typing !== false) {
+    payload.typing_indicator = { type: 'text' };
+  }
+
   try {
-    const response = await fetch(endpoint, {
+    let response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        status: 'read',
-        message_id: messageId,
-      }),
+      body: JSON.stringify(payload),
     });
+
+    // Fallback without typing_indicator if Meta API version rejects the typing indicator field
+    if (!response.ok && payload.typing_indicator) {
+      delete payload.typing_indicator;
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    }
 
     return response.ok;
   } catch {
     // Non-critical, ignore read receipt errors
     return false;
   }
+}
+
+/**
+ * Sends or refreshes the native WhatsApp animated typing indicator for an incoming message.
+ *
+ * @param {string} messageId - Incoming message WAMID
+ * @returns {Promise<boolean>}
+ */
+export async function sendWhatsAppTypingIndicator(messageId) {
+  return markMessageAsRead(messageId, { typing: true });
 }
 
 /**

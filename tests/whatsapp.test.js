@@ -204,3 +204,58 @@ test('WhatsApp Video: sendWhatsAppVideo validates inputs, size cap, and handles 
   assert.strictEqual(simUrlRes.success, true);
   assert.ok(simUrlRes.messageId.startsWith('sim_test_vid_'));
 });
+
+test('WhatsApp Typing & Read Receipt: markMessageAsRead and sendWhatsAppTypingIndicator', async () => {
+  const { markMessageAsRead, sendWhatsAppTypingIndicator } = await import('../src/whatsapp.js');
+
+  // 1. Missing messageId returns false
+  const emptyRes = await markMessageAsRead('');
+  assert.strictEqual(emptyRes, false);
+
+  const nullRes = await markMessageAsRead(null);
+  assert.strictEqual(nullRes, false);
+
+  // 2. Intercept fetch to verify correct JSON payload with typing_indicator
+  const originalFetch = globalThis.fetch;
+  const capturedRequests = [];
+
+  globalThis.fetch = async (url, options) => {
+    capturedRequests.push({ url, options, body: JSON.parse(options.body) });
+    return { ok: true, json: async () => ({ success: true }) };
+  };
+
+  try {
+    // 3. sendWhatsAppTypingIndicator sends status: 'read' and typing_indicator: { type: 'text' }
+    const res1 = await sendWhatsAppTypingIndicator('wamid.test_typing_123');
+    assert.strictEqual(res1, true);
+    assert.strictEqual(capturedRequests.length, 1);
+    assert.strictEqual(capturedRequests[0].body.messaging_product, 'whatsapp');
+    assert.strictEqual(capturedRequests[0].body.status, 'read');
+    assert.strictEqual(capturedRequests[0].body.message_id, 'wamid.test_typing_123');
+    assert.deepStrictEqual(capturedRequests[0].body.typing_indicator, { type: 'text' });
+
+    // 4. markMessageAsRead with options.typing = false omits typing_indicator
+    const res2 = await markMessageAsRead('wamid.test_notyping_456', { typing: false });
+    assert.strictEqual(res2, true);
+    assert.strictEqual(capturedRequests.length, 2);
+    assert.strictEqual(capturedRequests[1].body.message_id, 'wamid.test_notyping_456');
+    assert.strictEqual(capturedRequests[1].body.typing_indicator, undefined);
+
+    // 5. Fallback retry when Meta API rejects typing_indicator
+    let callCount = 0;
+    globalThis.fetch = async (url, options) => {
+      callCount++;
+      const body = JSON.parse(options.body);
+      if (body.typing_indicator) {
+        return { ok: false, status: 400 };
+      }
+      return { ok: true, status: 200, json: async () => ({ success: true }) };
+    };
+
+    const res3 = await sendWhatsAppTypingIndicator('wamid.test_fallback_789');
+    assert.strictEqual(res3, true);
+    assert.strictEqual(callCount, 2, 'Should fall back and retry without typing_indicator');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

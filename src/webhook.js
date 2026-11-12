@@ -37,6 +37,7 @@ import {
   sendWhatsAppAudio,
   sendWhatsAppButtons,
   markMessageAsRead,
+  sendWhatsAppTypingIndicator,
   getMediaUrl,
   downloadMediaInMemory,
 } from './whatsapp.js';
@@ -814,11 +815,10 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
             : '✨ FLUX.1 (HD)';
     const dimBadge = `${parsedOptions.width}x${parsedOptions.height}`;
 
-    // Send instant interactive feedback (< 300ms) so user knows bot is actively generating
-    await sendWhatsAppMessage(
-      from,
-      `🎨 *Generating your image...*\n_Model:_ ${modelBadge} | _Size:_ ${dimBadge}\n\n⏳ _Rendering with AI, sending in a few seconds..._`
-    );
+    // Trigger native animated typing indicator instead of sending a bulky placeholder message
+    if (messageId) {
+      await sendWhatsAppTypingIndicator(messageId).catch(() => {});
+    }
 
     const cleanImage = await generateCleanImage(imagePrompt, { anonId });
     const caption = [
