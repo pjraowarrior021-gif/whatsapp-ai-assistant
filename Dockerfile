@@ -7,9 +7,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm rebuild sharp
 
-# Copy application source code and utility scripts
+# Copy application source code, utility scripts, and public dashboard assets
 COPY src/ ./src/
 COPY scripts/ ./scripts/
+COPY public/ ./public/
 
 # Pre-create runtime data directory and configure ownership for unprivileged node user
 RUN mkdir -p /app/.data && chown -R node:node /app
