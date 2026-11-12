@@ -19,6 +19,32 @@ export function extractUrl(text) {
 }
 
 /**
+ * Strips all occurrences of a URL and redundant preview header/footer lines (e.g. "www.youtube.com")
+ * leaving only the user's actual question, instruction, or prompt text.
+ *
+ * @param {string} text
+ * @param {string} [url]
+ * @returns {string}
+ */
+export function extractUserPromptAside(text, url) {
+  if (!text || typeof text !== 'string') return '';
+  let cleaned = text;
+  if (url) {
+    cleaned = cleaned.replaceAll(url, '');
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname;
+      const escapedHost = host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const hostRegex = new RegExp(`^\\s*${escapedHost}\\s*$`, 'gim');
+      cleaned = cleaned.replace(hostRegex, '');
+    } catch {
+      // ignore parsing error
+    }
+  }
+  return cleaned.trim();
+}
+
+/**
  * Evaluates whether a target URL is safe to fetch (strict SSRF protection).
  * Blocks loopback, private RFC-1918 subnets, link-local, and local domains.
  *

@@ -7,6 +7,13 @@
 import crypto from 'crypto';
 import { store } from './store/index.js';
 import { privacyLog } from './privacy.js';
+import {
+  syncMemoryFactToGraph,
+  clearKnowledgeGraph,
+  deleteFact as deleteKgFact,
+  getKnowledgeGraph,
+  formatKnowledgeGraphContext,
+} from './knowledge-graph.js';
 
 const MAX_MANUAL_FACTS_PER_USER = 15;
 const MAX_AUTO_FACTS_PER_USER = 15;
@@ -124,6 +131,11 @@ export async function addMemoryFact(anonId, factText, options = {}) {
 
   entry.facts.push(factItem);
   await saveUserMemory(anonId);
+  try {
+    syncMemoryFactToGraph(anonId, factItem);
+  } catch {
+    // Fail-safe graph sync
+  }
   privacyLog('info', 'MEMORY_FACT_ADDED', { user: anonId, id });
 
   return {
@@ -168,6 +180,11 @@ export async function addAutoMemoryFact(anonId, factText, options = {}) {
       existing.confidence = confidence;
       existing.updatedAt = Date.now();
       await saveUserMemory(anonId);
+      try {
+        syncMemoryFactToGraph(anonId, existing);
+      } catch {
+        // Fail-safe graph sync
+      }
       privacyLog('info', 'MEMORY_AUTO_FACT_UPDATED', { user: anonId, category, id: existing.id });
       return { success: true, id: existing.id, updated: true };
     }
@@ -197,6 +214,11 @@ export async function addAutoMemoryFact(anonId, factText, options = {}) {
 
   entry.facts.push(factItem);
   await saveUserMemory(anonId);
+  try {
+    syncMemoryFactToGraph(anonId, factItem);
+  } catch {
+    // Fail-safe graph sync
+  }
   privacyLog('info', 'MEMORY_AUTO_FACT_LEARNED', { user: anonId, id, category });
 
   return { success: true, id, created: true };
@@ -224,6 +246,12 @@ export async function deleteMemoryFact(anonId, factId) {
 
   const removed = entry.facts.splice(idx, 1)[0];
   await saveUserMemory(anonId);
+  try {
+    deleteKgFact(cleanId, anonId);
+    deleteKgFact(`rel_${cleanId}`, anonId);
+  } catch {
+    // Fail-safe graph sync
+  }
   privacyLog('info', 'MEMORY_FACT_DELETED', { user: anonId, id: cleanId });
 
   return {
@@ -242,6 +270,11 @@ export async function clearUserMemory(anonId) {
   const count = entry.facts.length;
   entry.facts = [];
   await saveUserMemory(anonId);
+  try {
+    await clearKnowledgeGraph(anonId);
+  } catch {
+    // Fail-safe graph clear
+  }
   privacyLog('info', 'MEMORY_CLEARED', { user: anonId, count });
 
   return {
@@ -419,6 +452,14 @@ export async function handleMemoryCommand(anonId, text) {
   if (action === 'delete' || action === 'remove' || action === 'del') {
     const res = await deleteMemoryFact(anonId, rest);
     return res.message;
+  }
+  if (action === 'graph') {
+    const kg = getKnowledgeGraph(anonId);
+    const exp = kg.exportGraph();
+    const activeCount = exp.stats.activeRelations;
+    const totalEnt = exp.stats.totalEntities;
+    const ctx = formatKnowledgeGraphContext(anonId);
+    return `🕸️ *Personal Knowledge Graph:*\n• *Entities:* ${totalEnt}\n• *Active Relations:* ${activeCount}\n\n${ctx || '_No active knowledge graph relations yet._'}`;
   }
 
   // If user just typed `/memory <some fact>` directly

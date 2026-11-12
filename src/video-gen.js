@@ -9,11 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { config } from './config.js';
-import {
-  enhanceVideoPrompt,
-  generateVideoStoryboard,
-  generateVideoStoryboardFromImage,
-} from './gemini.js';
+import { enhanceVideoPrompt, generateVideoStoryboard, generateVideoStoryboardFromImage } from './gemini.js';
 import { generateCleanImage } from './image-gen.js';
 import { privacyLog } from './privacy.js';
 
@@ -260,7 +256,7 @@ export function buildVideoUrl(prompt, options = {}) {
   const encoded = encodeURIComponent(cleanPrompt);
   const width = options.width || 960;
   const height = options.height || 540;
-  const duration = options.duration !== undefined ? options.duration : (config.VIDEO_DEFAULT_DURATION || 12);
+  const duration = options.duration !== undefined ? options.duration : config.VIDEO_DEFAULT_DURATION || 12;
   const model = options.model || config.POLLINATIONS_VIDEO_MODEL || 'alibaba/wan-2.2-fast';
 
   return `https://gen.pollinations.ai/video/${encoded}?width=${width}&height=${height}&duration=${duration}&model=${encodeURIComponent(model)}&nologo=true&nofeed=true&private=true`;
@@ -319,13 +315,20 @@ export function synthesizeMotionVideo(imageBuffer, options = {}) {
       'ffmpeg',
       [
         '-y',
-        '-loop', '1',
-        '-i', tempIn,
-        '-vf', filter,
-        '-c:v', 'libx264',
-        '-t', String(duration),
-        '-pix_fmt', 'yuv420p',
-        '-preset', 'ultrafast',
+        '-loop',
+        '1',
+        '-i',
+        tempIn,
+        '-vf',
+        filter,
+        '-c:v',
+        'libx264',
+        '-t',
+        String(duration),
+        '-pix_fmt',
+        'yuv420p',
+        '-preset',
+        'ultrafast',
         tempOut,
       ],
       { timeout: 15000 }
@@ -339,8 +342,12 @@ export function synthesizeMotionVideo(imageBuffer, options = {}) {
   } catch {
     return null;
   } finally {
-    try { if (fs.existsSync(tempIn)) fs.unlinkSync(tempIn); } catch {}
-    try { if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut); } catch {}
+    try {
+      if (fs.existsSync(tempIn)) fs.unlinkSync(tempIn);
+    } catch {}
+    try {
+      if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut);
+    } catch {}
   }
 }
 
@@ -398,22 +405,55 @@ export function synthesizeStoryboardVideo(keyframeBuffers, options = {}) {
 
     const args = [
       '-y',
-      '-loop', '1', '-t', '3.6', '-i', tmpFiles[0],
-      '-loop', '1', '-t', '3.6', '-i', tmpFiles[1],
-      '-loop', '1', '-t', '3.6', '-i', tmpFiles[2],
-      '-loop', '1', '-t', '3.6', '-i', tmpFiles[3],
-      '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
-      '-filter_complex', filterGraph,
-      '-map', '[vfinal]',
-      '-map', '4:a',
-      '-c:v', 'libx264',
-      '-pix_fmt', 'yuv420p',
-      '-preset', 'ultrafast',
-      '-c:a', 'aac',
-      '-b:a', '64k',
+      '-loop',
+      '1',
+      '-t',
+      '3.6',
+      '-i',
+      tmpFiles[0],
+      '-loop',
+      '1',
+      '-t',
+      '3.6',
+      '-i',
+      tmpFiles[1],
+      '-loop',
+      '1',
+      '-t',
+      '3.6',
+      '-i',
+      tmpFiles[2],
+      '-loop',
+      '1',
+      '-t',
+      '3.6',
+      '-i',
+      tmpFiles[3],
+      '-f',
+      'lavfi',
+      '-i',
+      'anullsrc=channel_layout=stereo:sample_rate=44100',
+      '-filter_complex',
+      filterGraph,
+      '-map',
+      '[vfinal]',
+      '-map',
+      '4:a',
+      '-c:v',
+      'libx264',
+      '-pix_fmt',
+      'yuv420p',
+      '-preset',
+      'ultrafast',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '64k',
       '-shortest',
-      '-t', String(targetDuration),
-      '-movflags', '+faststart',
+      '-t',
+      String(targetDuration),
+      '-movflags',
+      '+faststart',
       tempOut,
     ];
 
@@ -427,9 +467,13 @@ export function synthesizeStoryboardVideo(keyframeBuffers, options = {}) {
     return null;
   } finally {
     for (const f of tmpFiles) {
-      try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
+      try {
+        if (fs.existsSync(f)) fs.unlinkSync(f);
+      } catch {}
     }
-    try { if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut); } catch {}
+    try {
+      if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut);
+    } catch {}
   }
 }
 
@@ -567,8 +611,8 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
   const parsed = parseVideoPromptOptions(rawPrompt);
   const defaultMinDuration = config.VIDEO_DEFAULT_DURATION || 12;
   const targetDuration = userOptions.forceExactDuration
-    ? (userOptions.duration || parsed.duration || 5)
-    : (userOptions.duration || (parsed.hasExplicitDuration ? Math.max(parsed.duration, 10) : defaultMinDuration));
+    ? userOptions.duration || parsed.duration || 5
+    : userOptions.duration || (parsed.hasExplicitDuration ? Math.max(parsed.duration, 10) : defaultMinDuration);
 
   const options = {
     width: userOptions.width || parsed.width || 960,
@@ -612,7 +656,14 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
   }
 
   // During automated unit tests or mock mode, return valid mock MP4 buffer unless testing specific engine
-  if ((config.NODE_ENV === 'test' || options.mock) && !userOptions.allowLiveNetwork && !userOptions.testEngine && !userOptions.engine) {
+  if (
+    (config.NODE_ENV === 'test' || options.mock) &&
+    !userOptions.allowLiveNetwork &&
+    !userOptions.testEngine &&
+    !userOptions.engine &&
+    !userOptions.forceCloud &&
+    !userOptions.disableFreeRecovery
+  ) {
     return {
       ok: true,
       buffer: MOCK_MP4_BUFFER,
@@ -643,11 +694,6 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
   // Handle Image-to-Video Workflow
   if (userOptions.imageBuffer && Buffer.isBuffer(userOptions.imageBuffer)) {
     privacyLog('info', 'IMAGE_TO_VIDEO_REQUESTED', { prompt: parsed.prompt });
-    const storyboardPrompts = await generateVideoStoryboardFromImage(
-      userOptions.imageBuffer,
-      finalPrompt,
-      options
-    );
 
     if (userOptions.mockBuffer) {
       return {
@@ -664,6 +710,24 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
         isFreeVideo: true,
       };
     }
+
+    if (config.NODE_ENV === 'test' && !userOptions.allowLiveNetwork) {
+      return {
+        ok: true,
+        buffer: MOCK_MP4_BUFFER,
+        mimeType: 'video/mp4',
+        prompt: parsed.prompt,
+        enhancedPrompt: finalPrompt,
+        width: options.width,
+        height: options.height,
+        duration: options.duration,
+        isImageToVideo: true,
+        isStoryboardVideo: true,
+        isFreeVideo: true,
+      };
+    }
+
+    const storyboardPrompts = await generateVideoStoryboardFromImage(userOptions.imageBuffer, finalPrompt, options);
 
     if (config.NODE_ENV === 'test' && !userOptions.allowLiveNetwork) {
       return {
@@ -767,7 +831,6 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
     isFfmpegAvailable()
   ) {
     privacyLog('info', 'VIDEO_STORYBOARD_SYNTHESIS_REQUESTED', { prompt: parsed.prompt });
-    const storyboardPrompts = await generateVideoStoryboard(finalPrompt, options);
 
     if (userOptions.mockBuffer) {
       return {
@@ -798,6 +861,8 @@ export async function generateVideo(rawPrompt, userOptions = {}) {
         isFreeVideo: true,
       };
     }
+
+    const storyboardPrompts = await generateVideoStoryboard(finalPrompt, options);
 
     const keyframes = [];
     for (const promptStage of storyboardPrompts) {

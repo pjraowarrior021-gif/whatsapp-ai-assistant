@@ -4,15 +4,30 @@ import { generateCleanImage } from '../src/image-gen.js';
 import { sendWhatsAppImage, sendWhatsAppVideo } from '../src/whatsapp.js';
 import { config } from '../src/config.js';
 
-const ARTIFACT_DIR = 'C:\\Users\\PJ\\.gemini\\antigravity\\brain\\b1e60977-78d7-4409-aeee-8b5fcb68ae6e';
+const ARTIFACT_DIR = process.env.ARTIFACT_DIR || '';
 const REPORTS_DIR = path.resolve('reports');
 
 if (!fs.existsSync(REPORTS_DIR)) {
   fs.mkdirSync(REPORTS_DIR, { recursive: true });
 }
 
+function saveFile(filename, buffer) {
+  const repPath = path.join(REPORTS_DIR, filename);
+  fs.writeFileSync(repPath, buffer);
+  const saved = [`   - ${repPath}`];
+  if (ARTIFACT_DIR && fs.existsSync(ARTIFACT_DIR)) {
+    const artPath = path.join(ARTIFACT_DIR, filename);
+    fs.writeFileSync(artPath, buffer);
+    saved.push(`   - ${artPath}`);
+  }
+  return saved.join('\n');
+}
+
 // User allowed phone number from config
-const targetPhone = (config.ALLOWED_PHONE_NUMBERS && config.ALLOWED_PHONE_NUMBERS[0]) || '918217426307';
+const targetPhone =
+  (config.ALLOWED_PHONE_NUMBERS && Array.from(config.ALLOWED_PHONE_NUMBERS)[0]) ||
+  process.env.TEST_PHONE_NUMBER ||
+  '919876543210';
 
 async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -34,11 +49,8 @@ async function main() {
   });
 
   if (img1 && img1.buffer) {
-    const artPath1 = path.join(ARTIFACT_DIR, 'test_image_1_snow_leopard.jpg');
-    const repPath1 = path.join(REPORTS_DIR, 'test_image_1_snow_leopard.jpg');
-    fs.writeFileSync(artPath1, img1.buffer);
-    fs.writeFileSync(repPath1, img1.buffer);
-    console.log(`   Saved Test Image 1 (${img1.buffer.length} bytes) to:\n   - ${artPath1}\n   - ${repPath1}`);
+    const savedMsg = saveFile('test_image_1_snow_leopard.jpg', img1.buffer);
+    console.log(`   Saved Test Image 1 (${img1.buffer.length} bytes) to:\n${savedMsg}`);
 
     const res1 = await sendWhatsAppImage(
       targetPhone,
@@ -68,11 +80,8 @@ async function main() {
   });
 
   if (img2 && img2.buffer) {
-    const artPath2 = path.join(ARTIFACT_DIR, 'test_image_2_eco_city.jpg');
-    const repPath2 = path.join(REPORTS_DIR, 'test_image_2_eco_city.jpg');
-    fs.writeFileSync(artPath2, img2.buffer);
-    fs.writeFileSync(repPath2, img2.buffer);
-    console.log(`   Saved Test Image 2 (${img2.buffer.length} bytes) to:\n   - ${artPath2}\n   - ${repPath2}`);
+    const savedMsg2 = saveFile('test_image_2_eco_city.jpg', img2.buffer);
+    console.log(`   Saved Test Image 2 (${img2.buffer.length} bytes) to:\n${savedMsg2}`);
 
     const res2 = await sendWhatsAppImage(
       targetPhone,
@@ -99,11 +108,8 @@ async function main() {
       const videoArrayBuffer = await videoResponse.arrayBuffer();
       const videoBuffer = Buffer.from(videoArrayBuffer);
 
-      const artVidPath = path.join(ARTIFACT_DIR, 'test_video_tropical_island.mp4');
-      const repVidPath = path.join(REPORTS_DIR, 'test_video_tropical_island.mp4');
-      fs.writeFileSync(artVidPath, videoBuffer);
-      fs.writeFileSync(repVidPath, videoBuffer);
-      console.log(`   Saved Test Video (${videoBuffer.length} bytes) to:\n   - ${artVidPath}\n   - ${repVidPath}`);
+      const savedVidMsg = saveFile('test_video_tropical_island.mp4', videoBuffer);
+      console.log(`   Saved Test Video (${videoBuffer.length} bytes) to:\n${savedVidMsg}`);
 
       const res3 = await sendWhatsAppVideo(
         targetPhone,

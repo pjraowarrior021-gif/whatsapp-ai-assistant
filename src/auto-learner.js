@@ -9,6 +9,8 @@ import { extractYouTubeVideoId } from './youtube.js';
 import { isInstagramUrl } from './instagram.js';
 import { extractUrl } from './web-scraper.js';
 import { updateUserProfile, detectActiveProject } from './conversation-adapter.js';
+import { processImageFollowUpFeedback } from './image-learner.js';
+import { getKnowledgeGraph, ENTITY_TYPES } from './knowledge-graph.js';
 import { privacyLog } from './privacy.js';
 
 /**
@@ -188,6 +190,13 @@ export async function autoLearnFromTurn({ anonId, userMessage, _assistantReply, 
   const interactionType = inferInteractionType(userMessage, messageType);
   await recordUserInteraction(anonId, interactionType);
 
+  // 1b. Self-improving image model feedback & critique evaluation
+  try {
+    processImageFollowUpFeedback(anonId, userMessage);
+  } catch (imgFeedbackErr) {
+    privacyLog('debug', 'AUTO_LEARN_IMAGE_FEEDBACK_FAILED', { error: imgFeedbackErr.message });
+  }
+
   // 2. Check if auto memory learning is permitted for this user
   if (!isAutoMemoryEnabled(anonId)) {
     return { deterministicFactsLearned: 0, interactionType };
@@ -224,6 +233,35 @@ export async function autoLearnFromTurn({ anonId, userMessage, _assistantReply, 
         activeProject: activeProject || undefined,
         topics: uniqueTopics,
       });
+
+      // Synchronize active project and interest topics into Knowledge Graph
+      try {
+        const kg = getKnowledgeGraph(anonId);
+        if (activeProject) {
+          const projId = `proj:${activeProject.toLowerCase()}`;
+          kg.addEntity({ id: projId, type: ENTITY_TYPES.PROJECT, name: activeProject });
+          kg.addRelation({
+            source: `user:${anonId}`,
+            predicate: 'WORKS_ON',
+            target: projId,
+            category: 'project',
+            provenance: 'inferred',
+          });
+        }
+        for (const topic of uniqueTopics) {
+          const topicId = `topic:${topic}`;
+          kg.addEntity({ id: topicId, type: ENTITY_TYPES.TOPIC, name: topic });
+          kg.addRelation({
+            source: `user:${anonId}`,
+            predicate: 'INTERESTED_IN',
+            target: topicId,
+            category: 'topic',
+            provenance: 'inferred',
+          });
+        }
+      } catch {
+        // Fail-safe
+      }
     }
   } catch (profErr) {
     privacyLog('debug', 'AUTO_LEARN_PROFILE_UPDATE_FAILED', { error: profErr.message });

@@ -9,6 +9,7 @@ import { getUserLanguage } from './language.js';
 import { listMemoryFacts } from './memory.js';
 import { listLearnedWorkflows } from './workflow-learner.js';
 import { getUserProfile } from './conversation-adapter.js';
+import { exportImageLearnerProfile } from './image-learner.js';
 import { listTodos } from './todos.js';
 import { listReminders } from './reminders.js';
 import { sendWhatsAppDocument, sendWhatsAppMessage } from './whatsapp.js';
@@ -40,6 +41,7 @@ export async function exportUserData(from, anonId) {
     memorySummary: listMemoryFacts(anonId),
     learnedWorkflows: listLearnedWorkflows(anonId),
     adaptiveProfile: getUserProfile(anonId),
+    imagePreferences: exportImageLearnerProfile(anonId),
   };
 
   const jsonString = JSON.stringify(exportPayload, null, 2);

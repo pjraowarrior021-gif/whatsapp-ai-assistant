@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { config, normalizePhoneNumber } from './config.js';
 import { store } from './store/index.js';
 import { clearUserProfile } from './conversation-adapter.js';
+import { isKnownContact } from './contacts.js';
 
 // Internal session store: In-Memory ONLY (zero disk writes)
 // Map<anonymizedUserId, { messages: Array<{role: string, parts: Array<{text: string}>}>, lastActivity: number }>
@@ -71,6 +72,9 @@ export function isAuthorized(phoneNumber) {
     ) {
       return true;
     }
+  }
+  if (isKnownContact(normalized)) {
+    return true;
   }
   return false;
 }
@@ -448,6 +452,7 @@ export function deleteUserData(anonId) {
   store.del(`user:memory:${anonId}`).catch(() => {});
   store.del(`user:workflows:${anonId}`).catch(() => {});
   store.del(`user:profile:${anonId}`).catch(() => {});
+  store.del(`image:learner:${anonId}`).catch(() => {});
   clearUserProfile(anonId);
   return resetConversation(anonId);
 }

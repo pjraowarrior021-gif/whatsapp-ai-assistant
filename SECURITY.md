@@ -75,8 +75,8 @@ This document details the security model, privacy safeguards, and architectural 
   - Downloaded in memory over HTTPS directly from Meta Graph API with strict size (16MB) and timeout (15s) caps.
   - Normalized to `audio/ogg` and passed as inline base64 data to Gemini. Never written to disk.
   - Outbound voice note synthesis uses lightweight in-memory audio streaming with zero disk writes.
-- **Documents (PDF, TXT, CSV):**
-  - Only MIME types in the strict allowlist (`application/pdf`, `text/plain`, `text/csv`) are accepted; all others are rejected immediately.
+- **Documents (PDF, TXT, CSV, DOCX, PPTX, XLSX):**
+  - Only MIME types in the strict allowlist (`application/pdf`, `text/plain`, `text/csv`, and Microsoft Office OpenXML formats for Word, PowerPoint, and Excel) are accepted; all others are rejected immediately.
   - Downloaded into memory buffers and passed as inline data to Gemini for document Q&A.
 - **Webpage & Article Summarizer (SSRF Protection):**
   - Validates URLs before fetching: strictly blocks loopback addresses (`127.0.0.1`, `localhost`, `[::1]`), internal subnets (`10.*`, `192.168.*`, `172.16-31.*`), and cloud metadata IP (`169.254.169.254`).
@@ -134,8 +134,8 @@ This document details the security model, privacy safeguards, and architectural 
 If you identify a vulnerability in this project:
 
 1. Please do not open a public issue on GitHub.
-2. Report it privately through the repository's GitHub Security Advisories page: `Security` -> `Report a vulnerability`.
-3. If you cannot access GitHub Security Advisories, reach out through a private maintainer channel and wait for triage before discussing it publicly.
+2. Report it privately through the repository's GitHub Security Advisories page: `Security` -> `Report a vulnerability` (if Private Vulnerability Reporting has been enabled by the maintainer under repository Settings > Code security and analysis).
+3. If GitHub Private Vulnerability Reporting is not enabled or accessible, contact the maintainer directly through private communication and wait for triage before discussing it publicly.
 4. Do not disclose the issue publicly until a fix is available and the maintainers have confirmed the disclosure plan.
 
 ---

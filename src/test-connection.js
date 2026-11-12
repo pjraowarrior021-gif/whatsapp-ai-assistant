@@ -58,7 +58,7 @@ async function runDiagnostics() {
     console.log('   👉 Configure them from Meta for Developers -> WhatsApp -> API Setup.');
   } else if (config.WHATSAPP_PHONE_NUMBER_ID === '123456789012345') {
     console.log('   ❌ WHATSAPP_PHONE_NUMBER_ID is still the placeholder "123456789012345".');
-    console.log('   👉 Look at your Meta Developer Dashboard (App: PJ, App ID: 1782989792914336):');
+    console.log('   👉 In your Meta Developer Dashboard:');
     console.log('      Navigate to: WhatsApp -> API Setup');
     console.log('      Under "Step 1: Select phone numbers", find:');
     console.log('      "Phone number ID" (a ~15 digit number)');

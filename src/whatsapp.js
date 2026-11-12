@@ -536,14 +536,26 @@ export async function uploadWhatsAppMedia(buffer, mimeType = 'image/jpeg') {
 
     const data = await res.json();
     if (!res.ok || !data?.id) {
+      privacyLog('warn', 'WHATSAPP_MEDIA_UPLOAD_FAILED', {
+        status: res.status,
+        error: data?.error?.message,
+      });
       return { success: false, error: data?.error?.message || 'Media upload failed' };
     }
 
+    privacyLog('info', 'WHATSAPP_MEDIA_UPLOAD_SUCCESS', { mediaId: data.id });
     return { success: true, mediaId: data.id };
   } catch (err) {
+    privacyLog('error', 'WHATSAPP_MEDIA_UPLOAD_ERROR', { error: err.message });
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * Sends a read receipt status update to WhatsApp Cloud API.
+ * Turns user's message ticks blue immediately for instant visual confirmation.
+ */
+export const sendWhatsAppReadReceipt = markMessageAsRead;
 
 /**
  * Sends an image message to a WhatsApp user via the WhatsApp Cloud API.
@@ -656,6 +668,14 @@ export async function sendWhatsAppVideo(to, videoSource, caption = '') {
     return { success: false, error: 'Missing configuration or video source' };
   }
 
+  // Meta WhatsApp Cloud API limits video payloads to 16MB
+  if (Buffer.isBuffer(videoSource) || (videoSource && videoSource.buffer)) {
+    const buf = Buffer.isBuffer(videoSource) ? videoSource : videoSource.buffer;
+    if (buf.length > 16 * 1024 * 1024) {
+      return { success: false, error: 'Video exceeds WhatsApp 16MB limit' };
+    }
+  }
+
   // Bypass outbound network calls in test scenarios with dummy phone numbers or during test runs
   if (
     config.NODE_ENV === 'test' ||
@@ -669,10 +689,6 @@ export async function sendWhatsAppVideo(to, videoSource, caption = '') {
   let videoPayload;
   if (Buffer.isBuffer(videoSource) || (videoSource && videoSource.buffer)) {
     const buf = Buffer.isBuffer(videoSource) ? videoSource : videoSource.buffer;
-    // Meta WhatsApp Cloud API limits video payloads to 16MB
-    if (buf.length > 16 * 1024 * 1024) {
-      return { success: false, error: 'Video exceeds WhatsApp 16MB limit' };
-    }
     const mime = videoSource.mimeType || 'video/mp4';
     const uploadRes = await uploadWhatsAppMedia(buf, mime);
     if (!uploadRes.success) {

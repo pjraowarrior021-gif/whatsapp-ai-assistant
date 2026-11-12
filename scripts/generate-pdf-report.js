@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import PDFDocument from 'pdfkit';
 
-const ARTIFACT_DIR = 'C:\\Users\\PJ\\.gemini\\antigravity\\brain\\b1e60977-78d7-4409-aeee-8b5fcb68ae6e';
+const ARTIFACT_DIR = process.env.ARTIFACT_DIR || '';
 const WORKSPACE_REPORTS_DIR = path.resolve('reports');
 
 if (!fs.existsSync(WORKSPACE_REPORTS_DIR)) {
@@ -10,7 +10,6 @@ if (!fs.existsSync(WORKSPACE_REPORTS_DIR)) {
 }
 
 const outputPath1 = path.join(WORKSPACE_REPORTS_DIR, 'full_feature_performance_report.pdf');
-const outputPath2 = path.join(ARTIFACT_DIR, 'full_feature_performance_report.pdf');
 
 // 33 Benchmark items data
 const benchmarks = [
@@ -979,8 +978,11 @@ async function run() {
   console.log('Generating PDF reports...');
   await buildPdf(outputPath1);
   console.log(`Saved workspace PDF: ${outputPath1}`);
-  await buildPdf(outputPath2);
-  console.log(`Saved artifact PDF: ${outputPath2}`);
+  if (ARTIFACT_DIR && fs.existsSync(ARTIFACT_DIR)) {
+    const outputPath2 = path.join(ARTIFACT_DIR, 'full_feature_performance_report.pdf');
+    await buildPdf(outputPath2);
+    console.log(`Saved artifact PDF: ${outputPath2}`);
+  }
 }
 
 run().catch((err) => {

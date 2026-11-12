@@ -19,7 +19,7 @@ This checklist is specific to `pjraowarrior021-gif/whatsapp-ai-assistant`. Check
 - [ ] Review the latest CI runs and ensure the checks match the currently supported Node.js versions and package scripts.
 - [ ] Check the full Git history and current tracked files for secrets. If any real token was ever committed, revoke/rotate it; deleting it from the latest commit alone is not sufficient.
 - [ ] Confirm `.env`, `.data/`, logs, and generated artifacts are ignored, and that `.env.example` contains placeholders only.
-- [ ] Reconcile README claims with implementation and configuration. In particular, the README environment-variable table still lists `REMINDERS_PERSIST` default as `true`; change it to `false` to match `src/config.js` and `.env.example`.
+- [x] Reconcile README claims with implementation and configuration: `REMINDERS_PERSIST` default is confirmed `false` across `src/config.js`, `.env.example`, `SECURITY.md`, and `README.md` (reminders and to-dos remain strictly in volatile RAM by default).
 - [ ] Verify documented provider limits, model names, API versions, platform instructions, and free-tier claims against current provider documentation; avoid promising that hosting or API use is always free.
 - [ ] Review privacy disclosures for every external service receiving user data, including Gemini, Meta, search, media, transcription, and image-generation providers.
 - [ ] Ensure users are told that redaction is best-effort and does not guarantee all sensitive data is removed before cloud processing.

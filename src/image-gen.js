@@ -2,11 +2,43 @@
  * AI Image Generation Module for WhatsApp Assistant
  * Generates high-quality images from text prompts using Generative AI.
  * Powered by FLUX.1 (default SOTA) and SDXL-Turbo with Gemini AI prompt co-pilot.
+ * Features an autonomous self-improving prompt and style optimization system with strict safety clamps.
  */
 import sharp from 'sharp';
 import { config } from './config.js';
 import { enhanceImagePrompt } from './gemini.js';
 import { privacyLog } from './privacy.js';
+import {
+  buildSelfImprovedPrompt,
+  recordImageGeneration,
+  resetImageLearner,
+  getImageLearnerState,
+  loadImageLearnerState,
+  saveImageLearnerState,
+  processImageReaction,
+  processImageFollowUpFeedback,
+  selectLearnedModifiers,
+  exportImageLearnerProfile,
+  createDefaultState,
+  sanitizeModifier,
+  applyCircuitBreaker,
+} from './image-learner.js';
+
+export {
+  loadImageLearnerState,
+  getImageLearnerState,
+  saveImageLearnerState,
+  resetImageLearner,
+  recordImageGeneration,
+  processImageReaction,
+  processImageFollowUpFeedback,
+  selectLearnedModifiers,
+  buildSelfImprovedPrompt,
+  exportImageLearnerProfile,
+  createDefaultState,
+  sanitizeModifier,
+  applyCircuitBreaker,
+};
 
 /**
  * Parses user input to detect if it is an image generation request.
@@ -51,10 +83,10 @@ export function parseImagePrompt(text) {
 /**
  * Parses advanced flags and options from a raw image prompt string.
  * Supports model switching (--fast / --flux), aspect ratios (--wallpaper, --wide),
- * style presets (--anime, --photo, --cyberpunk, --3d), and raw mode (--raw).
+ * style presets (--anime, --photo, --cyberpunk, --3d), raw mode (--raw), and learner reset (--reset-learner).
  *
  * @param {string} rawPrompt
- * @returns {{ prompt: string, model: 'flux' | 'turbo', width: number, height: number, enhance: boolean, style: string | null }}
+ * @returns {{ prompt: string, model: string, width: number, height: number, enhance: boolean, style: string | null, resetLearner: boolean, hasExplicitAspect: boolean }}
  */
 export function parseImagePromptOptions(rawPrompt) {
   if (!rawPrompt || typeof rawPrompt !== 'string') {
@@ -65,6 +97,8 @@ export function parseImagePromptOptions(rawPrompt) {
       height: 1024,
       enhance: true,
       style: null,
+      resetLearner: false,
+      hasExplicitAspect: false,
     };
   }
 
@@ -74,6 +108,8 @@ export function parseImagePromptOptions(rawPrompt) {
   let height = 1024;
   let enhance = true;
   let style = null;
+  let resetLearner = false;
+  let hasExplicitAspect = false;
 
   // 1. Model flags
   if (/(?:^|\s+)--(?:fast|turbo|quick|lightning)\b/i.test(text)) {
@@ -100,24 +136,29 @@ export function parseImagePromptOptions(rawPrompt) {
   if (/(?:^|\s+)--(?:wallpaper|story|portrait|vertical)\b/i.test(text) || /(?:^|\s+)--ar\s+9:16\b/i.test(text)) {
     width = 720;
     height = 1280;
+    hasExplicitAspect = true;
     text = text
       .replace(/(?:^|\s+)--(?:wallpaper|story|portrait|vertical)\b/gi, ' ')
       .replace(/(?:^|\s+)--ar\s+9:16\b/gi, ' ');
   } else if (/(?:^|\s+)--(?:wide|landscape|horizontal)\b/i.test(text) || /(?:^|\s+)--ar\s+16:9\b/i.test(text)) {
     width = 1280;
     height = 720;
+    hasExplicitAspect = true;
     text = text.replace(/(?:^|\s+)--(?:wide|landscape|horizontal)\b/gi, ' ').replace(/(?:^|\s+)--ar\s+16:9\b/gi, ' ');
   } else if (/(?:^|\s+)--(?:standard|classic)\b/i.test(text) || /(?:^|\s+)--ar\s+4:3\b/i.test(text)) {
     width = 1024;
     height = 768;
+    hasExplicitAspect = true;
     text = text.replace(/(?:^|\s+)--(?:standard|classic)\b/gi, ' ').replace(/(?:^|\s+)--ar\s+4:3\b/gi, ' ');
   } else if (/(?:^|\s+)--(?:portrait-sd|tall)\b/i.test(text) || /(?:^|\s+)--ar\s+3:4\b/i.test(text)) {
     width = 768;
     height = 1024;
+    hasExplicitAspect = true;
     text = text.replace(/(?:^|\s+)--(?:portrait-sd|tall)\b/gi, ' ').replace(/(?:^|\s+)--ar\s+3:4\b/gi, ' ');
   } else if (/(?:^|\s+)--square\b/i.test(text) || /(?:^|\s+)--ar\s+1:1\b/i.test(text)) {
     width = 1024;
     height = 1024;
+    hasExplicitAspect = true;
     text = text.replace(/(?:^|\s+)--square\b/gi, ' ').replace(/(?:^|\s+)--ar\s+1:1\b/gi, ' ');
   }
 
@@ -125,6 +166,12 @@ export function parseImagePromptOptions(rawPrompt) {
   if (/(?:^|\s+)--raw\b/i.test(text)) {
     enhance = false;
     text = text.replace(/(?:^|\s+)--raw\b/gi, ' ');
+  }
+
+  // 3b. Self-improving learner reset flag
+  if (/(?:^|\s+)--(?:reset-learner|clear-learner)\b/i.test(text)) {
+    resetLearner = true;
+    text = text.replace(/(?:^|\s+)--(?:reset-learner|clear-learner)\b/gi, ' ');
   }
 
   // 4. Style preset flags
@@ -167,6 +214,8 @@ export function parseImagePromptOptions(rawPrompt) {
     height,
     enhance,
     style,
+    resetLearner,
+    hasExplicitAspect,
   };
 }
 
@@ -201,28 +250,78 @@ export function generateImageUrl(prompt, options = {}) {
 
 /**
  * Downloads and cleans generated image binary in-memory.
- * Automatically enhances short prompts using Gemini, injects styles,
+ * Automatically enhances short prompts using Gemini and learned aesthetic models, injects styles,
  * and crops any corner vector watermark marks via Sharp.
  *
  * @param {string} rawPrompt - User image prompt (may contain flags)
  * @param {object} [userOptions]
- * @returns {Promise<{ buffer: Buffer, mimeType: string, prompt: string, enhancedPrompt: string, fallbackUrl: string, model: string, width: number, height: number } | null>}
+ * @param {string} [userOptions.anonId] - Optional anonymized user identifier for personalized learning
+ * @returns {Promise<{ buffer: Buffer, mimeType: string, prompt: string, enhancedPrompt: string, fallbackUrl: string, model: string, width: number, height: number, appliedLearning?: object } | null>}
  */
 export async function generateCleanImage(rawPrompt, userOptions = {}) {
   const parsed = parseImagePromptOptions(rawPrompt);
+  const anonId = userOptions.anonId || null;
+
+  if (parsed.resetLearner && anonId) {
+    resetImageLearner(anonId);
+  }
+
+  // Check learned preferences if available
+  let learnedStyle = null;
+  let learnedModel = null;
+  let learnedWidth = parsed.width;
+  let learnedHeight = parsed.height;
+
+  if (anonId) {
+    const learnerState = getImageLearnerState(anonId);
+    if (learnerState) {
+      // 1. High-confidence learned style (score >= 0.70 and uses >= 3)
+      if (!userOptions.style && !parsed.style && learnerState.styles) {
+        const topStyleEntry = Object.entries(learnerState.styles).sort(
+          (a, b) => (b[1]?.score || 0) - (a[1]?.score || 0)
+        )[0];
+        if (topStyleEntry && topStyleEntry[1].score >= 0.7 && topStyleEntry[1].uses >= 3) {
+          learnedStyle = topStyleEntry[0];
+        }
+      }
+
+      // 2. Learned model preference if not overridden by prompt flags
+      if (
+        parsed.model === 'flux' &&
+        !userOptions.model &&
+        learnerState.preferredModel &&
+        learnerState.preferredModel !== 'flux'
+      ) {
+        learnedModel = learnerState.preferredModel;
+      }
+
+      // 3. Learned aspect ratio preference if not explicitly specified by user
+      if (!parsed.hasExplicitAspect && !userOptions.width && !userOptions.height) {
+        if (learnerState.preferredAspectRatio === '16:9') {
+          learnedWidth = 1280;
+          learnedHeight = 720;
+        } else if (learnerState.preferredAspectRatio === '9:16') {
+          learnedWidth = 720;
+          learnedHeight = 1280;
+        }
+      }
+    }
+  }
+
   const options = {
-    model: userOptions.model || parsed.model || 'flux',
-    width: userOptions.width || parsed.width || 1024,
-    height: userOptions.height || parsed.height || 1024,
+    model: userOptions.model || (parsed.model !== 'flux' ? parsed.model : learnedModel || parsed.model),
+    width: userOptions.width || learnedWidth || 1024,
+    height: userOptions.height || learnedHeight || 1024,
     enhance: userOptions.enhance !== undefined ? userOptions.enhance : parsed.enhance,
-    style: userOptions.style || parsed.style,
+    style: userOptions.style || parsed.style || learnedStyle,
     seed: userOptions.seed,
     mockBuffer: userOptions.mockBuffer,
+    anonId,
   };
 
   let effectivePrompt = parsed.prompt || String(rawPrompt).trim();
 
-  // Apply style decorators if flag was provided
+  // Apply style decorators if flag was provided (or learned)
   if (options.style === 'anime') {
     effectivePrompt += ', vibrant anime art style, Studio Ghibli aesthetic, detailed anime illustration';
   } else if (options.style === 'photo') {
@@ -243,6 +342,18 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
   } else if (options.style === 'sketch') {
     effectivePrompt +=
       ', detailed graphite pencil sketch, cross-hatching shading, artist sketchbook page, fine line art';
+  }
+
+  // Apply self-improving prompt adjustments with safety clamps:
+  let appliedLearning = null;
+  if (anonId && options.enhance) {
+    const improved = buildSelfImprovedPrompt(effectivePrompt, parsed, anonId);
+    effectivePrompt = improved.optimizedPrompt;
+    appliedLearning = {
+      lighting: improved.appliedLighting,
+      composition: improved.appliedComposition,
+      quality: improved.appliedQuality,
+    };
   }
 
   // Gemini AI Prompt Co-Pilot: enrich prompts unless --raw or mockBuffer was specified
@@ -328,6 +439,20 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
       .jpeg({ quality: 95 })
       .toBuffer();
 
+    // Record generation for continuous learning
+    if (anonId) {
+      recordImageGeneration(anonId, {
+        prompt: parsed.prompt,
+        enhancedPrompt: finalPrompt,
+        model: options.model,
+        style: options.style,
+        aspect: `${options.width}:${options.height}`,
+        appliedLighting: appliedLearning?.lighting,
+        appliedComposition: appliedLearning?.composition,
+        appliedQuality: appliedLearning?.quality,
+      });
+    }
+
     return {
       buffer: cleanBuffer,
       mimeType: 'image/jpeg',
@@ -337,6 +462,7 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
       model: options.model,
       width: options.width,
       height: options.height,
+      appliedLearning,
     };
   } catch {
     return null;

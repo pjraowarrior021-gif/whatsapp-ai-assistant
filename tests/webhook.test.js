@@ -1153,3 +1153,61 @@ test('POST /webhook handles video generation command submission and queues proce
   const text = await res.text();
   assert.strictEqual(text, 'EVENT_RECEIVED');
 });
+
+test('POST /webhook handles truncated YouTube short link with user instruction and queues gracefully', async (t) => {
+  const server = app.listen(0);
+  const port = server.address().port;
+  const baseUrl = `http://localhost:${port}`;
+
+  t.after(() => {
+    server.close();
+  });
+
+  const payload = {
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: '123456',
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              messaging_product: 'whatsapp',
+              contacts: [{ profile: { name: 'Alice' }, wa_id: '910000000000' }],
+              messages: [
+                {
+                  from: '910000000000',
+                  id: `wamid.yt_trunc_${Date.now()}`,
+                  timestamp: String(Math.floor(Date.now() / 1000)),
+                  type: 'text',
+                  text: {
+                    body: 'www.youtube.com\nhttps://www.youtube.com/shorts/4Mer-_\nwww.youtube.com\n\nhttps://www.youtube.com/shorts/4Mer-_\nHelp me identify the individual songs in this mix from a few lyrics and clues from the video.',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  const raw = JSON.stringify(payload);
+  const sig = crypto
+    .createHmac('sha256', config.WHATSAPP_APP_SECRET || 'test')
+    .update(raw)
+    .digest('hex');
+
+  const res = await fetch(`${baseUrl}/webhook`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-hub-signature-256': `sha256=${sig}`,
+    },
+    body: raw,
+  });
+
+  assert.strictEqual(res.status, 200);
+  const text = await res.text();
+  assert.strictEqual(text, 'EVENT_RECEIVED');
+});

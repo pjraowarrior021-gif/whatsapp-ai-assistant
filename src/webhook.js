@@ -40,12 +40,20 @@ import {
   getMediaUrl,
   downloadMediaInMemory,
 } from './whatsapp.js';
-import { parseImagePrompt, parseImagePromptOptions, generateImageUrl, generateCleanImage } from './image-gen.js';
+import {
+  parseImagePrompt,
+  parseImagePromptOptions,
+  generateImageUrl,
+  generateCleanImage,
+  processImageReaction,
+  recordImageGeneration,
+  resetImageLearner,
+} from './image-gen.js';
 import { parseVideoPrompt, parseVideoPromptOptions, generateVideo } from './video-gen.js';
 import { scheduleReminder, listReminders, deleteReminder } from './reminders.js';
 import { addTodo, listTodos, markTodoDone, clearCompletedTodos } from './todos.js';
-import { extractUrl, fetchAndExtractArticle } from './web-scraper.js';
-import { extractYouTubeVideoId, fetchYouTubeVideoData, buildYouTubeAiPrompt } from './youtube.js';
+import { extractUrl, extractUserPromptAside, fetchAndExtractArticle } from './web-scraper.js';
+import { extractYouTubeVideoId, isYouTubeDomain, fetchYouTubeVideoData, buildYouTubeAiPrompt } from './youtube.js';
 import { isInstagramUrl, fetchInstagramPostData, buildInstagramAiPrompt } from './instagram.js';
 import { synthesizeSpeech } from './tts.js';
 import { checkAndIncrementUserQuota, recordGeminiDailyUsage, getUserQuotaReport } from './quota.js';
@@ -57,6 +65,17 @@ import { clearLearnedWorkflows } from './workflow-learner.js';
 import { clearUserProfile } from './conversation-adapter.js';
 import { autoLearnFromTurn, extractDeterministicFacts } from './auto-learner.js';
 import { exportUserData } from './export.js';
+import {
+  addContact,
+  removeContact,
+  getContact,
+  formatContactsList,
+  setContactAiAllowed,
+  sendOutboundContactMessage,
+  isPrimaryAdmin,
+  getPrimaryAdminNumber,
+  maskPhoneNumber,
+} from './contacts.js';
 
 export { messageQueue };
 export const webhookRouter = express.Router();
@@ -195,11 +214,14 @@ webhookRouter.post('/', async (req, res) => {
         const value = change.value;
         if (!value) continue;
 
-        // If status update (delivered/read receipt), log lightly and skip
+        // If status update (delivered/read receipt), log lightly and skip (log errors on delivery failure)
         if (value.statuses) {
-          privacyLog('debug', 'STATUS_RECEIPT_RECEIVED', {
+          const s = value.statuses[0];
+          privacyLog(s?.status === 'failed' ? 'error' : 'debug', 'STATUS_RECEIPT_RECEIVED', {
             requestId,
-            status: value.statuses[0]?.status,
+            status: s?.status,
+            messageId: s?.id,
+            errors: s?.errors,
           });
           continue;
         }
@@ -312,6 +334,10 @@ export function normalizeCommand(text, hasMedia = false) {
     language: '/language',
     memory: '/memory',
     export: '/export',
+    c: '/c',
+    'c list': '/c',
+    contacts: '/contacts',
+    'contact list': '/contacts',
   };
   if (exactMap[lower]) {
     return exactMap[lower];
@@ -333,6 +359,11 @@ export function normalizeCommand(text, hasMedia = false) {
     'motion ',
     'language ',
     'memory ',
+    's ',
+    'c ',
+    'send ',
+    'contact ',
+    'msg ',
   ];
   for (const prefix of prefixes) {
     if (lower.startsWith(prefix)) {
@@ -367,7 +398,13 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
 
   // 1b. Fast-path unhandled message types
   if (messageType === 'reaction') {
-    privacyLog('debug', 'REACTION_SKIPPED', { requestId, user: anonId });
+    const reactionObj = message.reaction;
+    const emoji = reactionObj?.emoji;
+    const targetMsgId = reactionObj?.message_id;
+    if (emoji && anonId) {
+      processImageReaction(anonId, emoji, targetMsgId);
+    }
+    privacyLog('debug', 'REACTION_PROCESSED', { requestId, user: anonId, emoji, targetMsgId });
     return;
   }
   if (messageType === 'sticker') {
@@ -437,6 +474,37 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       '⏳ *Rate Limit Notice:*\nYou are sending messages too quickly. Please wait a moment before sending another request.'
     );
     return;
+  }
+
+  // 4b. Contact Message Relay to Administrator
+  const fromNormalized = normalizePhoneNumber(from);
+  const contactInfo = getContact(fromNormalized);
+  const isAdminSender = isPrimaryAdmin(from);
+
+  if (contactInfo && !isAdminSender && !contactInfo.allowAiChat) {
+    const adminPhone = getPrimaryAdminNumber();
+    if (adminPhone) {
+      privacyLog('info', 'CONTACT_REPLY_RELAYED_TO_ADMIN', {
+        contactAlias: contactInfo.alias,
+      });
+
+      const contactLabel = contactInfo.name || contactInfo.alias;
+      const relayMessage = [
+        `📬 *Reply from ${contactLabel}* (${maskPhoneNumber(fromNormalized)}):`,
+        '',
+        `"${rawText || '(attachment/media)'}"`,
+        '',
+        `_💡 To reply:_ \`/s ${contactInfo.alias} <your message>\``,
+      ].join('\n');
+
+      await sendWhatsAppMessage(adminPhone, relayMessage);
+      await sendWhatsAppMessage(
+        from,
+        '✅ Your message was forwarded to the administrator. They will get back to you shortly.'
+      );
+      recordMessageMetric('contact_relay', 'success');
+      return;
+    }
   }
 
   // 5. Daily Quota Guard (Per-User and Global Gemini Budget)
@@ -736,7 +804,6 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       dimensions: `${parsedOptions.width}x${parsedOptions.height}`,
     });
 
-    const cleanImage = await generateCleanImage(imagePrompt);
     const modelBadge =
       parsedOptions.model === 'turbo'
         ? '⚡ SDXL-Turbo (Fast)'
@@ -746,6 +813,14 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
             ? '📸 FLUX Realism'
             : '✨ FLUX.1 (HD)';
     const dimBadge = `${parsedOptions.width}x${parsedOptions.height}`;
+
+    // Send instant interactive feedback (< 300ms) so user knows bot is actively generating
+    await sendWhatsAppMessage(
+      from,
+      `🎨 *Generating your image...*\n_Model:_ ${modelBadge} | _Size:_ ${dimBadge}\n\n⏳ _Rendering with AI, sending in a few seconds..._`
+    );
+
+    const cleanImage = await generateCleanImage(imagePrompt, { anonId });
     const caption = [
       `🎨 *AI Generated Image* (${modelBadge})`,
       `📐 _Size:_ ${dimBadge}`,
@@ -760,6 +835,16 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     if (result.success) {
       saveTurn(anonId, rawText, `[Generated and sent image: ${parsedOptions.prompt}]`);
       recordMessageMetric('image_gen', 'success');
+      recordImageGeneration(anonId, {
+        id: result.messageId || requestId,
+        prompt: parsedOptions.prompt,
+        enhancedPrompt: cleanImage?.enhancedPrompt || imagePrompt,
+        model: parsedOptions.model,
+        style: parsedOptions.style,
+        appliedLighting: cleanImage?.appliedLearning?.lighting,
+        appliedComposition: cleanImage?.appliedLearning?.composition,
+        appliedQuality: cleanImage?.appliedLearning?.quality,
+      });
     } else {
       recordErrorMetric('image_gen');
       await sendWhatsAppMessage(
@@ -772,7 +857,7 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
 
   // 9a-2. Video Generation (Text-to-Video & Image-to-Video)
   const isImageToVideo = Boolean(mediaPart && messageType === 'image');
-  const videoPrompt = (!mediaPart || isImageToVideo) ? parseVideoPrompt(effectiveCommand || rawText) : null;
+  const videoPrompt = !mediaPart || isImageToVideo ? parseVideoPrompt(effectiveCommand || rawText) : null;
   if (videoPrompt) {
     const parsedVidOptions = parseVideoPromptOptions(videoPrompt);
     privacyLog('info', 'VIDEO_GENERATION_REQUESTED', {
@@ -793,9 +878,8 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     );
 
     try {
-      const vidOptions = isImageToVideo && mediaPart?.data
-        ? { imageBuffer: Buffer.from(mediaPart.data, 'base64') }
-        : {};
+      const vidOptions =
+        isImageToVideo && mediaPart?.data ? { imageBuffer: Buffer.from(mediaPart.data, 'base64') } : {};
       const vidResult = await generateVideo(videoPrompt, vidOptions);
       if (vidResult && vidResult.ok && vidResult.buffer) {
         const typeBadge = vidResult.isImageToVideo ? 'Image-to-Video Animation' : 'AI Generated Video';
@@ -950,6 +1034,7 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     await clearUserMemory(anonId);
     await clearLearnedWorkflows(anonId);
     await clearUserProfile(anonId);
+    resetImageLearner(anonId);
     await sendWhatsAppMessage(
       from,
       `🗑️ *Data Purged:*\nAll temporary in-memory session data, learned habits, and personal memory have been completely wiped.`
@@ -1191,6 +1276,156 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     return;
   }
 
+  // 9q. Outbound Contact Messaging (/s, /send, or /msg)
+  if (
+    effectiveCommand.startsWith('/s ') ||
+    effectiveCommand.startsWith('/send ') ||
+    effectiveCommand.startsWith('/msg ')
+  ) {
+    let args = '';
+    if (effectiveCommand.startsWith('/s ')) {
+      args = effectiveCommand.slice(3).trim();
+    } else if (effectiveCommand.startsWith('/send ')) {
+      args = effectiveCommand.slice(6).trim();
+    } else {
+      args = effectiveCommand.slice(5).trim();
+    }
+    const firstSpaceIdx = args.indexOf(' ');
+
+    if (firstSpaceIdx === -1) {
+      await sendWhatsAppMessage(
+        from,
+        '⚠️ *Usage:* `/s <contact_or_number> <message>` (or `/send`)\n\n*Examples:*\n• `/s mom Hello Mom, are we meeting tonight?`\n• `/s 919876543210 Here is the report summary.`'
+      );
+      recordMessageMetric('command', 'invalid_args');
+      return;
+    }
+
+    const target = args.slice(0, firstSpaceIdx).trim();
+    const messageToSend = args.slice(firstSpaceIdx + 1).trim();
+
+    const result = await sendOutboundContactMessage(from, target, messageToSend);
+    await sendWhatsAppMessage(from, result.message);
+    recordMessageMetric('command', result.ok ? 'success' : 'failed');
+    return;
+  }
+
+  // 9r. Contacts Book Management (/c, /contact, or /contacts)
+  if (
+    effectiveCommand === '/c' ||
+    effectiveCommand === '/contacts' ||
+    effectiveCommand === '/contact' ||
+    effectiveCommand === '/contact list' ||
+    effectiveCommand === '/c list'
+  ) {
+    if (!isPrimaryAdmin(from)) {
+      await sendWhatsAppMessage(from, '⛔ *Access Denied:* Only the bot administrator can manage contacts.');
+      return;
+    }
+    const contactsList = formatContactsList();
+    await sendWhatsAppMessage(from, contactsList);
+    recordMessageMetric('command', 'success');
+    return;
+  }
+
+  if (effectiveCommand.startsWith('/c add ') || effectiveCommand.startsWith('/contact add ')) {
+    if (!isPrimaryAdmin(from)) {
+      await sendWhatsAppMessage(from, '⛔ *Access Denied:* Only the bot administrator can add contacts.');
+      return;
+    }
+    const rawArgs = effectiveCommand.replace(/^\/(?:c|contact)\s+add\s+/, '').trim();
+    const parts = rawArgs.split(/\s+/);
+    const alias = parts[0];
+    const phone = parts[1];
+    const name = parts.slice(2).join(' ') || alias;
+
+    if (!alias || !phone) {
+      await sendWhatsAppMessage(
+        from,
+        '⚠️ *Usage:* `/c add <alias> <phone> [display_name]`\n\n*Example:* `/c add mom 919876543210 Mom`'
+      );
+      recordMessageMetric('command', 'invalid_args');
+      return;
+    }
+
+    const saveRes = addContact(alias, phone, name);
+    if (!saveRes.ok) {
+      await sendWhatsAppMessage(from, `❌ ${saveRes.error}`);
+      recordMessageMetric('command', 'failed');
+      return;
+    }
+
+    await sendWhatsAppMessage(
+      from,
+      `✅ *Contact Saved!*\n• *Name:* ${saveRes.contact.name}\n• *Alias:* \`@${saveRes.contact.alias}\`\n• *Phone:* ${maskPhoneNumber(saveRes.contact.phone)}\n• *Mode:* 📨 Relay Only\n\n_💡 Send them a message with:_ \`/s ${saveRes.contact.alias} <your message>\``
+    );
+    recordMessageMetric('command', 'success');
+    return;
+  }
+
+  if (
+    effectiveCommand.startsWith('/c remove ') ||
+    effectiveCommand.startsWith('/c delete ') ||
+    effectiveCommand.startsWith('/contact remove ') ||
+    effectiveCommand.startsWith('/contact delete ')
+  ) {
+    if (!isPrimaryAdmin(from)) {
+      await sendWhatsAppMessage(from, '⛔ *Access Denied:* Only the bot administrator can delete contacts.');
+      return;
+    }
+    const query = effectiveCommand.replace(/^\/(?:c|contact)\s+(?:remove|delete)\s+/, '').trim();
+    const removeRes = removeContact(query);
+    if (!removeRes.ok) {
+      await sendWhatsAppMessage(from, `❌ ${removeRes.error}`);
+      recordMessageMetric('command', 'failed');
+      return;
+    }
+    await sendWhatsAppMessage(
+      from,
+      `🗑️ *Contact Removed:* \`@${removeRes.removed.alias}\` (${removeRes.removed.name}) was deleted from your contact book.`
+    );
+    recordMessageMetric('command', 'success');
+    return;
+  }
+
+  if (effectiveCommand.startsWith('/c permit ') || effectiveCommand.startsWith('/contact permit ')) {
+    if (!isPrimaryAdmin(from)) {
+      await sendWhatsAppMessage(from, '⛔ *Access Denied:* Only the bot administrator can modify contact permissions.');
+      return;
+    }
+    const rawArgs = effectiveCommand.replace(/^\/(?:c|contact)\s+permit\s+/, '').trim();
+    const parts = rawArgs.split(/\s+/);
+    const alias = parts[0];
+    const flag = (parts[1] || '').toLowerCase();
+
+    if (!alias || (flag !== 'on' && flag !== 'off')) {
+      await sendWhatsAppMessage(
+        from,
+        '⚠️ *Usage:* `/c permit <alias> on|off`\n\n*Example:*\n• `/c permit mom on` (Allows contact to directly chat with Gemini AI)\n• `/c permit mom off` (Relay only: replies are forwarded to you)'
+      );
+      recordMessageMetric('command', 'invalid_args');
+      return;
+    }
+
+    const permitRes = setContactAiAllowed(alias, flag === 'on');
+    if (!permitRes.ok) {
+      await sendWhatsAppMessage(from, `❌ ${permitRes.error}`);
+      recordMessageMetric('command', 'failed');
+      return;
+    }
+
+    const modeDescription = permitRes.contact.allowAiChat
+      ? '🤖 Full AI Chat & Relay (Can chat directly with Gemini AI)'
+      : '📨 Relay Only (All replies are forwarded directly to you)';
+
+    await sendWhatsAppMessage(
+      from,
+      `✅ *Permission Updated!*\n• *Contact:* ${permitRes.contact.name} (\`@${permitRes.contact.alias}\`)\n• *Mode:* ${modeDescription}`
+    );
+    recordMessageMetric('command', 'success');
+    return;
+  }
+
   // Check for inline --voice flag
   const hasVoiceFlag = rawText.includes('--voice');
   const cleanRawText = rawText.replace(/--voice/gi, '').trim();
@@ -1227,29 +1462,58 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   let effectivePrompt = sanitizedText;
 
   if (foundUrl) {
+    const userPromptAside = extractUserPromptAside(sanitizedText, foundUrl);
     const ytVideoId = extractYouTubeVideoId(foundUrl);
+    const isYtDomain = isYouTubeDomain(foundUrl);
+
     if (ytVideoId) {
-      const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
       const videoData = await fetchYouTubeVideoData(ytVideoId);
 
       if (!videoData.ok) {
+        if (userPromptAside) {
+          privacyLog('info', 'YOUTUBE_FETCH_FALLBACK_GROUNDING', { error: videoData.error, videoId: ytVideoId });
+          forceGrounding = true;
+          effectivePrompt = [
+            `The user shared this YouTube video link: ${foundUrl}`,
+            `User instruction: "${userPromptAside}"`,
+            `Note: Direct video details could not be retrieved (${videoData.error || 'Video may be private, restricted, or unavailable'}). Use Google Search Grounding to assist the user with their request and any clues provided, and politely let them know the video details couldn't be loaded directly.`,
+          ].join('\n\n');
+        } else {
+          await sendWhatsAppMessage(
+            from,
+            `⚠️ *YouTube Error:* Could not load video details (${videoData.error || 'Video may be private, restricted, or unavailable'}).`
+          );
+          return;
+        }
+      } else {
+        effectivePrompt = buildYouTubeAiPrompt(videoData, userPromptAside);
+        articleHeader = {
+          title: `▶️ ${videoData.title} (${videoData.author})`,
+          url: videoData.url,
+        };
+        if (!videoData.hasTranscript) {
+          forceGrounding = true;
+        }
+      }
+    } else if (isYtDomain) {
+      // YouTube link with missing, truncated, or malformed video ID (e.g. truncated Shorts /shorts/4Mer-_)
+      if (userPromptAside) {
+        privacyLog('info', 'YOUTUBE_INCOMPLETE_LINK_FALLBACK_GROUNDING', { url: foundUrl });
+        forceGrounding = true;
+        effectivePrompt = [
+          `The user shared this YouTube link: ${foundUrl}`,
+          `User instruction: "${userPromptAside}"`,
+          `Note: The YouTube link appears incomplete, truncated, or invalid (YouTube video IDs must be exactly 11 characters).`,
+          `Use Google Search Grounding to assist the user with their request (for example, identifying songs, mix tracks, or artists from any lyrics or clues they provided). In your response, helpfully answer their question and politely mention that the YouTube link was cut short or couldn't be opened directly, inviting them to provide more lyrics, clues, or the complete link if needed.`,
+        ].join('\n\n');
+      } else {
         await sendWhatsAppMessage(
           from,
-          `⚠️ *YouTube Error:* Could not load video details (${videoData.error || 'Video may be private, restricted, or unavailable'}).`
+          `⚠️ *YouTube Notice:* The link appears incomplete or truncated (${foundUrl}). YouTube video links require an 11-character video ID (e.g. youtube.com/shorts/VIDEO_ID). Please check the link or share the video title/lyrics!`
         );
         return;
       }
-
-      effectivePrompt = buildYouTubeAiPrompt(videoData, userPromptAside);
-      articleHeader = {
-        title: `▶️ ${videoData.title} (${videoData.author})`,
-        url: videoData.url,
-      };
-      if (!videoData.hasTranscript) {
-        forceGrounding = true;
-      }
     } else if (isInstagramUrl(foundUrl)) {
-      const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
       const instaData = await fetchInstagramPostData(foundUrl);
 
       effectivePrompt = buildInstagramAiPrompt(instaData, userPromptAside);
@@ -1273,29 +1537,34 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
           await sendWhatsAppMessage(from, '⚠️ *Webpage Error:* Webpage content exceeds maximum allowed size (16MB).');
           return;
         }
-        if (article.reason === 'timeout') {
-          await sendWhatsAppMessage(
-            from,
-            '⚠️ *Webpage Error:* Webpage download timed out. Please verify the URL and try again.'
-          );
-          return;
-        }
 
-        // For rate-limited, bot-challenged, paywalled, or short SPA stubs, fall back to Google Search Grounding
-        if (
+        // For all other fetch failures (http_404, http_500, timeout, http_429, http_403, http_401, content_too_short):
+        // If the user provided a question or instruction, NEVER abort! Ground the query and answer the user!
+        if (userPromptAside) {
+          privacyLog('info', 'WEBPAGE_FETCH_FALLBACK_GROUNDING', { reason: article.reason, url: foundUrl });
+          forceGrounding = true;
+          const failureNote =
+            article.reason === 'http_404'
+              ? 'Page not found (HTTP 404). The link may be broken, incomplete, or expired.'
+              : article.reason === 'timeout'
+                ? 'Webpage download timed out.'
+                : `Direct HTML fetching was blocked or limited (${article.reason || 'Could not load URL'}).`;
+          effectivePrompt = [
+            `The user shared this link: ${foundUrl}`,
+            `User instruction: "${userPromptAside}"`,
+            `Note: ${failureNote} Use Google Search Grounding to look up details about this URL, topic, or any clues provided by the user, and answer their question clearly. Politely mention that the link couldn't be loaded directly if relevant.`,
+          ].join('\n\n');
+        } else if (
           article.reason === 'http_429' ||
           article.reason === 'content_too_short' ||
           article.reason === 'http_403' ||
           article.reason === 'http_401'
         ) {
-          const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
           privacyLog('info', 'WEBPAGE_FETCH_FALLBACK_GROUNDING', { reason: article.reason, url: foundUrl });
           forceGrounding = true;
           effectivePrompt = [
             `The user shared this link: ${foundUrl}`,
-            userPromptAside
-              ? `User instruction: "${userPromptAside}"`
-              : 'Please summarize the content and topic of this webpage.',
+            'Please summarize the content and topic of this webpage.',
             'Note: Direct HTML fetching was blocked or limited by the host server. Use Google Search Grounding to look up details about this URL and topic, providing clear highlights and key takeaway points for WhatsApp.',
           ].join('\n\n');
           articleHeader = {
@@ -1303,25 +1572,27 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
             url: foundUrl,
           };
         } else {
-          await sendWhatsAppMessage(
-            from,
-            `⚠️ *Webpage Error:* Failed to fetch webpage content (${article.reason || 'Could not load URL'}).`
-          );
+          const errorMsg =
+            article.reason === 'http_404'
+              ? `⚠️ *Webpage Notice:* The webpage was not found (HTTP 404). The link may be broken, incomplete, or deleted. Please check the URL and try again.`
+              : article.reason === 'timeout'
+                ? `⚠️ *Webpage Notice:* Webpage download timed out. Please verify the URL and try again.`
+                : `⚠️ *Webpage Notice:* Failed to fetch webpage content (${article.reason || 'Could not load URL'}).`;
+          await sendWhatsAppMessage(from, errorMsg);
           return;
         }
-      }
-
-      if (article.needsGrounding) {
-        forceGrounding = true;
-      }
-
-      const userPromptAside = sanitizedText.replace(foundUrl, '').trim();
-      if (userPromptAside) {
-        effectivePrompt = `The user shared this article: [${article.title || foundUrl}](${foundUrl})\n\nUser Question/Instruction: "${userPromptAside}"\n\nArticle Content:\n"""${article.text}"""`;
       } else {
-        effectivePrompt = `Summarize this webpage clearly in 3-5 WhatsApp bullet points with key takeaways:\n\nTitle: ${article.title || 'Webpage'}\nURL: ${foundUrl}\n\nContent:\n"""${article.text}"""`;
+        if (article.needsGrounding) {
+          forceGrounding = true;
+        }
+
+        if (userPromptAside) {
+          effectivePrompt = `The user shared this article: [${article.title || foundUrl}](${foundUrl})\n\nUser Question/Instruction: "${userPromptAside}"\n\nArticle Content:\n"""${article.text}"""`;
+        } else {
+          effectivePrompt = `Summarize this webpage clearly in 3-5 WhatsApp bullet points with key takeaways:\n\nTitle: ${article.title || 'Webpage'}\nURL: ${foundUrl}\n\nContent:\n"""${article.text}"""`;
+        }
+        articleHeader = { title: article.title || 'Webpage Summary', url: foundUrl };
       }
-      articleHeader = { title: article.title || 'Webpage Summary', url: foundUrl };
     }
   } else if (locationSnapshotPrompt) {
     effectivePrompt = locationSnapshotPrompt;

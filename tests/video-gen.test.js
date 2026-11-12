@@ -17,7 +17,24 @@ import {
   buildFallbackStoryboard,
   generateVideoStoryboard,
   generateVideoStoryboardFromImage,
+  setGeminiClient,
 } from '../src/gemini.js';
+
+// Hermetic mock client to prevent any external Gemini calls during tests
+config.NODE_ENV = 'test';
+setGeminiClient({
+  models: {
+    generateContent: async () => ({
+      text: JSON.stringify([
+        'Stage 1: establishing shot photorealistic 8k',
+        'Stage 2: motion begins photorealistic 8k',
+        'Stage 3: peak action photorealistic 8k',
+        'Stage 4: climax resolution photorealistic 8k',
+      ]),
+      candidates: [{ groundingMetadata: null }],
+    }),
+  },
+});
 
 test('VideoGen: parseVideoPrompt detects explicit slash commands', () => {
   assert.strictEqual(
@@ -283,10 +300,18 @@ test('VideoGen: generateVideoStoryboardFromImage handles image buffer and falls 
 });
 
 test('VideoGen: synthesizeStoryboardVideo produces a valid MP4 from 4 keyframe buffers', async () => {
-  const img1 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 200, g: 50, b: 50 } } }).jpeg().toBuffer();
-  const img2 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 50, g: 200, b: 50 } } }).jpeg().toBuffer();
-  const img3 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 50, g: 50, b: 200 } } }).jpeg().toBuffer();
-  const img4 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 200, g: 150, b: 50 } } }).jpeg().toBuffer();
+  const img1 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 200, g: 50, b: 50 } } })
+    .jpeg()
+    .toBuffer();
+  const img2 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 50, g: 200, b: 50 } } })
+    .jpeg()
+    .toBuffer();
+  const img3 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 50, g: 50, b: 200 } } })
+    .jpeg()
+    .toBuffer();
+  const img4 = await sharp({ create: { width: 320, height: 180, channels: 3, background: { r: 200, g: 150, b: 50 } } })
+    .jpeg()
+    .toBuffer();
 
   if (isFfmpegAvailable()) {
     const vidBuf = synthesizeStoryboardVideo([img1, img2, img3, img4], {

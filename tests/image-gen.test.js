@@ -1,7 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
-import { parseImagePrompt, parseImagePromptOptions, generateImageUrl, generateCleanImage } from '../src/image-gen.js';
+import {
+  parseImagePrompt,
+  parseImagePromptOptions,
+  generateImageUrl,
+  generateCleanImage,
+  createDefaultState,
+  resetImageLearner,
+  getImageLearnerState,
+  recordImageGeneration,
+  processImageReaction,
+  processImageFollowUpFeedback,
+  selectLearnedModifiers,
+  buildSelfImprovedPrompt,
+  exportImageLearnerProfile,
+  sanitizeModifier,
+  applyCircuitBreaker,
+} from '../src/image-gen.js';
 
 test('ImageGen: parseImagePrompt detects slash commands', () => {
   assert.strictEqual(parseImagePrompt('/image a cybernetic lion'), 'a cybernetic lion');
@@ -121,6 +137,11 @@ test('ImageGen: parseImagePromptOptions parses models, aspect ratios, and styles
   assert.strictEqual(water.style, 'watercolor');
   const sketch = parseImagePromptOptions('gothic cathedral --sketch');
   assert.strictEqual(sketch.style, 'sketch');
+
+  // 9. Reset learner flag
+  const resetParsed = parseImagePromptOptions('sunset beach --reset-learner');
+  assert.strictEqual(resetParsed.prompt, 'sunset beach');
+  assert.strictEqual(resetParsed.resetLearner, true);
 });
 
 test('ImageGen: generateImageUrl includes selected model parameter', () => {
@@ -132,4 +153,268 @@ test('ImageGen: generateImageUrl includes selected model parameter', () => {
 
   const kontextUrl = generateImageUrl('an owl in tree', { model: 'kontext' });
   assert.ok(kontextUrl.imageUrl.includes('model=kontext'));
+});
+
+/* ========================================================================== */
+/* Self-Improving Image Prompt & Style Optimization Tests                     */
+/* ========================================================================== */
+
+test('ImageGen Learner: createDefaultState and resetImageLearner initializes and clears state cleanly', () => {
+  const userId = 'u_test_learner_init';
+  const defaultState = createDefaultState();
+  assert.strictEqual(defaultState.version, 1);
+  assert.strictEqual(defaultState.preferredModel, 'flux');
+  assert.strictEqual(defaultState.preferredAspectRatio, '1:1');
+  assert.deepStrictEqual(defaultState.recentGenerations, []);
+
+  // Mutate state in cache
+  const state = getImageLearnerState(userId);
+  state.preferredModel = 'turbo';
+  state.totalGenerations = 10;
+  assert.strictEqual(getImageLearnerState(userId).totalGenerations, 10);
+
+  // Reset clears back to fresh state
+  const resetOk = resetImageLearner(userId);
+  assert.strictEqual(resetOk, true);
+  assert.strictEqual(getImageLearnerState(userId).totalGenerations, 0);
+  assert.strictEqual(getImageLearnerState(userId).preferredModel, 'flux');
+});
+
+test('ImageGen Learner: sanitizeModifier removes markdown, code injections, control chars, and clamps length', () => {
+  assert.strictEqual(sanitizeModifier(''), '');
+  assert.strictEqual(sanitizeModifier(null), '');
+  assert.strictEqual(sanitizeModifier('undefined'), '');
+  assert.strictEqual(sanitizeModifier('**cinematic golden hour**'), 'cinematic golden hour');
+  assert.strictEqual(
+    sanitizeModifier('<script>alert("hack")</script> dramatic rim lighting'),
+    'script alert("hack") /script dramatic rim lighting'
+  );
+  assert.strictEqual(
+    sanitizeModifier('check https://malicious.link/payload for soft shadows'),
+    'check for soft shadows'
+  );
+
+  // Clamps excessive length (> 60 chars)
+  const longText =
+    'a very long aesthetic modifier that repeats itself excessively to test truncation boundaries in image generation';
+  const sanitized = sanitizeModifier(longText);
+  assert.ok(sanitized.length <= 60);
+});
+
+test('ImageGen Learner: recordImageGeneration stores sliding window of recent generations', () => {
+  const userId = 'u_test_sliding_window';
+  resetImageLearner(userId);
+
+  for (let i = 1; i <= 7; i++) {
+    recordImageGeneration(userId, {
+      prompt: `Prompt iteration ${i}`,
+      style: i % 2 === 0 ? 'photo' : 'cinematic',
+      appliedLighting: `lighting_${i}`,
+      appliedComposition: `comp_${i}`,
+    });
+  }
+
+  const state = getImageLearnerState(userId);
+  assert.strictEqual(state.totalGenerations, 7);
+  // Bounded sliding window: max 5
+  assert.strictEqual(state.recentGenerations.length, 5);
+  // Most recent is first
+  assert.strictEqual(state.recentGenerations[0].prompt, 'Prompt iteration 7');
+});
+
+test('ImageGen Learner: processImageReaction reinforces positive feedback and penalizes negative feedback', () => {
+  const userId = 'u_test_reaction_rl';
+  resetImageLearner(userId);
+
+  // Record an initial generation
+  recordImageGeneration(userId, {
+    prompt: 'a majestic mountain peak at dawn',
+    style: 'photo',
+    appliedLighting: 'volumetric sun rays',
+    appliedComposition: 'panoramic wide angle',
+    appliedQuality: '8k ultra-sharp detail',
+  });
+
+  // 1. Positive emoji reaction (thumbs up)
+  const posRes = processImageReaction(userId, '👍');
+  assert.strictEqual(posRes.processed, true);
+  assert.strictEqual(posRes.feedbackType, 'positive');
+
+  const state = getImageLearnerState(userId);
+  assert.strictEqual(state.positiveFeedbackCount, 1);
+  assert.ok(state.lighting['volumetric sun rays']);
+  assert.ok(state.lighting['volumetric sun rays'].score > 0.5);
+  assert.strictEqual(state.lighting['volumetric sun rays'].upvotes, 1);
+
+  // 2. Negative emoji reaction (thumbs down)
+  const negRes = processImageReaction(userId, '👎');
+  assert.strictEqual(negRes.processed, true);
+  assert.strictEqual(negRes.feedbackType, 'negative');
+  assert.strictEqual(state.negativeFeedbackCount, 1);
+  assert.strictEqual(state.consecutiveNegativeCount, 1);
+
+  // Neutral emoji should not be processed
+  const neutralRes = processImageReaction(userId, '🤔');
+  assert.strictEqual(neutralRes.processed, false);
+});
+
+test('ImageGen Learner: consecutive negative reactions triggers circuit breaker auto-damping', () => {
+  const userId = 'u_test_circuit_breaker';
+  resetImageLearner(userId);
+
+  recordImageGeneration(userId, {
+    prompt: 'experimental surreal portrait',
+    style: '3d',
+    appliedLighting: 'harsh neon glare',
+  });
+
+  const state = getImageLearnerState(userId);
+  state.lighting['harsh neon glare'] = { score: 0.9, uses: 3, upvotes: 3, downvotes: 0 };
+
+  // Trigger 3 negative reactions in a row
+  processImageReaction(userId, '👎');
+  processImageReaction(userId, '👎');
+  processImageReaction(userId, '👎');
+
+  // Circuit breaker should reset consecutive count and soften scores
+  assert.strictEqual(state.consecutiveNegativeCount, 0);
+  assert.ok(state.lighting['harsh neon glare'].score < 0.9);
+
+  // Direct manual circuit breaker trigger test
+  state.consecutiveNegativeCount = 3;
+  applyCircuitBreaker(state);
+  assert.strictEqual(state.consecutiveNegativeCount, 0);
+});
+
+test('ImageGen Learner: natural language feedback detects critiques and learns corrections', () => {
+  const userId = 'u_test_nl_feedback';
+  resetImageLearner(userId);
+
+  // 1. Critique: Too Dark -> Learns brighter ambient lighting and negative underexposed modifier
+  const resDark = processImageFollowUpFeedback(userId, 'The image is way too dark, make it brighter');
+  assert.strictEqual(resDark.learned, true);
+  assert.ok(resDark.matchedRules.includes('critique_too_dark'));
+
+  const state = getImageLearnerState(userId);
+  assert.ok(state.negativeModifiers.some((m) => m.includes('dark')));
+
+  // 2. Critique: Blurry -> Learns ultra-sharp focus and negative blur modifier
+  const resBlur = processImageFollowUpFeedback(userId, 'This is too blurry and out of focus');
+  assert.strictEqual(resBlur.learned, true);
+  assert.ok(resBlur.matchedRules.includes('critique_blurry'));
+  assert.ok(state.negativeModifiers.some((m) => m.includes('blurry')));
+
+  // 3. Critique: Anatomy / Hands -> Learns anatomically accurate prompt and negative mutant hands modifier
+  const resHands = processImageFollowUpFeedback(userId, 'The hands look weird and have extra fingers');
+  assert.strictEqual(resHands.learned, true);
+  assert.ok(resHands.matchedRules.includes('critique_anatomy'));
+  assert.ok(state.negativeModifiers.some((m) => m.includes('mutated hands')));
+
+  // 4. Preference: Realism
+  const resReal = processImageFollowUpFeedback(userId, 'I prefer photorealistic style, make it more realistic');
+  assert.strictEqual(resReal.learned, true);
+  assert.ok(resReal.matchedRules.includes('preference_realism'));
+  assert.strictEqual(state.preferredModel, 'realism');
+
+  // 5. Preference: 16:9 Widescreen
+  const resAspect = processImageFollowUpFeedback(userId, 'Always make future images 16:9 widescreen');
+  assert.strictEqual(resAspect.learned, true);
+  assert.strictEqual(state.preferredAspectRatio, '16:9');
+});
+
+test('ImageGen Learner: selectLearnedModifiers & buildSelfImprovedPrompt respects confidence thresholds and safety limits', () => {
+  const userId = 'u_test_confidence_and_clamps';
+  resetImageLearner(userId);
+
+  const state = getImageLearnerState(userId);
+  // Add an item below confidence threshold or usage threshold
+  state.lighting['subtle moonlight'] = { score: 0.52, uses: 1, upvotes: 0, downvotes: 0 };
+  // Add high-confidence qualified item
+  state.lighting['golden hour sunset lighting'] = { score: 0.85, uses: 4, upvotes: 4, downvotes: 0 };
+  state.composition['cinematic low-angle perspective'] = { score: 0.78, uses: 3, upvotes: 3, downvotes: 0 };
+  state.negativeModifiers = ['blurry', 'extra limbs'];
+
+  const selected = selectLearnedModifiers(userId);
+  assert.strictEqual(selected.lighting, 'golden hour sunset lighting');
+  assert.strictEqual(selected.composition, 'cinematic low-angle perspective');
+  assert.deepStrictEqual(selected.negatives, ['blurry', 'extra limbs']);
+
+  // Build self-improved prompt
+  const improved = buildSelfImprovedPrompt('a warrior standing on a mountain', {}, userId);
+  assert.ok(improved.optimizedPrompt.includes('golden hour sunset lighting'));
+  assert.ok(improved.optimizedPrompt.includes('cinematic low-angle perspective'));
+  assert.ok(improved.optimizedPrompt.includes('avoiding: blurry, extra limbs'));
+
+  // Safety Clamp: If user prompt is already long (> 220 chars), skip modifier injections to prevent prompt bloat
+  const veryLongPrompt = 'a '.repeat(120);
+  const clamped = buildSelfImprovedPrompt(veryLongPrompt, {}, userId);
+  assert.strictEqual(clamped.appliedLighting, null);
+  assert.strictEqual(clamped.appliedComposition, null);
+
+  // Safety Clamp: If user prompt specifies --raw flag, bypass all learned injections
+  const rawImproved = buildSelfImprovedPrompt('a serene lake', { enhance: false }, userId);
+  assert.strictEqual(rawImproved.appliedLighting, null);
+  assert.strictEqual(rawImproved.appliedComposition, null);
+});
+
+test('ImageGen: generateCleanImage adapts prompt, applies learned lighting/quality, and returns appliedLearning', async () => {
+  const userId = 'u_test_clean_image_learning';
+  resetImageLearner(userId);
+
+  const state = getImageLearnerState(userId);
+  state.lighting['radiant neon backlighting'] = { score: 0.8, uses: 3, upvotes: 3, downvotes: 0 };
+  state.preferredAspectRatio = '16:9';
+
+  const sampleBuf = await sharp({
+    create: {
+      width: 200,
+      height: 200,
+      channels: 3,
+      background: { r: 50, g: 100, b: 150 },
+    },
+  })
+    .jpeg()
+    .toBuffer();
+
+  const clean = await generateCleanImage('a sleek cybernetic motorcycle', {
+    mockBuffer: sampleBuf,
+    anonId: userId,
+  });
+
+  assert.ok(clean);
+  assert.ok(clean.buffer);
+  assert.strictEqual(clean.mimeType, 'image/jpeg');
+  assert.ok(clean.appliedLearning);
+  assert.strictEqual(clean.appliedLearning.lighting, 'radiant neon backlighting');
+  // Learned aspect ratio applied: 1280x720
+  assert.strictEqual(clean.width, 1280);
+  assert.strictEqual(clean.height, 720);
+
+  // Verify generation was automatically recorded in state
+  const updatedState = getImageLearnerState(userId);
+  assert.strictEqual(updatedState.totalGenerations, 1);
+  assert.strictEqual(updatedState.recentGenerations[0].appliedLighting, 'radiant neon backlighting');
+});
+
+test('ImageGen Learner: exportImageLearnerProfile outputs sanitized stats', () => {
+  const userId = 'u_test_export_profile';
+  resetImageLearner(userId);
+
+  const state = getImageLearnerState(userId);
+  state.totalGenerations = 12;
+  state.positiveFeedbackCount = 9;
+  state.negativeFeedbackCount = 2;
+  state.styles['photo'] = { score: 0.88, uses: 8, upvotes: 7, downvotes: 1 };
+  state.styles['anime'] = { score: 0.42, uses: 3, upvotes: 1, downvotes: 2 };
+  state.lighting['golden hour'] = { score: 0.85, uses: 6, upvotes: 5, downvotes: 1 };
+  state.negativeModifiers = ['blurry', 'mutated hands'];
+
+  const profile = exportImageLearnerProfile(userId);
+  assert.strictEqual(profile.totalGenerations, 12);
+  assert.strictEqual(profile.positiveReactions, 9);
+  assert.strictEqual(profile.negativeReactions, 2);
+  assert.strictEqual(profile.topStyles[0].style, 'photo');
+  assert.strictEqual(profile.topStyles[0].score, 0.88);
+  assert.strictEqual(profile.topLighting[0].lighting, 'golden hour');
+  assert.deepStrictEqual(profile.learnedNegativeModifiers, ['blurry', 'mutated hands']);
 });

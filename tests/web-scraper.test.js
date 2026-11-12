@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractUrl, isSafeUrl, cleanHtml, fetchAndExtractArticle } from '../src/web-scraper.js';
+import {
+  extractUrl,
+  extractUserPromptAside,
+  isSafeUrl,
+  cleanHtml,
+  fetchAndExtractArticle,
+} from '../src/web-scraper.js';
 
 test('WebScraper: extractUrl identifies standard http and https URLs', () => {
   assert.strictEqual(
@@ -11,6 +17,36 @@ test('WebScraper: extractUrl identifies standard http and https URLs', () => {
   assert.strictEqual(extractUrl('No links here! Just conversation.'), null);
   assert.strictEqual(extractUrl(''), null);
   assert.strictEqual(extractUrl(null), null);
+});
+
+test('WebScraper: extractUserPromptAside isolates user prompt from links and preview metadata', () => {
+  const forwardedMessage = [
+    'www.youtube.com',
+    'https://www.youtube.com/shorts/4Mer-_',
+    'www.youtube.com',
+    '',
+    'https://www.youtube.com/shorts/4Mer-_',
+    'Help me identify the individual songs in this mix from a few lyrics and clues from the video.',
+  ].join('\n');
+
+  const result = extractUserPromptAside(forwardedMessage, 'https://www.youtube.com/shorts/4Mer-_');
+  assert.strictEqual(
+    result,
+    'Help me identify the individual songs in this mix from a few lyrics and clues from the video.'
+  );
+
+  // Link only returns empty string
+  assert.strictEqual(extractUserPromptAside('https://example.com/page', 'https://example.com/page'), '');
+
+  // Text with inline link
+  assert.strictEqual(
+    extractUserPromptAside('Check this out: https://example.com/doc Can you summarize?', 'https://example.com/doc'),
+    'Check this out:  Can you summarize?'
+  );
+
+  // Null/undefined safety
+  assert.strictEqual(extractUserPromptAside(null), '');
+  assert.strictEqual(extractUserPromptAside(''), '');
 });
 
 test('WebScraper: isSafeUrl blocks private, loopback, link-local and cloud metadata addresses (SSRF guard)', () => {

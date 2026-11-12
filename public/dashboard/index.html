@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mission Control - Personal AI Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <!-- Top App Navigation Bar -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-title">
+          <span class="brand-name">AI Assistant Mission Control</span>
+          <span class="badge-privacy">Zero-Disk RAM</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="status-pill" id="system-status-pill">
+          <div class="status-dot"></div>
+          <span id="status-text">SYSTEM ONLINE</span>
+        </div>
+        <button class="btn btn-sm" id="btn-auth-toggle">🔑 Ops Auth</button>
+        <button class="btn btn-sm btn-primary" id="btn-global-refresh">🔄 Refresh</button>
+      </div>
+    </header>
+
+    <div class="app-container">
+      <!-- Left Navigation Sidebar -->
+      <nav class="app-sidebar">
+        <div class="nav-label">Command Center</div>
+        <div class="nav-item active" data-view="overview">
+          <span class="icon">📊</span>
+          <span>Overview</span>
+        </div>
+        <div class="nav-item" data-view="memory">
+          <span class="icon">🧠</span>
+          <span>Semantic Memory</span>
+        </div>
+        <div class="nav-item" data-view="knowledge">
+          <span class="icon">📚</span>
+          <span>Knowledge Base</span>
+        </div>
+        <div class="nav-item" data-view="agents">
+          <span class="icon">🤖</span>
+          <span>Multi-Agent Swarm</span>
+        </div>
+        <div class="nav-item" data-view="jobs">
+          <span class="icon">⚡</span>
+          <span>Job Engine</span>
+        </div>
+        <div class="nav-item" data-view="models">
+          <span class="icon">🔀</span>
+          <span>Model Router</span>
+        </div>
+        <div class="nav-item" data-view="security">
+          <span class="icon">🛡️</span>
+          <span>Security & Audit</span>
+        </div>
+        <div class="nav-item" data-view="settings">
+          <span class="icon">⚙️</span>
+          <span>System Settings</span>
+        </div>
+      </nav>
+
+      <!-- Main Content Area -->
+      <main class="app-main">
+        <!-- ============================================================= -->
+        <!-- VIEW 1: OVERVIEW -->
+        <!-- ============================================================= -->
+        <section id="view-overview" class="view-section active">
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">📊 System Overview</h1>
+              <p class="section-subtitle">Real-time telemetry, memory pressure, and message queue analytics</p>
+            </div>
+          </div>
+
+          <div class="stats-grid">
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Instance Uptime</div>
+              <div class="stat-val" id="stat-uptime">--</div>
+              <div class="stat-sub">Volatile memory lifespan</div>
+            </div>
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Active Model</div>
+              <div class="stat-val" id="stat-model" style="font-size: 1.3rem">--</div>
+              <div class="stat-sub" id="stat-model-strategy">Strategy: Latency Priority</div>
+            </div>
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Queue Pending</div>
+              <div class="stat-val" id="stat-queue-pending">0</div>
+              <div class="stat-sub" id="stat-queue-active">Active in flight: 0</div>
+            </div>
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Background Jobs</div>
+              <div class="stat-val" id="stat-jobs-running">0</div>
+              <div class="stat-sub" id="stat-jobs-total">0 queued tasks</div>
+            </div>
+            <div class="glass-panel stat-card">
+              <div class="stat-label">RAM Footprint</div>
+              <div class="stat-val" id="stat-ram">-- MB</div>
+              <div class="stat-sub" id="stat-heap">Heap: -- MB</div>
+            </div>
+          </div>
+
+          <div class="cards-grid-2">
+            <div class="glass-panel card-box">
+              <h3 class="card-title">System Vitals & Guards</h3>
+              <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px">
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    border-bottom: 1px solid var(--border-subtle);
+                    padding-bottom: 10px;
+                  "
+                >
+                  <span>Zero-Disk Storage Enforcement</span>
+                  <span class="badge-tag badge-success">ACTIVE (RAM ONLY)</span>
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    border-bottom: 1px solid var(--border-subtle);
+                    padding-bottom: 10px;
+                  "
+                >
+                  <span>PII & Luhn Redaction Engine</span>
+                  <span class="badge-tag badge-success">PROTECTED</span>
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    border-bottom: 1px solid var(--border-subtle);
+                    padding-bottom: 10px;
+                  "
+                >
+                  <span>Webhook Signature Verification</span>
+                  <span class="badge-tag badge-success" id="vital-hmac">HMAC-SHA256</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center">
+                  <span>Active Conversation Sessions</span>
+                  <span class="badge-tag badge-info" id="vital-sessions">0 Sessions</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="glass-panel card-box">
+              <h3 class="card-title">Quick Actions</h3>
+              <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px">
+                <button class="btn" id="btn-quick-new-fact">🧠 Learn New Fact</button>
+                <button class="btn" id="btn-quick-new-doc">📚 Index Document</button>
+                <button class="btn" id="btn-quick-new-job">⚡ Trigger Job</button>
+                <button class="btn" id="btn-quick-switch-model">🔀 Switch Model</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 2: SEMANTIC MEMORY -->
+        <!-- ============================================================= -->
+        <section id="view-memory" class="view-section">
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">🧠 Semantic Memory Center</h1>
+              <p class="section-subtitle">
+                Browse, search, edit, and curate persistent user preferences and knowledge facts
+              </p>
+            </div>
+            <div style="display: flex; gap: 10px">
+              <button class="btn btn-primary" id="btn-open-fact-modal">+ Add Knowledge Fact</button>
+              <button class="btn btn-danger" id="btn-clear-memory">Clear Memory</button>
+            </div>
+          </div>
+
+          <div class="glass-panel card-box" style="margin-bottom: 24px">
+            <div style="display: flex; gap: 14px; flex-wrap: wrap">
+              <input
+                type="text"
+                id="memory-search-input"
+                class="form-input"
+                style="flex: 2; min-width: 200px"
+                placeholder="Search facts or keywords..."
+              />
+              <select id="memory-category-filter" class="form-select" style="flex: 1; min-width: 160px">
+                <option value="">All Categories</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="glass-panel card-box">
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Fact / Preference</th>
+                    <th>Confidence</th>
+                    <th>Source</th>
+                    <th>Updated</th>
+                    <th style="text-align: right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="memory-table-body">
+                  <tr>
+                    <td colspan="6" style="text-align: center; color: var(--text-dim); padding: 30px">
+                      Loading facts...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 3: KNOWLEDGE BASE -->
+        <!-- ============================================================= -->
+        <section id="view-knowledge" class="view-section">
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">📚 Knowledge Base & Documents</h1>
+              <p class="section-subtitle">Deep RAG document indexer with chunk-level reasoning</p>
+            </div>
+            <button class="btn btn-primary" id="btn-open-doc-modal">+ Index New Document</button>
+          </div>
+
+          <div class="glass-panel card-box" style="margin-bottom: 24px">
+            <input
+              type="text"
+              id="knowledge-search-input"
+              class="form-input"
+              placeholder="Search indexed documents by title, tags, or content..."
+            />
+          </div>
+
+          <div id="knowledge-docs-grid" class="cards-grid-2">
+            <!-- Dynamic Document Cards -->
+          </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 4: MULTI-AGENT SWARM -->
+        <!-- ============================================================= -->
+        <section id="view-agents" class="view-section">
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">🤖 Multi-Agent Orchestrator</h1>
+              <p class="section-subtitle">Inspect specialized agent boundaries, loop limits, and permission gates</p>
+            </div>
+          </div>
+
+          <div id="agents-cards-grid" class="cards-grid-2">
+            <!-- Dynamic Agent Cards -->
+          </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 5: JOB ENGINE -->
+        <!-- ============================================================= -->
+        <section id="view-jobs" class="view-section">
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">⚡ Background Job Engine</h1>
+              <p class="section-subtitle">Long-running research, indexing, and scheduled tasks</p>
+            </div>
+            <button class="btn btn-primary" id="btn-open-job-modal">+ Trigger Background Job</button>
+          </div>
+
+          <div class="stats-grid">
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Queued Jobs</div>
+              <div class="stat-val" id="stat-job-queued">0</div>
+            </div>
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Running Tasks</div>
+              <div class="stat-val" id="stat-job-running">0</div>
+            </div>
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Completed</div>
+              <div class="stat-val" id="stat-job-completed">0</div>
+            </div>
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Failed / Cancelled</div>
+              <div class="stat-val" id="stat-job-failed">0</div>
+            </div>
+          </div>
+
+          <div class="glass-panel card-box">
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Job Title</th>
+                    <th>Type</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Created</th>
+                    <th style="text-align: right">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="jobs-table-body">
+                  <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-dim); padding: 30px">
+                      Loading jobs...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 6: MODEL ROUTER -->
+        <!-- ============================================================= -->
+        <section id="view-models" class="view-section">
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">🔀 Adaptive Model Router</h1>
+              <p class="section-subtitle">Model failover chains, dynamic load routing, and circuit breaker status</p>
+            </div>
+          </div>
+
+          <div class="cards-grid-2">
+            <div class="glass-panel card-box">
+              <h3 class="card-title">Active Model & Fallbacks</h3>
+              <div class="form-group" style="margin-top: 16px">
+                <label class="form-label">Primary Active Model</label>
+                <select id="model-active-select" class="form-select">
+                  <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Fast & Budget-Free)</option>
+                  <option value="gemini-2.5-flash">gemini-2.5-flash (Balanced Multimodal)</option>
+                  <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Reasoning & Coding)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Routing Strategy</label>
+                <select id="model-strategy-select" class="form-select">
+                  <option value="latency-priority">Latency Priority (Sub-second turns)</option>
+                  <option value="cost-priority">Cost Priority (₹0 / Budget-first)</option>
+                  <option value="quality-priority">Quality Priority (Deep reasoning)</option>
+                  <option value="balanced">Balanced</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" id="btn-save-model-config">Save Router Settings</button>
+            </div>
+
+            <div class="glass-panel card-box">
+              <h3 class="card-title">Circuit Breaker & Fallback Chain</h3>
+              <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 16px">
+                <div style="display: flex; justify-content: space-between; align-items: center">
+                  <span>Circuit Breaker State</span>
+                  <span class="badge-tag badge-success" id="cb-state">CLOSED (HEALTHY)</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center">
+                  <span>Fallback Chain</span>
+                  <span
+                    id="cb-fallback-chain"
+                    style="font-family: var(--font-mono); font-size: 0.82rem; color: var(--text-muted)"
+                    >gemini-2.5-flash &rarr; gemini-2.5-pro</span
+                  >
+                </div>
+                <div style="margin-top: 10px">
+                  <button class="btn btn-sm" id="btn-reset-cb">Reset Circuit Breaker</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-panel card-box">
+            <h3 class="card-title">Model Latency & Performance Telemetry</h3>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Model Identifier</th>
+                    <th>Total Requests</th>
+                    <th>Successes</th>
+                    <th>Failures</th>
+                    <th>Avg Turn Latency</th>
+                  </tr>
+                </thead>
+                <tbody id="model-stats-tbody">
+                  <!-- Dynamic Model Stats -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 7: SECURITY & AUDIT -->
+        <!-- ============================================================= -->
+        <section id="view-security" class="view-section">
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">🛡️ Security, Whitelist & Audit</h1>
+              <p class="section-subtitle">
+                Real-time inspection of authorization whitelist, Luhn redactions, and security event logs
+              </p>
+            </div>
+          </div>
+
+          <div class="cards-grid-2">
+            <div class="glass-panel card-box">
+              <h3 class="card-title">Phone Whitelist & Admins</h3>
+              <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px">
+                <div style="display: flex; justify-content: space-between; align-items: center">
+                  <span>Whitelist Status</span>
+                  <span class="badge-tag" id="sec-whitelist-status">ENABLED</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center">
+                  <span>Authorized Senders</span>
+                  <span id="sec-whitelist-count">0 phone numbers</span>
+                </div>
+                <div style="margin-top: 8px">
+                  <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 6px">
+                    Masked Authorized Numbers:
+                  </div>
+                  <div
+                    id="sec-whitelist-list"
+                    style="
+                      font-family: var(--font-mono);
+                      font-size: 0.8rem;
+                      color: var(--text-muted);
+                      max-height: 80px;
+                      overflow-y: auto;
+                    "
+                  >
+                    None configured
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="glass-panel card-box">
+              <h3 class="card-title">Sanitization & Redaction Statistics</h3>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px">
+                <div
+                  class="stat-card"
+                  style="padding: 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md)"
+                >
+                  <div class="stat-label">Card Redactions</div>
+                  <div class="stat-val" id="redact-card" style="font-size: 1.4rem">0</div>
+                </div>
+                <div
+                  class="stat-card"
+                  style="padding: 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md)"
+                >
+                  <div class="stat-label">PIN / Passwords</div>
+                  <div class="stat-val" id="redact-pin" style="font-size: 1.4rem">0</div>
+                </div>
+                <div
+                  class="stat-card"
+                  style="padding: 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md)"
+                >
+                  <div class="stat-label">National IDs / SSN</div>
+                  <div class="stat-val" id="redact-id" style="font-size: 1.4rem">0</div>
+                </div>
+                <div
+                  class="stat-card"
+                  style="padding: 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md)"
+                >
+                  <div class="stat-label">One-Time Passwords</div>
+                  <div class="stat-val" id="redact-otp" style="font-size: 1.4rem">0</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-panel card-box">
+            <h3 class="card-title">Live Security Audit Logs</h3>
+            <div class="table-container" style="max-height: 360px; overflow-y: auto">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Level</th>
+                    <th>Event Name</th>
+                    <th>Sanitized Meta</th>
+                  </tr>
+                </thead>
+                <tbody id="sec-audit-tbody">
+                  <!-- Dynamic Audit Logs -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 8: SETTINGS -->
+        <!-- ============================================================= -->
+        <section id="view-settings" class="view-section">
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">⚙️ System & Briefing Settings</h1>
+              <p class="section-subtitle">Environment toggles and automated proactive daily briefing configuration</p>
+            </div>
+          </div>
+
+          <div class="cards-grid-2">
+            <div class="glass-panel card-box">
+              <h3 class="card-title">Proactive Morning Briefing</h3>
+              <div class="form-group" style="margin-top: 16px">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer">
+                  <input type="checkbox" id="setting-briefing-toggle" />
+                  <span>Enable Automated Daily Briefing</span>
+                </label>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Scheduled Delivery Hour (24h)</label>
+                <select id="setting-briefing-hour" class="form-select">
+                  <option value="6">06:00 AM</option>
+                  <option value="7">07:00 AM</option>
+                  <option value="8">08:00 AM</option>
+                  <option value="9">09:00 AM</option>
+                  <option value="10">10:00 AM</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Timezone</label>
+                <input type="text" id="setting-briefing-tz" class="form-input" value="Asia/Kolkata" />
+              </div>
+            </div>
+
+            <div class="glass-panel card-box">
+              <h3 class="card-title">Runtime Capability Toggles</h3>
+              <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer">
+                  <input type="checkbox" id="setting-grounding-toggle" />
+                  <span>Google Search Web Grounding</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer">
+                  <input type="checkbox" id="setting-voice-toggle" />
+                  <span>Voice Note Audio Replies (TTS)</span>
+                </label>
+                <div style="margin-top: 14px">
+                  <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODALS -->
+    <!-- ================================================================= -->
+
+    <!-- Modal: Auth Token -->
+    <div class="modal-overlay" id="modal-auth">
+      <div class="glass-panel modal-card">
+        <div class="modal-header">
+          <h3 class="modal-title">🔑 Configure Ops Token</h3>
+          <button class="modal-close" data-close="modal-auth">&times;</button>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px">
+          Provide your operational authorization token (<code>OPS_TOKEN</code>) to unlock protected mission control
+          actions.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Operational Token</label>
+          <input type="password" id="input-ops-token" class="form-input" placeholder="Paste OPS_TOKEN here..." />
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px">
+          <button class="btn" data-close="modal-auth">Cancel</button>
+          <button class="btn btn-primary" id="btn-save-token">Save Token</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Add Memory Fact -->
+    <div class="modal-overlay" id="modal-fact">
+      <div class="glass-panel modal-card">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-fact-title">🧠 Add Knowledge Fact</h3>
+          <button class="modal-close" data-close="modal-fact">&times;</button>
+        </div>
+        <input type="hidden" id="fact-edit-id" />
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <input
+            type="text"
+            id="fact-input-category"
+            class="form-input"
+            placeholder="e.g. user_profile, work_context, schedule"
+          />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Fact Statement / Preference</label>
+          <textarea
+            id="fact-input-text"
+            class="form-textarea"
+            placeholder="e.g. User prefers short concise code snippets in TypeScript..."
+          ></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confidence (0.0 to 1.0)</label>
+          <input type="number" id="fact-input-confidence" class="form-input" value="0.95" step="0.05" min="0" max="1" />
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px">
+          <button class="btn" data-close="modal-fact">Cancel</button>
+          <button class="btn btn-primary" id="btn-save-fact">Save Fact</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Index Knowledge Doc -->
+    <div class="modal-overlay" id="modal-doc">
+      <div class="glass-panel modal-card">
+        <div class="modal-header">
+          <h3 class="modal-title">📚 Index Knowledge Document</h3>
+          <button class="modal-close" data-close="modal-doc">&times;</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Document Title</label>
+          <input
+            type="text"
+            id="doc-input-title"
+            class="form-input"
+            placeholder="e.g. Meta Cloud API Policy Guidelines"
+          />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <input
+            type="text"
+            id="doc-input-category"
+            class="form-input"
+            placeholder="e.g. documentation, architecture, manual"
+          />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tags (comma-separated)</label>
+          <input type="text" id="doc-input-tags" class="form-input" placeholder="api, meta, security" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Full Text Content</label>
+          <textarea
+            id="doc-input-content"
+            class="form-textarea"
+            style="min-height: 140px"
+            placeholder="Paste text here to automatically chunk and vector index..."
+          ></textarea>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px">
+          <button class="btn" data-close="modal-doc">Cancel</button>
+          <button class="btn btn-primary" id="btn-save-doc">Index Document</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Trigger Job -->
+    <div class="modal-overlay" id="modal-job">
+      <div class="glass-panel modal-card">
+        <div class="modal-header">
+          <h3 class="modal-title">⚡ Trigger Background Job</h3>
+          <button class="modal-close" data-close="modal-job">&times;</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Job Title</label>
+          <input
+            type="text"
+            id="job-input-title"
+            class="form-input"
+            placeholder="e.g. Deep Web Research on Quantum Computing"
+          />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Task Type</label>
+          <select id="job-input-type" class="form-select">
+            <option value="document_indexing">Document Indexing & RAG Embedding</option>
+            <option value="web_research">Deep Multi-Source Web Research</option>
+            <option value="briefing_compile">Daily Briefing Digest Compilation</option>
+            <option value="system_task">General System Maintenance</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Priority</label>
+          <select id="job-input-priority" class="form-select">
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px">
+          <button class="btn" data-close="modal-job">Cancel</button>
+          <button class="btn btn-primary" id="btn-save-job">Enqueue Job</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

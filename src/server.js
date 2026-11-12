@@ -9,10 +9,12 @@ import { webhookRouter } from './webhook.js';
 import { getPrometheusMetrics } from './metrics.js';
 import { initReminders, stopReminders } from './reminders.js';
 import { initTodos } from './todos.js';
+import { initContacts } from './contacts.js';
 import { initQuotas } from './quota.js';
 import { initPrivacyStore } from './privacy.js';
 import { initGeminiStore } from './gemini.js';
 import { messageQueue } from './queue.js';
+import { dashboardRouter } from './dashboard/api.js';
 
 export const app = express();
 
@@ -96,6 +98,10 @@ app.use(limiter);
 
 // Mount WhatsApp Cloud API Webhook routes
 app.use('/webhook', webhookRouter);
+
+// Mount Personal AI Dashboard API & Static Web UI
+app.use('/dashboard/api', dashboardRouter);
+app.use('/dashboard', express.static('public/dashboard'));
 
 // Health Check Endpoint (Public unauthenticated probe)
 app.get('/health', (_req, res) => {
@@ -255,7 +261,7 @@ app.get('/', (_req, res) => {
         <h3><span class="badge">ONLINE</span> System Status</h3>
         <p>Active endpoints for Meta WhatsApp Cloud API webhooks & Prometheus observability.</p>
         <p><strong>Webhook URL:</strong> <code>https://&lt;your-domain&gt;/webhook</code></p>
-        <p><strong>Monitoring:</strong> <a href="/health">/health</a> | <a href="/diagnostic">/diagnostic</a> | <a href="/metrics">/metrics</a></p>
+        <p><strong>Monitoring:</strong> <a href="/health">/health</a> | <a href="/diagnostic">/diagnostic</a> | <a href="/metrics">/metrics</a> | <a href="/dashboard">/dashboard</a></p>
       </div>
 
       <div class="warning">
@@ -324,6 +330,7 @@ if (isMainModule) {
   sweeperInterval = startSessionSweeper();
   initReminders();
   initTodos();
+  initContacts();
   initQuotas().catch(() => {});
   initPrivacyStore().catch(() => {});
   initGeminiStore().catch(() => {});
@@ -338,6 +345,7 @@ if (isMainModule) {
     console.log(`📡 Server listening on port ${config.PORT}`);
     console.log(`🔗 Local Webhook URL: http://localhost:${config.PORT}/webhook`);
     console.log(`🩺 Health check: http://localhost:${config.PORT}/health`);
+    console.log(`💻 Mission Control Dashboard: http://localhost:${config.PORT}/dashboard`);
     console.log('====================================================\n');
   });
 
@@ -365,4 +373,16 @@ if (isMainModule) {
 
   process.on('SIGINT', () => handleShutdown('SIGINT'));
   process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+
+  // Process-level unhandled exception and rejection guards
+  process.on('unhandledRejection', (reason) => {
+    const errorMsg = reason instanceof Error ? reason.message : String(reason);
+    privacyLog('error', 'UNHANDLED_PROMISE_REJECTION', { error: errorMsg });
+    console.error('⚠️ Unhandled Promise Rejection:', reason);
+  });
+
+  process.on('uncaughtException', (err) => {
+    privacyLog('error', 'UNCAUGHT_EXCEPTION', { error: err.message });
+    console.error('❌ Uncaught Exception:', err);
+  });
 }

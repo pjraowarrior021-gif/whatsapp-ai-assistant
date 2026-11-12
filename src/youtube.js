@@ -80,6 +80,34 @@ export function isYouTubeUrl(text) {
 }
 
 /**
+ * Checks if a URL or text points to a YouTube domain (regardless of whether video ID is valid).
+ *
+ * @param {string} input
+ * @returns {boolean}
+ */
+export function isYouTubeDomain(input) {
+  if (!input || typeof input !== 'string') return false;
+  const rawUrl = extractUrl(input);
+  if (!rawUrl) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === 'youtube.com' ||
+      host === 'www.youtube.com' ||
+      host === 'm.youtube.com' ||
+      host === 'music.youtube.com' ||
+      host === 'youtube-nocookie.com' ||
+      host === 'www.youtube-nocookie.com' ||
+      host === 'youtu.be' ||
+      host === 'www.youtu.be'
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Formats a duration in seconds into a standard MM:SS or HH:MM:SS timestamp string.
  *
  * @param {number} totalSeconds

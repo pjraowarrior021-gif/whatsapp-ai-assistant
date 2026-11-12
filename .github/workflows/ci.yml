@@ -39,10 +39,15 @@ jobs:
         run: npm run lint
 
       - name: Run Test Suite with Coverage
-        run: node --test --experimental-test-coverage tests/**/*.test.js
+        run: node --test --experimental-test-coverage 'tests/**/*.test.js'
         env:
           NODE_ENV: test
-          SKIP_SIGNATURE_VERIFICATION: 'true'
+          WHATSAPP_TOKEN: 'mock_test_token'
+          WHATSAPP_PHONE_NUMBER_ID: '123456789012345'
+          WHATSAPP_VERIFY_TOKEN: 'mock_verify_token'
+          WHATSAPP_APP_SECRET: 'mock_test_secret'
+          ALLOWED_PHONE_NUMBERS: '919876543210,910000000000'
+          GEMINI_API_KEY: 'mock_test_gemini_key'
 
       - name: Run Performance Benchmark (non-blocking)
         run: npm run benchmark

@@ -359,12 +359,12 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
 
         // Dynamic circuit breaker:
         // Multi-page PDFs, large documents, audio, and large prompts require generous time (45s).
-        // Web search grounding and images require 25s. Standard short text requires 15s.
+        // Web search grounding and images require 20s. Standard short text cascades quickly (8s).
         const isDocumentOrLarge =
           Boolean(imagePart && (imagePart.mimeType === 'application/pdf' || imagePart.fileUri)) ||
           (userMessage && userMessage.length > 2500);
 
-        const timeoutMs = isDocumentOrLarge ? 45000 : shouldGround || Boolean(imagePart) ? 25000 : 15000;
+        const timeoutMs = isDocumentOrLarge ? 45000 : shouldGround || Boolean(imagePart) ? 20000 : 8000;
 
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
@@ -423,14 +423,27 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
           { role: 'user', parts: toolResponses },
         ];
 
-        const followUpRes = await client.models.generateContent({
-          model: modelToTry,
-          contents: followUpContents,
-          config: {
-            systemInstruction: activeInstruction,
-            temperature: config.GEMINI_TEMPERATURE,
-            maxOutputTokens: config.GEMINI_MAX_OUTPUT_TOKENS,
-          },
+        let followUpTimeoutId;
+        const followUpTimeoutPromise = new Promise((_, reject) => {
+          followUpTimeoutId = setTimeout(
+            () => reject(new Error(`Timeout: ${modelToTry} tool follow-up did not respond within 20000ms`)),
+            20000
+          );
+        });
+
+        const followUpRes = await Promise.race([
+          client.models.generateContent({
+            model: modelToTry,
+            contents: followUpContents,
+            config: {
+              systemInstruction: activeInstruction,
+              temperature: config.GEMINI_TEMPERATURE,
+              maxOutputTokens: config.GEMINI_MAX_OUTPUT_TOKENS,
+            },
+          }),
+          followUpTimeoutPromise,
+        ]).finally(() => {
+          if (followUpTimeoutId) clearTimeout(followUpTimeoutId);
         });
 
         if (followUpRes.text) {
@@ -637,8 +650,8 @@ export function buildFallbackStoryboard(rawPrompt, motion = null) {
  */
 export async function generateVideoStoryboard(userPrompt, options = {}) {
   const trimmed = (userPrompt || '').trim();
-  if (!trimmed) {
-    return buildFallbackStoryboard('A scenic cinematic view', options.motion);
+  if (!trimmed || options.mock || (config.NODE_ENV === 'test' && !options.allowLiveNetwork)) {
+    return buildFallbackStoryboard(trimmed || 'A scenic cinematic view', options.motion);
   }
 
   try {
@@ -689,7 +702,12 @@ export async function generateVideoStoryboardFromImage(imageBuffer, caption = ''
   const userCaption = (caption || '').trim();
   const fallback = buildFallbackStoryboard(userCaption || 'The subject in the image', options.motion);
 
-  if (!imageBuffer || !Buffer.isBuffer(imageBuffer)) {
+  if (
+    !imageBuffer ||
+    !Buffer.isBuffer(imageBuffer) ||
+    options.mock ||
+    (config.NODE_ENV === 'test' && !options.allowLiveNetwork)
+  ) {
     return fallback;
   }
 

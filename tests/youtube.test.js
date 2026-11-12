@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import {
   extractYouTubeVideoId,
   isYouTubeUrl,
+  isYouTubeDomain,
   formatVideoTimestamp,
   formatTranscript,
   fetchYouTubeVideoData,
@@ -45,6 +46,23 @@ test('YouTube: extractYouTubeVideoId rejects non-YouTube links and invalid input
     assert.strictEqual(extractYouTubeVideoId(item), null);
     assert.strictEqual(isYouTubeUrl(item), false);
   }
+});
+
+test('YouTube: isYouTubeDomain identifies YouTube hosts even when link is truncated or video ID is invalid', () => {
+  // Truncated or incomplete links (like the user report)
+  assert.strictEqual(isYouTubeDomain('https://www.youtube.com/shorts/4Mer-_'), true);
+  assert.strictEqual(isYouTubeDomain('https://youtu.be/short'), true);
+  assert.strictEqual(isYouTubeDomain('https://m.youtube.com/watch'), true);
+  assert.strictEqual(isYouTubeDomain('https://music.youtube.com/playlist?list=123'), true);
+
+  // Complete valid links
+  assert.strictEqual(isYouTubeDomain('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), true);
+
+  // Non-YouTube links
+  assert.strictEqual(isYouTubeDomain('https://example.com/shorts/4Mer-_'), false);
+  assert.strictEqual(isYouTubeDomain('https://instagram.com/reel/123'), false);
+  assert.strictEqual(isYouTubeDomain(null), false);
+  assert.strictEqual(isYouTubeDomain(''), false);
 });
 
 test('YouTube: formatVideoTimestamp formats seconds into MM:SS and HH:MM:SS', () => {

@@ -20,9 +20,10 @@ import { config } from '../src/config.js';
 
 test('Privacy: isAuthorized checks whitelist correctly', () => {
   // Test with configured authorized number from config
-  const firstNumber = config.ALLOWED_PHONE_NUMBERS.values().next().value || '918217426307';
-  assert.strictEqual(isAuthorized(firstNumber), true);
-  assert.strictEqual(isAuthorized(`+${firstNumber}`), true);
+  const testNumber = config.ALLOWED_PHONE_NUMBERS.values().next().value || '919876543210';
+  config.ALLOWED_PHONE_NUMBERS.add(testNumber);
+  assert.strictEqual(isAuthorized(testNumber), true);
+  assert.strictEqual(isAuthorized(`+${testNumber}`), true);
 
   // Unauthorized stranger
   assert.strictEqual(isAuthorized('19998887777'), false);
