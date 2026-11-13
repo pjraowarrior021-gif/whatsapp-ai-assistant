@@ -1,5 +1,6 @@
 import { config, normalizePhoneNumber } from './config.js';
 import { privacyLog } from './privacy.js';
+import { formatForWhatsApp } from './formatter.js';
 
 const WHATSAPP_API_BASE = 'https://graph.facebook.com';
 const MAX_WHATSAPP_MESSAGE_LENGTH = 4000; // WhatsApp hard limit is 4096; safe margin at 4000
@@ -80,7 +81,8 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 export async function sendWhatsAppMessage(to, messageText) {
   const normalizedTo = normalizePhoneNumber(to);
-  const chunks = splitMessageIntoChunks(messageText);
+  const formattedText = formatForWhatsApp(messageText);
+  const chunks = splitMessageIntoChunks(formattedText);
   const messageIds = [];
 
   if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID) {
@@ -241,7 +243,8 @@ export async function sendWhatsAppTypingIndicator(messageId) {
  */
 export async function sendWhatsAppButtons(to, bodyText, buttons = []) {
   const normalizedTo = normalizePhoneNumber(to);
-  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !bodyText) {
+  const formattedBody = formatForWhatsApp(bodyText);
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !formattedBody) {
     return { success: false, error: 'Missing configuration or body text' };
   }
 
@@ -266,8 +269,8 @@ export async function sendWhatsAppButtons(to, bodyText, buttons = []) {
   // Meta Cloud API interactive buttons enforce a strict 1024-character cap on body text.
   // If the message exceeds 1024 characters, send the full text via standard message chunks first,
   // then dispatch the interactive buttons with a concise action prompt.
-  if (bodyText.length > 1024) {
-    await sendWhatsAppMessage(normalizedTo, bodyText);
+  if (formattedBody.length > 1024) {
+    await sendWhatsAppMessage(normalizedTo, formattedBody);
     if (cleanButtons.length === 0) {
       return { success: true };
     }
@@ -281,7 +284,7 @@ export async function sendWhatsAppButtons(to, bodyText, buttons = []) {
     type: 'interactive',
     interactive: {
       type: 'button',
-      body: { text: bodyText },
+      body: { text: formattedBody },
       action: {
         buttons: cleanButtons,
       },
@@ -324,7 +327,8 @@ export async function sendWhatsAppButtons(to, bodyText, buttons = []) {
  */
 export async function sendWhatsAppList(to, bodyText, rows = [], buttonText = 'Options') {
   const normalizedTo = normalizePhoneNumber(to);
-  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !bodyText) {
+  const formattedBody = formatForWhatsApp(bodyText);
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID || !formattedBody) {
     return { success: false, error: 'Missing configuration or body text' };
   }
 
@@ -351,7 +355,7 @@ export async function sendWhatsAppList(to, bodyText, rows = [], buttonText = 'Op
     type: 'interactive',
     interactive: {
       type: 'list',
-      body: { text: bodyText },
+      body: { text: formattedBody },
       action: {
         button: String(buttonText).substring(0, 20),
         sections: [
@@ -1012,3 +1016,4 @@ export async function sendWhatsAppTemplate(to, templateName, languageCode = 'en'
 }
 
 export { sendWhatsAppInteractive, buildQuickReplyButtons, buildListMenu, buildFlowMessage } from './interactive.js';
+export { formatForWhatsApp } from './formatter.js';
