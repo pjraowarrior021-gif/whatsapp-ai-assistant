@@ -4,7 +4,11 @@
  * Ensures outbound messages display cleanly on WhatsApp mobile clients:
  * 1. Converts Markdown tables (| col | col |) into mobile-friendly structured lists.
  * 2. Translates LaTeX math and chemical syntax ($...$, \text{...}, _{sub}, ^{sup}) into Unicode.
- * 3. Preserves code blocks (```...```) untouched without corrupting syntax.
+ * 3. Converts Markdown headers (### *Title*) into clean WhatsApp bold headers (*Title*) with proper gap spacing.
+ * 4. Converts raw markdown bullet asterisks (* *Title:*) to clean Unicode bullets (• *Title:*).
+ * 5. Converts double-asterisk bold (**text**) to single-asterisk WhatsApp bold (*text*).
+ * 6. Normalizes section and paragraph spacing to guarantee a clean gap between summaries.
+ * 7. Preserves code blocks (```...```) untouched without corrupting code syntax.
  */
 
 const SUB_MAP = {
@@ -179,6 +183,47 @@ export function sanitizeLatex(text) {
 }
 
 /**
+ * Converts Markdown headers (#, ##, ###) into clean WhatsApp bold headers (*Title*)
+ * with proper section gap spacing before each header.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function convertMarkdownHeaders(text) {
+  if (!text || typeof text !== 'string') return text || '';
+
+  // Matches # Header or ### *Header* at line start
+  return text.replace(/^[ \t]*#{1,6}[ \t]+(?:\*+)?(.*?)(?:\*+)?[ \t]*$/gm, (_m, title) => {
+    const cleanTitle = title.trim().replace(/^\*+|\*+$/g, '');
+    return `\n\n*${cleanTitle}*`;
+  });
+}
+
+/**
+ * Converts Markdown bullet lists (* item, - item, + item) to clean Unicode bullets (• item).
+ * Also preserves indentation for nested sub-bullets (e.g. "  • item").
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function convertMarkdownBullets(text) {
+  if (!text || typeof text !== 'string') return text || '';
+  return text.replace(/^([ \t]*)[*+-][ \t]+/gm, '$1• ');
+}
+
+/**
+ * Converts Markdown double-asterisk bold (**text**) to WhatsApp single-asterisk bold (*text*),
+ * and repairs any dangling double-asterisks.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function convertMarkdownBold(text) {
+  if (!text || typeof text !== 'string') return text || '';
+  return text.replace(/\*{2,}([^*]+)\*{2,}/g, '*$1*').replace(/\*\*/g, '*');
+}
+
+/**
  * Converts Markdown tables into clean, mobile-optimized WhatsApp list blocks.
  * @param {string} text
  * @returns {string}
@@ -263,8 +308,29 @@ export function convertMarkdownTables(text) {
 }
 
 /**
+ * Normalizes paragraph and section spacing so that:
+ * 1. There is always a clean blank line gap (\n\n) between summary sections and headers.
+ * 2. Trailing spaces on each line are stripped.
+ * 3. Excessive gaps of 3 or more consecutive newlines are collapsed to a neat double newline.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function normalizeSectionSpacing(text) {
+  if (!text || typeof text !== 'string') return text || '';
+  return text
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
  * Main WhatsApp formatting pipeline.
- * Formats Markdown tables and sanitizes LaTeX math into mobile-friendly text while preserving code blocks.
+ * Formats Markdown tables, headers, bullets, and bold markers, sanitizes LaTeX math into
+ * mobile-friendly text, and guarantees clean spacing gaps between summarization blocks
+ * while preserving code blocks untouched.
  *
  * @param {string} text
  * @returns {string}
@@ -272,20 +338,32 @@ export function convertMarkdownTables(text) {
 export function formatForWhatsApp(text) {
   if (!text || typeof text !== 'string') return text || '';
 
-  // Protect code blocks (```...```) from formatting modifications
+  // 1. Protect code blocks (```...```) from formatting modifications
   const codeBlocks = [];
   const protectedText = text.replace(/```[\s\S]*?```/g, (match) => {
     codeBlocks.push(match);
     return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
   });
 
-  // 1. Convert Markdown tables to WhatsApp card sections
+  // 2. Convert Markdown tables to WhatsApp card sections
   let formatted = convertMarkdownTables(protectedText);
 
-  // 2. Sanitize LaTeX math and chemical formulas into clean Unicode
+  // 3. Convert Markdown headers (### *Title* -> *Title*) with section gap
+  formatted = convertMarkdownHeaders(formatted);
+
+  // 4. Convert bullet list markers (* item -> • item)
+  formatted = convertMarkdownBullets(formatted);
+
+  // 5. Convert double-asterisk bold (**text** -> *text*)
+  formatted = convertMarkdownBold(formatted);
+
+  // 6. Sanitize LaTeX math and chemical formulas into clean Unicode
   formatted = sanitizeLatex(formatted);
 
-  // 3. Restore protected code blocks
+  // 7. Normalize section and paragraph spacing for clean gap layout
+  formatted = normalizeSectionSpacing(formatted);
+
+  // 8. Restore protected code blocks
   formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (_, idx) => codeBlocks[Number(idx)]);
 
   return formatted;

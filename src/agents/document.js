@@ -22,8 +22,9 @@ Your objectives:
    - Key Executive Takeaways (3-5 bullets)
    - Detailed Findings by section
    - Action Items or Next Steps
-3. Present tabular data clearly using clean markdown tables or formatted lists.
-4. Ensure critical numbers, dates, and names are verified.`;
+3. Present tabular or comparative data using clean structured lists with bold headings and bullet points (never raw markdown tables or LaTeX).
+4. Between summary sections, insert an empty line gap before continuing.
+5. Ensure critical numbers, dates, and names are verified.`;
   }
 
   /**
