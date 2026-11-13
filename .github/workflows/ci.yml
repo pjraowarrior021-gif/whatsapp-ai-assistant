@@ -42,6 +42,8 @@ jobs:
         run: node --test --experimental-test-coverage 'tests/**/*.test.js'
         env:
           NODE_ENV: test
+          TZ: 'Asia/Kolkata'
+          TIMEZONE: 'Asia/Kolkata'
           WHATSAPP_TOKEN: 'mock_test_token'
           WHATSAPP_PHONE_NUMBER_ID: '123456789012345'
           WHATSAPP_VERIFY_TOKEN: 'mock_verify_token'
