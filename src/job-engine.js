@@ -357,7 +357,6 @@ export class JobEngine extends EventEmitter {
         this._dispatchNext();
       }, delay);
 
-      if (timer.unref) timer.unref();
       this.scheduledTimers.set(jobId, timer);
     } else {
       this._enqueuePriority(jobId, validPriority);

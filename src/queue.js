@@ -222,7 +222,6 @@ export class MessageQueue {
         this._processNext();
       }, delayMs);
 
-      if (timerId.unref) timerId.unref();
       this.pendingTimeouts.add(timerId);
       return;
     }
@@ -290,7 +289,6 @@ export class MessageQueue {
     let timer;
     const timeoutPromise = new Promise((resolve) => {
       timer = setTimeout(() => resolve(false), timeoutMs);
-      if (timer.unref) timer.unref();
     });
 
     const drained = await Promise.race([this.onIdle().then(() => true), timeoutPromise]);
