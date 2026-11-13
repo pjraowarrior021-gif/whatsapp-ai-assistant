@@ -45,6 +45,9 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
             tail -n 60 test-results.log >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
+            while IFS= read -r line; do
+              echo "::error::$line"
+            done < <(grep -E "(✖|AssertionError|ERR_|Error:)" test-results.log | head -n 10)
             cat test-results.log
             exit 1
           }
@@ -59,6 +62,13 @@ jobs:
           WHATSAPP_APP_SECRET: 'mock_test_secret'
           ALLOWED_PHONE_NUMBERS: '919876543210,910000000000'
           GEMINI_API_KEY: 'mock_test_gemini_key'
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.node-version }}
+          path: test-results.log
 
       - name: Run Performance Benchmark (non-blocking)
         run: npm run benchmark
