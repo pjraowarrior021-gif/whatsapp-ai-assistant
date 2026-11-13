@@ -452,7 +452,6 @@ export class JobEngine extends EventEmitter {
       timeoutTimer = setTimeout(() => {
         abortController.abort(new Error(`Job timed out after ${job.timeoutMs}ms`));
       }, job.timeoutMs);
-      if (timeoutTimer.unref) timeoutTimer.unref();
     }
 
     this.activeJobs.set(jobId, {
@@ -561,7 +560,6 @@ export class JobEngine extends EventEmitter {
         this._dispatchNext();
       }, backoffDelay);
 
-      if (timer.unref) timer.unref();
       this.retryTimers.set(job.id, timer);
     } else {
       await this._finalizeJobFailure(job, errorMessage, true);

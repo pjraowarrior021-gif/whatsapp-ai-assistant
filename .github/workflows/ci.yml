@@ -39,43 +39,17 @@ jobs:
         run: npm run lint
 
       - name: Run Test Suite
-        run: |
-          node --test tests/*.test.js > test-results.log 2>&1 || {
-            node -e "
-              const fs = require('fs');
-              const lines = fs.readFileSync('test-results.log', 'utf8').split('\n');
-              const failureBlocks = [];
-              for (let i = 0; i < lines.length; i++) {
-                if (lines[i].startsWith('not ok') || lines[i].includes('✖')) {
-                  failureBlocks.push(...lines.slice(i, i + 15));
-                }
-              }
-              const output = failureBlocks.length > 0 ? failureBlocks.slice(0, 40) : lines.slice(-30);
-              output.forEach(l => {
-                if (l.trim()) console.log('::error title=Test Failure::' + l.replace(/\r/g, ''));
-              });
-            "
-            cat test-results.log
-            exit 1
-          }
+        run: npm test
         env:
           NODE_ENV: test
           TZ: 'Asia/Kolkata'
           TIMEZONE: 'Asia/Kolkata'
-          MATRIX_NAME: 'Node ${{ matrix.node-version }}'
           WHATSAPP_TOKEN: 'mock_test_token'
           WHATSAPP_PHONE_NUMBER_ID: '123456789012345'
           WHATSAPP_VERIFY_TOKEN: 'mock_verify_token'
           WHATSAPP_APP_SECRET: 'mock_test_secret'
           ALLOWED_PHONE_NUMBERS: '919876543210,910000000000'
           GEMINI_API_KEY: 'mock_test_gemini_key'
-
-      - name: Upload Test Results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.node-version }}
-          path: test-results.log
 
       - name: Run Performance Benchmark (non-blocking)
         run: npm run benchmark
