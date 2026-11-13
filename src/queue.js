@@ -8,6 +8,7 @@ import { config } from './config.js';
 import { privacyLog } from './privacy.js';
 import { recordErrorMetric } from './metrics.js';
 import { sendWhatsAppMessage } from './whatsapp.js';
+import { store } from './store/index.js';
 
 export class MessageQueue {
   /**
@@ -32,6 +33,7 @@ export class MessageQueue {
     this.paused = false;
     this.idleWaiters = [];
     this.pendingTimeouts = new Set();
+    this.deadLettersMap = new Map();
 
     this.stats = {
       enqueued: 0,
@@ -231,6 +233,16 @@ export class MessageQueue {
     this.stats.deadLettered++;
     recordErrorMetric('dead_letter');
 
+    const dlId = task.requestId || `dlq_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const dlEntry = {
+      id: dlId,
+      task: { ...task, retryCount: 0 },
+      error: err.message,
+      failedAt: Date.now(),
+      attempts: task.retryCount || 1,
+    };
+    await this.recordDeadLetter(dlEntry);
+
     privacyLog('error', 'QUEUE_TASK_DEAD_LETTERED', {
       requestId: task.requestId,
       user: task.anonId,
@@ -306,13 +318,128 @@ export class MessageQueue {
   }
 
   /**
-   * Clears all pending queue items and timeouts (for test teardown).
+   * Records a failed task to the dead-letter store.
+   * @param {object} dlEntry
+   */
+  async recordDeadLetter(dlEntry) {
+    if (!dlEntry || !dlEntry.id) return;
+    this.deadLettersMap.set(dlEntry.id, dlEntry);
+    try {
+      await store.set(`dlq:job:${dlEntry.id}`, dlEntry, 86400 * 7);
+      await store.sadd('dlq:job_ids', dlEntry.id);
+    } catch (err) {
+      privacyLog('warn', 'DLQ_STORE_WRITE_FAILED', { error: err.message });
+    }
+  }
+
+  /**
+   * Retrieves all dead-letter tasks.
+   * @returns {Promise<Array<object>>}
+   */
+  async getDeadLetters() {
+    const results = [];
+    try {
+      const ids = await store.smembers('dlq:job_ids');
+      for (const id of ids || []) {
+        const entry = (await store.get(`dlq:job:${id}`)) || this.deadLettersMap.get(id);
+        if (entry) results.push(entry);
+      }
+    } catch {
+      // Fallback
+    }
+
+    // Include any in-memory only items
+    for (const [id, entry] of this.deadLettersMap.entries()) {
+      if (!results.some((r) => r.id === id)) {
+        results.push(entry);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Retrieves a single dead-letter task by ID.
+   * @param {string} id
+   * @returns {Promise<object|null>}
+   */
+  async getDeadLetter(id) {
+    if (!id) return null;
+    try {
+      const stored = await store.get(`dlq:job:${id}`);
+      if (stored) return stored;
+    } catch {
+      // Fallback
+    }
+    return this.deadLettersMap.get(id) || null;
+  }
+
+  /**
+   * Replays a dead-lettered job by re-inserting it into the active work queue.
+   * @param {string} id
+   * @returns {Promise<{ success: boolean, jobId?: string, error?: string }>}
+   */
+  async replayDeadLetter(id) {
+    const entry = await this.getDeadLetter(id);
+    if (!entry || !entry.task) {
+      return { success: false, error: 'Dead-letter job not found' };
+    }
+
+    await this.dismissDeadLetter(id);
+    const replayedTask = {
+      ...entry.task,
+      retryCount: 0,
+      replayedAt: Date.now(),
+    };
+
+    const accepted = this.push(replayedTask);
+    privacyLog('info', 'DEAD_LETTER_JOB_REPLAYED', { jobId: id, accepted });
+    return { success: accepted, jobId: id };
+  }
+
+  /**
+   * Removes a task from the DLQ without replaying.
+   * @param {string} id
+   * @returns {Promise<boolean>}
+   */
+  async dismissDeadLetter(id) {
+    if (!id) return false;
+    this.deadLettersMap.delete(id);
+    try {
+      await store.del(`dlq:job:${id}`);
+      await store.srem('dlq:job_ids', id);
+    } catch {
+      // Ignore
+    }
+    return true;
+  }
+
+  /**
+   * Clears all dead-lettered jobs.
+   * @returns {Promise<boolean>}
+   */
+  async clearDeadLetters() {
+    try {
+      const ids = await store.smembers('dlq:job_ids');
+      for (const id of ids || []) {
+        await store.del(`dlq:job:${id}`);
+      }
+      await store.del('dlq:job_ids');
+    } catch {
+      // Ignore
+    }
+    this.deadLettersMap.clear();
+    return true;
+  }
+
+  /**
+   * Clears all pending queue items, timeouts, and DLQ (for test teardown).
    */
   reset() {
     for (const timerId of this.pendingTimeouts) {
       clearTimeout(timerId);
     }
     this.pendingTimeouts.clear();
+    this.deadLettersMap.clear();
     this.queue = [];
     this.activeCount = 0;
     this.paused = false;

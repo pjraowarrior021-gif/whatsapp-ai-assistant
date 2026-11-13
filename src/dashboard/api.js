@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import { getRecentLogs, getActiveSessionCount, privacyLog } from '../privacy.js';
 import { getActiveModel, setActiveModel } from '../gemini.js';
 import { messageQueue } from '../queue.js';
+import { listActiveHandoffs, setHumanHandoff } from '../approval.js';
 
 export const dashboardRouter = express.Router();
 
@@ -1062,6 +1063,69 @@ dashboardRouter.put('/settings', (req, res) => {
         },
         briefing: runtimeSettings.briefing,
       },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Dead-Letter Queue (DLQ) & Human Handoff API Endpoints
+// -----------------------------------------------------------------------------
+
+// GET /dashboard/api/dlq - List all failed tasks in Dead-Letter Queue
+dashboardRouter.get('/dlq', async (_req, res) => {
+  try {
+    const deadLetters = await messageQueue.getDeadLetters();
+    res.status(200).json({ success: true, count: deadLetters.length, deadLetters });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /dashboard/api/dlq/:id/replay - Replay a failed job back into the active work queue
+dashboardRouter.post('/dlq/:id/replay', async (req, res) => {
+  try {
+    const result = await messageQueue.replayDeadLetter(req.params.id);
+    if (!result.success) {
+      return res.status(404).json({ success: false, error: result.error || 'Job not found or could not be replayed' });
+    }
+    res.status(200).json({ success: true, message: `Job ${req.params.id} replayed into work queue.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /dashboard/api/dlq/:id - Dismiss a job from DLQ
+dashboardRouter.delete('/dlq/:id', async (req, res) => {
+  try {
+    await messageQueue.dismissDeadLetter(req.params.id);
+    res.status(200).json({ success: true, message: `Job ${req.params.id} dismissed from DLQ.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /dashboard/api/handoff - List all chats currently paused for human agent
+dashboardRouter.get('/handoff', async (_req, res) => {
+  try {
+    const handoffs = await listActiveHandoffs();
+    res.status(200).json({ success: true, count: handoffs.length, handoffs });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /dashboard/api/handoff/:userId - Set or clear human handoff for a chat
+dashboardRouter.post('/handoff/:userId', async (req, res) => {
+  try {
+    const { enabled, reason, operatorId } = req.body;
+    await setHumanHandoff(req.params.userId, Boolean(enabled), reason, operatorId);
+    res.status(200).json({
+      success: true,
+      userId: req.params.userId,
+      enabled: Boolean(enabled),
+      message: enabled ? 'Human handoff activated.' : 'Human handoff cleared. AI resumed.',
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

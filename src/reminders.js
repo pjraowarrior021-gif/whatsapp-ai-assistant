@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { config, normalizePhoneNumber } from './config.js';
 import { privacyLog } from './privacy.js';
-import { sendWhatsAppMessage } from './whatsapp.js';
+import { sendProactiveMessage } from './templates.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -196,7 +196,11 @@ async function fireReminder(reminderId) {
   privacyLog('info', 'REMINDER_FIRED', { user: reminder.anonId, reminderId });
 
   const message = `⏰ *Reminder:*\n${reminder.text}`;
-  await sendWhatsAppMessage(reminder.to, message);
+  await sendProactiveMessage(reminder.to, {
+    text: message,
+    templateName: config.TEMPLATE_PROACTIVE_NAME || 'utility_reminder_notification',
+    templateParams: [reminder.text],
+  });
 }
 
 /**

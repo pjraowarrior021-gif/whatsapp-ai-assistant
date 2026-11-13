@@ -81,6 +81,12 @@ import {
 export { messageQueue };
 export const webhookRouter = express.Router();
 
+import { store } from './store/index.js';
+import { transcribeAudioBuffer } from './stt.js';
+import { getPendingApproval, resolveApproval, isHumanHandoffActive, setHumanHandoff } from './approval.js';
+import { recordLastInboundInteraction } from './templates.js';
+import { evaluateInputGuardrails } from './guardrails.js';
+
 // Mount JSON body parser (with raw buffer capture for HMAC) and URL-encoded parser strictly on /webhook
 webhookRouter.use(
   express.json({
@@ -95,6 +101,37 @@ webhookRouter.use(express.urlencoded({ extended: true }));
 // In-Memory cache for message deduplication (messageId -> timestamp)
 const processedMessageIds = new Map();
 const DEDUP_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Checks whether a message ID has already been processed using Redis / Store with in-memory fallback.
+ * @param {string} messageId
+ * @returns {Promise<boolean>}
+ */
+export async function isMessageProcessed(messageId) {
+  if (!messageId) return false;
+  try {
+    const exists = await store.get(`dedup:msg:${messageId}`);
+    if (exists) return true;
+  } catch {
+    // Fallback to in-memory cache
+  }
+  return processedMessageIds.has(messageId);
+}
+
+/**
+ * Marks a message ID as processed in Redis / Store (5-minute TTL) and local memory.
+ * @param {string} messageId
+ * @returns {Promise<void>}
+ */
+export async function markMessageProcessed(messageId) {
+  if (!messageId) return;
+  processedMessageIds.set(messageId, Date.now());
+  try {
+    await store.set(`dedup:msg:${messageId}`, Date.now(), 300);
+  } catch {
+    // In-memory fallback already set
+  }
+}
 
 /**
  * Periodically purge stale deduplication entries
@@ -233,6 +270,14 @@ webhookRouter.post('/', async (req, res) => {
         }
 
         for (const message of messages) {
+          if (message.id && (await isMessageProcessed(message.id))) {
+            privacyLog('debug', 'DUPLICATE_WEBHOOK_MESSAGE_DROPPED_EARLY', {
+              requestId,
+              id: message.id,
+            });
+            continue;
+          }
+
           privacyLog('info', 'ENQUEUEING_INCOMING_MESSAGE', {
             requestId,
             id: message.id,
@@ -388,13 +433,61 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   const senderPhone = message.author || from;
   const anonId = getAnonymizedId(senderPhone);
 
+  // Record inbound interaction timestamp for 24-hour session window tracking
+  if (senderPhone) {
+    await recordLastInboundInteraction(senderPhone);
+  }
+
   // 1. Deduplication Check
-  if (messageId && processedMessageIds.has(messageId)) {
+  if (messageId && (await isMessageProcessed(messageId))) {
     privacyLog('debug', 'DUPLICATE_MESSAGE_SKIPPED', { requestId, user: anonId });
     return;
   }
   if (messageId) {
-    processedMessageIds.set(messageId, Date.now());
+    await markMessageProcessed(messageId);
+  }
+
+  // 1a. Human Handoff Check (if active, pause bot automation unless resumed)
+  if (senderPhone && (await isHumanHandoffActive(senderPhone))) {
+    const rawCheck = String(message.text?.body || message.interactive?.button_reply?.id || '')
+      .trim()
+      .toLowerCase();
+    if (rawCheck === '/bot' || rawCheck === '/resume' || rawCheck === 'resume') {
+      await setHumanHandoff(senderPhone, false);
+      await sendWhatsAppMessage(from, '🤖 *AI Assistant Resumed:* Bot automation is now active.');
+      return;
+    }
+    privacyLog('info', 'HUMAN_HANDOFF_PASSED_TO_OPERATOR', { requestId, user: anonId });
+    return;
+  }
+
+  // 1b. Check Pending Action Approval
+  if (senderPhone) {
+    const pending = await getPendingApproval(senderPhone);
+    if (pending) {
+      const userReply =
+        message.text?.body?.trim() ||
+        message.interactive?.button_reply?.id ||
+        message.interactive?.list_reply?.id ||
+        '';
+      if (userReply) {
+        const resolution = await resolveApproval(senderPhone, userReply);
+        if (resolution.resolved) {
+          if (resolution.approved) {
+            if (resolution.action?.type === 'delete_reminder' && resolution.action?.payload?.reminderId) {
+              deleteReminder(resolution.action.payload.reminderId);
+            }
+            await sendWhatsAppMessage(from, resolution.message || '✅ Action confirmed.');
+          } else {
+            await sendWhatsAppMessage(from, resolution.message || '❌ Action cancelled.');
+          }
+          return;
+        } else if (resolution.hasPending) {
+          await sendWhatsAppMessage(from, resolution.message);
+          return;
+        }
+      }
+    }
   }
 
   // 1b. Fast-path unhandled message types
@@ -650,6 +743,21 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       mimeType: normalizeAudioMime(mediaMeta.mimeType || audioObj?.mime_type),
       data: downloaded.base64,
     };
+
+    // Inbound Speech-to-Text transcription
+    try {
+      const stt = await transcribeAudioBuffer(downloaded.buffer, mediaPart.mimeType);
+      if (stt.success && stt.text) {
+        rawText = stt.text;
+        privacyLog('info', 'VOICE_NOTE_TRANSCRIBED', {
+          requestId,
+          user: anonId,
+          charLength: rawText.length,
+        });
+      }
+    } catch (sttErr) {
+      privacyLog('warn', 'VOICE_NOTE_STT_FAILED', { error: sttErr.message });
+    }
   } else if (messageType === 'document') {
     const docObj = message.document;
     rawText = docObj?.caption?.trim() || '';
@@ -789,6 +897,26 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     hasMedia: Boolean(mediaPart),
     isQuotedReply: Boolean(quotedContextPrefix),
   });
+
+  // 8b. Topic & Compliance Guardrails
+  if (rawText && !mediaPart) {
+    const guardrail = evaluateInputGuardrails(rawText, { anonId, from });
+    if (!guardrail.allowed) {
+      await sendWhatsAppMessage(from, guardrail.policyNotice || '🛡️ Request blocked by compliance policy.');
+      return;
+    }
+  }
+
+  // 8c. Human Handoff toggle command
+  const lowerHandoffCmd = (rawText || '').trim().toLowerCase();
+  if (lowerHandoffCmd === '/human' || lowerHandoffCmd === '/handoff') {
+    await setHumanHandoff(senderPhone, true, 'User requested human operator');
+    await sendWhatsAppMessage(
+      from,
+      '👨‍💼 *Human Handoff Active:* An operator has been notified. Bot automation is now paused for this chat. Send */bot* or */resume* at any time to re-activate the AI assistant.'
+    );
+    return;
+  }
 
   // 9. Command Handlers & Normalization (supports slash commands, slashless inputs, and interactive buttons)
   const effectiveCommand = normalizeCommand(rawText, Boolean(mediaPart));

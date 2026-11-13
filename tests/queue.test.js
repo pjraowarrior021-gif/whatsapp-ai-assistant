@@ -163,6 +163,47 @@ test('Queue: drain pauses acceptance and flushes inflight tasks cleanly', async 
   assert.strictEqual(queue.push({ id: 3 }), false);
 });
 
+test('Queue: Dead-Letter Queue stores failed jobs and supports replay and dismissal', async () => {
+  const queue = new MessageQueue({
+    concurrency: 1,
+    maxRetries: 1,
+    retryBaseDelayMs: 10,
+  });
+
+  let shouldFail = true;
+  let replayedExecuted = false;
+
+  queue.setHandler(async (task) => {
+    if (shouldFail) {
+      throw new Error('Simulated fatal processing crash');
+    }
+    if (task.replayedAt) {
+      replayedExecuted = true;
+    }
+  });
+
+  queue.push({ requestId: 'job_crash_1', text: 'Important payload', anonId: 'u_crash' });
+  await queue.onIdle();
+
+  const dls = await queue.getDeadLetters();
+  assert.ok(dls.length >= 1);
+  const found = dls.find((d) => d.id === 'job_crash_1');
+  assert.ok(found);
+  assert.strictEqual(found.error, 'Simulated fatal processing crash');
+
+  // Now fix condition and replay
+  shouldFail = false;
+  const replayRes = await queue.replayDeadLetter('job_crash_1');
+  assert.strictEqual(replayRes.success, true);
+  await queue.onIdle();
+
+  assert.strictEqual(replayedExecuted, true);
+
+  // DLQ should now be dismissed
+  const afterReplay = await queue.getDeadLetter('job_crash_1');
+  assert.strictEqual(afterReplay, null);
+});
+
 test('Reminders: Durable persistence across simulated restarts', () => {
   const origPersist = config.REMINDERS_PERSIST;
   const testDataDir = path.resolve('tests/.tmp-reminders');

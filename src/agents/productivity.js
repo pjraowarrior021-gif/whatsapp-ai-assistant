@@ -34,7 +34,16 @@ Your goals:
    * @returns {boolean}
    */
   isToolAllowed(toolName) {
-    return this.allowedTools.has(toolName);
+    if (this.allowedTools.has(toolName)) return true;
+    if (
+      toolName.startsWith('calendar_') ||
+      toolName.startsWith('gmail_') ||
+      toolName.startsWith('notion_') ||
+      toolName.startsWith('mcp_')
+    ) {
+      return true;
+    }
+    return false;
   }
 
   /**

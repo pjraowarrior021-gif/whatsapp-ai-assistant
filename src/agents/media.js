@@ -4,6 +4,7 @@
  * and generative media prompt specialist.
  */
 import { TASK_TYPES } from '../model-router.js';
+import { transcribeAudioBuffer } from '../stt.js';
 
 export const MEDIA_TOOLS = Object.freeze([
   'analyze_image',
@@ -93,7 +94,12 @@ Your capabilities:
       try {
         await callTool('transcribe_audio', { audio: context.media });
       } catch {
-        // Fallback
+        if (context.audioBuffer || context.media?.buffer) {
+          const res = await transcribeAudioBuffer(context.audioBuffer || context.media?.buffer, context.mimeType);
+          if (res.success && res.text) {
+            context.transcription = res.text;
+          }
+        }
       }
     } else if (
       /\b(generate an? image|draw|create a picture)\b/i.test(message) &&

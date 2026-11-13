@@ -18,6 +18,7 @@ import { getTodos } from './todos.js';
 import { listReminders } from './reminders.js';
 import { jobEngine } from './job-engine.js';
 import { loadUserMemory } from './memory.js';
+import { sendProactiveMessage } from './templates.js';
 
 /**
  * Default briefing settings
@@ -545,6 +546,12 @@ export function initBriefingScheduler(options = {}) {
           const { text } = await compileDailyBriefing({ userId, now });
           if (typeof sendBriefingFn === 'function') {
             await sendBriefingFn(userId, text);
+          } else {
+            await sendProactiveMessage(userId, {
+              text,
+              templateName: config.TEMPLATE_PROACTIVE_NAME || 'utility_reminder_notification',
+              templateParams: [text.slice(0, 100)],
+            });
           }
           recordBriefingDelivered(userId, now);
           privacyLog('info', 'PROACTIVE_BRIEFING_DELIVERED', { userId });

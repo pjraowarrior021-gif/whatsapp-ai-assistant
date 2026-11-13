@@ -7,6 +7,13 @@ import { getWeather } from './weather.js';
 import { scheduleReminder } from '../reminders.js';
 import { addTodo } from '../todos.js';
 import { privacyLog } from '../privacy.js';
+import { mcpManager } from './mcp-client.js';
+
+export { mcpManager };
+
+export function getCombinedToolDeclarations() {
+  return [...toolDeclarations, ...mcpManager.getGeminiDeclarations()];
+}
 
 export const toolDeclarations = [
   {
@@ -111,8 +118,13 @@ export async function executeToolCall(name, args = {}, context = {}) {
         };
       }
 
-      default:
+      default: {
+        const mcpHandler = mcpManager.findToolHandler(name);
+        if (mcpHandler) {
+          return await mcpHandler.client.callTool(name, args);
+        }
         return { status: 'error', message: `Unknown function '${name}'` };
+      }
     }
   } catch (err) {
     privacyLog('error', 'TOOL_EXECUTION_ERROR', { tool: name, error: err.message });

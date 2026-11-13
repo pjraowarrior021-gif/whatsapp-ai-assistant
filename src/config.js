@@ -134,6 +134,24 @@ export const config = {
   GROUP_TRIGGER_PREFIX: process.env.GROUP_TRIGGER_PREFIX || '/',
   TEMPLATE_DIGEST_NAME: process.env.TEMPLATE_DIGEST_NAME || '',
   TEMPLATE_DIGEST_LANG: process.env.TEMPLATE_DIGEST_LANG || 'en',
+
+  // Speech-to-Text & Inbound Voice Notes
+  STT_ENGINE: process.env.STT_ENGINE || 'gemini',
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+
+  // Human-in-the-Loop & Approval Gate
+  APPROVAL_TIMEOUT_SECONDS: parseInt(process.env.APPROVAL_TIMEOUT_SECONDS, 10) || 600,
+
+  // 24-Hour Session Window & Templates
+  TEMPLATE_PROACTIVE_NAME: process.env.TEMPLATE_PROACTIVE_NAME || 'utility_reminder_notification',
+  TEMPLATE_PROACTIVE_LANG: process.env.TEMPLATE_PROACTIVE_LANG || 'en',
+
+  // MCP External Tools
+  MCP_SERVERS: process.env.MCP_SERVERS || '',
+
+  // Topic & Compliance Guardrails
+  ENABLE_GUARDRAILS: process.env.ENABLE_GUARDRAILS !== 'false',
+  GUARDRAIL_ALLOWED_DOMAINS: process.env.GUARDRAIL_ALLOWED_DOMAINS || 'assistant,coding,productivity,media,research',
 };
 
 /**

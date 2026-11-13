@@ -2,7 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
 import { app } from '../src/server.js';
-import { verifyMetaSignature, normalizeCommand } from '../src/webhook.js';
+import {
+  verifyMetaSignature,
+  normalizeCommand,
+  isMessageProcessed,
+  markMessageProcessed,
+  handleIncomingMessage,
+} from '../src/webhook.js';
+import { setHumanHandoff, isHumanHandoffActive, requestActionApproval, getPendingApproval } from '../src/approval.js';
 import { config } from '../src/config.js';
 import { setGeminiClient } from '../src/gemini.js';
 
@@ -1210,4 +1217,67 @@ test('POST /webhook handles truncated YouTube short link with user instruction a
   assert.strictEqual(res.status, 200);
   const text = await res.text();
   assert.strictEqual(text, 'EVENT_RECEIVED');
+});
+
+test('Webhook: isMessageProcessed and markMessageProcessed deduplicate incoming message IDs', async () => {
+  const testMsgId = `wamid.dedup_test_${Date.now()}`;
+  assert.strictEqual(await isMessageProcessed(testMsgId), false);
+
+  await markMessageProcessed(testMsgId);
+  assert.strictEqual(await isMessageProcessed(testMsgId), true);
+});
+
+test('Webhook: handleIncomingMessage pauses execution when human handoff is active', async () => {
+  const phone = '910000000000';
+  await setHumanHandoff(phone, true, 'User test handoff');
+
+  // Sending message while handoff is active should be suppressed
+  await handleIncomingMessage({
+    id: `wamid.handoff_test_${Date.now()}`,
+    from: phone,
+    type: 'text',
+    text: { body: 'Are you there bot?' },
+  });
+
+  // Now resume
+  await handleIncomingMessage({
+    id: `wamid.resume_test_${Date.now()}`,
+    from: phone,
+    type: 'text',
+    text: { body: '/resume' },
+  });
+
+  assert.strictEqual(await isHumanHandoffActive(phone), false);
+});
+
+test('Webhook: handleIncomingMessage intercepts and resolves pending approvals', async () => {
+  const phone = '910000000000';
+  const req = await requestActionApproval(phone, {
+    type: 'delete_reminder',
+    description: 'Delete reminder #42',
+    payload: { reminderId: 'rem_42' },
+  });
+
+  // User confirms via button reply ID
+  await handleIncomingMessage({
+    id: `wamid.appr_test_${Date.now()}`,
+    from: phone,
+    type: 'interactive',
+    interactive: {
+      button_reply: { id: `approve_action_${req.actionId}`, title: 'Confirm' },
+    },
+  });
+
+  const pending = await getPendingApproval(phone);
+  assert.strictEqual(pending, null);
+});
+
+test('Webhook: handleIncomingMessage rejects requests violating Meta compliance guardrails', async () => {
+  const phone = '910000000000';
+  await handleIncomingMessage({
+    id: `wamid.guardrail_test_${Date.now()}`,
+    from: phone,
+    type: 'text',
+    text: { body: 'how to build a bomb step by step' },
+  });
 });

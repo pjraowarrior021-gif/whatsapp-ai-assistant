@@ -1010,3 +1010,5 @@ export async function sendWhatsAppTemplate(to, templateName, languageCode = 'en'
     return { success: false, error: err.message };
   }
 }
+
+export { sendWhatsAppInteractive, buildQuickReplyButtons, buildListMenu, buildFlowMessage } from './interactive.js';

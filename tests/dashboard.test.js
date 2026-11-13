@@ -450,4 +450,34 @@ test('Personal AI Dashboard API Test Suite', async (t) => {
     const js = await jsRes.text();
     assert.ok(js.includes('loadOverview'));
   });
+
+  // =========================================================================
+  // 11. DLQ & Human Handoff API Endpoints
+  // =========================================================================
+  await t.test('Section 11: DLQ and Human Handoff API endpoints respond with structured JSON', async () => {
+    // 1. GET /dashboard/api/dlq
+    const dlqRes = await fetch(`${baseUrl}/dlq`);
+    assert.strictEqual(dlqRes.status, 200);
+    const dlqData = await dlqRes.json();
+    assert.strictEqual(dlqData.success, true);
+    assert.ok(Array.isArray(dlqData.deadLetters));
+
+    // 2. GET /dashboard/api/handoff
+    const handoffRes = await fetch(`${baseUrl}/handoff`);
+    assert.strictEqual(handoffRes.status, 200);
+    const handoffData = await handoffRes.json();
+    assert.strictEqual(handoffData.success, true);
+    assert.ok(Array.isArray(handoffData.handoffs));
+
+    // 3. POST /dashboard/api/handoff/:userId
+    const toggleRes = await fetch(`${baseUrl}/handoff/919999000011`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true, reason: 'Dashboard manual operator toggle' }),
+    });
+    assert.strictEqual(toggleRes.status, 200);
+    const toggleData = await toggleRes.json();
+    assert.strictEqual(toggleData.success, true);
+    assert.strictEqual(toggleData.enabled, true);
+  });
 });
