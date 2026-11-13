@@ -41,13 +41,15 @@ jobs:
       - name: Run Test Suite
         run: |
           node --test tests/*.test.js > test-results.log 2>&1 || {
-            echo "## ❌ Test Suite Failures ($MATRIX_NAME)" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -n 60 test-results.log >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            while IFS= read -r line; do
-              echo "::error::$line"
-            done < <(grep -E "(✖|AssertionError|ERR_|Error:)" test-results.log | head -n 10)
+            node -e "
+              const fs = require('fs');
+              const lines = fs.readFileSync('test-results.log', 'utf8').split('\n');
+              const failIdx = lines.findIndex(l => l.includes('failing tests:'));
+              const slice = failIdx !== -1 ? lines.slice(failIdx, failIdx + 50) : lines.slice(-50);
+              slice.forEach(l => {
+                if (l.trim()) console.log('::error title=Test Failure::' + l.replace(/\r/g, ''));
+              });
+            "
             cat test-results.log
             exit 1
           }
