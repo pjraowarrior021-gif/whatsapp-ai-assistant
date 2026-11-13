@@ -38,8 +38,8 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
-      - name: Run Test Suite with Coverage
-        run: node --test --experimental-test-coverage 'tests/**/*.test.js'
+      - name: Run Test Suite
+        run: npm test
         env:
           NODE_ENV: test
           TZ: 'Asia/Kolkata'
