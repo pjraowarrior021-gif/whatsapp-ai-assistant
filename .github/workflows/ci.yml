@@ -39,11 +39,20 @@ jobs:
         run: npm run lint
 
       - name: Run Test Suite
-        run: npm test
+        run: |
+          node --test tests/*.test.js > test-results.log 2>&1 || {
+            echo "## ❌ Test Suite Failures ($MATRIX_NAME)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 60 test-results.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat test-results.log
+            exit 1
+          }
         env:
           NODE_ENV: test
           TZ: 'Asia/Kolkata'
           TIMEZONE: 'Asia/Kolkata'
+          MATRIX_NAME: 'Node ${{ matrix.node-version }}'
           WHATSAPP_TOKEN: 'mock_test_token'
           WHATSAPP_PHONE_NUMBER_ID: '123456789012345'
           WHATSAPP_VERIFY_TOKEN: 'mock_verify_token'
