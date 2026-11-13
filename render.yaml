@@ -3,15 +3,29 @@ services:
     name: whatsapp-ai-assistant
     runtime: docker
     plan: free
-    region: oregon
+    region: singapore # singapore is ideal for low-latency routing to India / Asia
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 3000
+      - key: LOG_FORMAT
+        value: text
+      - key: OPS_TOKEN
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-3.5-flash-lite
+        value: gemini-3.1-flash-lite
+      - key: GEMINI_FALLBACK_MODELS
+        value: gemini-3.5-flash-lite,gemini-3.5-flash
+      - key: GEMINI_MAX_OUTPUT_TOKENS
+        value: "1024"
+      - key: GEMINI_TEMPERATURE
+        value: "0.7"
+      - key: ENABLE_SEARCH_GROUNDING
+        value: "false"
       - key: WHATSAPP_TOKEN
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID
@@ -22,5 +36,35 @@ services:
         sync: false
       - key: WHATSAPP_APP_SECRET
         sync: false
+      - key: WHATSAPP_API_VERSION
+        value: v21.0
       - key: ALLOWED_PHONE_NUMBERS
         sync: false
+      - key: VIDEO_ENGINE
+        value: free
+      - key: VIDEO_MODEL
+        value: storyboard
+      - key: VIDEO_DEFAULT_DURATION
+        value: "12"
+      - key: POLLINATIONS_API_KEY
+        sync: false
+      - key: POLLINATIONS_VIDEO_MODEL
+        value: alibaba/wan-2.2-fast
+      - key: STATE_BACKEND
+        value: memory
+      - key: SESSION_TIMEOUT_MINUTES
+        value: "15"
+      - key: MAX_CONTEXT_TURNS
+        value: "10"
+      - key: RATE_LIMIT_WINDOW_MS
+        value: "60000"
+      - key: RATE_LIMIT_MAX_PER_WINDOW
+        value: "20"
+      - key: USER_RATE_LIMIT_MAX
+        value: "10"
+      - key: USER_RATE_LIMIT_WINDOW_MS
+        value: "60000"
+      - key: TIMEZONE
+        value: Asia/Kolkata
+      - key: TIMEZONE_OFFSET_HOURS
+        value: "5.5"
