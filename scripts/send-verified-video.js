@@ -4,9 +4,7 @@ import { sendWhatsAppVideo } from '../src/whatsapp.js';
 import { config } from '../src/config.js';
 
 const TARGET_PHONE =
-  process.env.TEST_PHONE_NUMBER ||
-  (config.ALLOWED_PHONE_NUMBERS && Array.from(config.ALLOWED_PHONE_NUMBERS)[0]) ||
-  '';
+  process.env.TEST_PHONE_NUMBER || (config.ALLOWED_PHONE_NUMBERS && Array.from(config.ALLOWED_PHONE_NUMBERS)[0]) || '';
 const videoPath = path.resolve('reports/test_dispatch_mclaren_senna.mp4');
 const videoBuffer = fs.readFileSync(videoPath);
 

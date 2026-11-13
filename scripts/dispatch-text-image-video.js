@@ -7,9 +7,7 @@ import { sendWhatsAppMessage, sendWhatsAppImage, sendWhatsAppVideo } from '../sr
 import { config } from '../src/config.js';
 
 const TARGET_PHONE =
-  process.env.TEST_PHONE_NUMBER ||
-  (config.ALLOWED_PHONE_NUMBERS && Array.from(config.ALLOWED_PHONE_NUMBERS)[0]) ||
-  '';
+  process.env.TEST_PHONE_NUMBER || (config.ALLOWED_PHONE_NUMBERS && Array.from(config.ALLOWED_PHONE_NUMBERS)[0]) || '';
 const ARTIFACT_DIR = process.env.ARTIFACT_DIR || '';
 const REPORTS_DIR = path.resolve('reports');
 
@@ -148,21 +146,36 @@ async function main() {
       ? 'C:\\ffmpeg\\bin\\ffmpeg.EXE'
       : 'ffmpeg');
   const ffmpegArgs = [
-    '-loop', '1',
-    '-i', tempImgPath,
-    '-f', 'lavfi',
-    '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
-    '-filter_complex', '[0:v]scale=1280:720,zoompan=z=\'min(zoom+0.0018,1.25)\':d=125:x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\':s=1280x720,format=yuv420p[v]',
-    '-map', '[v]',
-    '-map', '1:a',
-    '-c:v', 'libx264',
-    '-preset', 'fast',
-    '-profile:v', 'baseline',
-    '-level', '3.0',
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-t', '5',
-    '-movflags', '+faststart',
+    '-loop',
+    '1',
+    '-i',
+    tempImgPath,
+    '-f',
+    'lavfi',
+    '-i',
+    'anullsrc=channel_layout=stereo:sample_rate=44100',
+    '-filter_complex',
+    "[0:v]scale=1280:720,zoompan=z='min(zoom+0.0018,1.25)':d=125:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720,format=yuv420p[v]",
+    '-map',
+    '[v]',
+    '-map',
+    '1:a',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'fast',
+    '-profile:v',
+    'baseline',
+    '-level',
+    '3.0',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '128k',
+    '-t',
+    '5',
+    '-movflags',
+    '+faststart',
     '-y',
     tempVidPath,
   ];

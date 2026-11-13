@@ -21,11 +21,11 @@ services:
       - key: GEMINI_FALLBACK_MODELS
         value: gemini-3.5-flash-lite,gemini-3.5-flash
       - key: GEMINI_MAX_OUTPUT_TOKENS
-        value: "1024"
+        value: '1024'
       - key: GEMINI_TEMPERATURE
-        value: "0.7"
+        value: '0.7'
       - key: ENABLE_SEARCH_GROUNDING
-        value: "false"
+        value: 'false'
       - key: WHATSAPP_TOKEN
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID
@@ -45,7 +45,7 @@ services:
       - key: VIDEO_MODEL
         value: storyboard
       - key: VIDEO_DEFAULT_DURATION
-        value: "12"
+        value: '12'
       - key: POLLINATIONS_API_KEY
         sync: false
       - key: POLLINATIONS_VIDEO_MODEL
@@ -53,18 +53,18 @@ services:
       - key: STATE_BACKEND
         value: memory
       - key: SESSION_TIMEOUT_MINUTES
-        value: "15"
+        value: '15'
       - key: MAX_CONTEXT_TURNS
-        value: "10"
+        value: '10'
       - key: RATE_LIMIT_WINDOW_MS
-        value: "60000"
+        value: '60000'
       - key: RATE_LIMIT_MAX_PER_WINDOW
-        value: "20"
+        value: '20'
       - key: USER_RATE_LIMIT_MAX
-        value: "10"
+        value: '10'
       - key: USER_RATE_LIMIT_WINDOW_MS
-        value: "60000"
+        value: '60000'
       - key: TIMEZONE
         value: Asia/Kolkata
       - key: TIMEZONE_OFFSET_HOURS
-        value: "5.5"
+        value: '5.5'
