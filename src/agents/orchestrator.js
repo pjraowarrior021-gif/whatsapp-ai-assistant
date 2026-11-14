@@ -5,6 +5,8 @@
  */
 import { privacyLog } from '../privacy.js';
 import { modelRouter } from '../model-router.js';
+import { getScopedUserPreferences } from '../auto-learner.js';
+import { getWorkflowMacro } from '../workflow-learner.js';
 import { ConversationAgent } from './conversation.js';
 import { ResearchAgent } from './research.js';
 import { CodingAgent } from './coding.js';
@@ -187,6 +189,17 @@ export class AgentOrchestrator {
       currentAgent = this.getAgent('conversation');
     }
 
+    // --- Scoped User Preference Rules & Execution Macro Retrieval ---
+    const userPrefs = await getScopedUserPreferences(user);
+    const prefBlock =
+      userPrefs.length > 0
+        ? `\n\n[USER PREFERENCES & CORRECTIONS]\n${userPrefs.map((p) => `• ${p.rule}`).join('\n')}`
+        : '';
+    const distilledMacro = await getWorkflowMacro(user, currentAgentName);
+    if (distilledMacro) {
+      context.activeMacro = distilledMacro;
+    }
+
     let hops = 1;
     const delegations = [];
     const allToolsExecuted = [];
@@ -200,11 +213,13 @@ export class AgentOrchestrator {
         userId: user,
       });
 
+      const effectiveInstruction = prefBlock ? `${systemInstruction || ''}${prefBlock}` : systemInstruction;
+
       if (typeof runner === 'function') {
         const res = await runner({
           model: optimalRoute.modelId,
           taskType,
-          systemInstruction,
+          systemInstruction: effectiveInstruction,
           prompt,
           context,
           tools,

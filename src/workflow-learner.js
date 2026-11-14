@@ -251,9 +251,110 @@ export async function clearLearnedWorkflows(anonId) {
   workflowCache.delete(anonId);
   try {
     await store.del(`user:workflows:${anonId}`);
+    await clearWorkflowMacros(anonId);
     return true;
   } catch (err) {
     privacyLog('debug', 'CLEAR_WORKFLOWS_FAILED', { error: err.message });
     return false;
+  }
+}
+
+const MACRO_TTL_SECONDS = 30 * 86400; // 30 days
+
+/**
+ * Distills and saves a multi-step execution macro for an anonymized user.
+ *
+ * @param {string} anonId
+ * @param {object} macro
+ * @param {string} macro.trigger - Intent or keyword trigger (e.g. 'find_and_book', 'research_summary')
+ * @param {string} macro.agent - Target agent name (e.g. 'research', 'productivity')
+ * @param {string[]} macro.sequence - Ordered list of tools/actions
+ * @returns {Promise<{ success: boolean, macro?: object }>}
+ */
+export async function recordWorkflowMacro(anonId, { trigger, agent, sequence }) {
+  if (!anonId || !trigger || !Array.isArray(sequence) || sequence.length === 0) {
+    return { success: false };
+  }
+
+  const cleanTrigger = trigger.trim().toLowerCase();
+  const key = `workflow:macro:${anonId}:${cleanTrigger}`;
+  const existingRaw = await store.get(key);
+
+  let runCount = 1;
+  if (existingRaw) {
+    const existing = typeof existingRaw === 'string' ? JSON.parse(existingRaw) : existingRaw;
+    runCount = (existing.runCount || 1) + 1;
+  }
+
+  const compiledMacro = {
+    trigger: cleanTrigger,
+    agent: agent || 'orchestrator',
+    sequence: [...sequence],
+    runCount,
+    updatedAt: Date.now(),
+  };
+
+  await store.set(key, JSON.stringify(compiledMacro), MACRO_TTL_SECONDS);
+  privacyLog('info', 'WORKFLOW_MACRO_DISTILLED', { user: anonId, trigger: cleanTrigger, steps: sequence.length });
+  return { success: true, macro: compiledMacro };
+}
+
+/**
+ * Retrieves a compiled execution macro for a trigger pattern.
+ *
+ * @param {string} anonId
+ * @param {string} trigger
+ * @returns {Promise<object|null>}
+ */
+export async function getWorkflowMacro(anonId, trigger) {
+  if (!anonId || !trigger) return null;
+  const cleanTrigger = trigger.trim().toLowerCase();
+  const raw = await store.get(`workflow:macro:${anonId}:${cleanTrigger}`);
+  if (!raw) return null;
+  try {
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lists all distilled execution macros for an anonymized user.
+ *
+ * @param {string} anonId
+ * @returns {Promise<Array<object>>}
+ */
+export async function listWorkflowMacros(anonId) {
+  if (!anonId) return [];
+  const keys = await store.keys(`workflow:macro:${anonId}:*`);
+  const macros = [];
+  for (const k of keys) {
+    const raw = await store.get(k);
+    if (raw) {
+      try {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (parsed) macros.push(parsed);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return macros;
+}
+
+/**
+ * Clears all distilled execution macros for a user.
+ *
+ * @param {string} anonId
+ */
+export async function clearWorkflowMacros(anonId) {
+  if (!anonId) return;
+  try {
+    const keys = await store.keys(`workflow:macro:${anonId}:*`);
+    for (const k of keys) {
+      await store.del(k);
+    }
+  } catch {
+    // ignore
   }
 }

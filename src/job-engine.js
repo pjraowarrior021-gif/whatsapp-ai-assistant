@@ -16,7 +16,11 @@
 
 import { EventEmitter } from 'events';
 import { randomBytes } from 'crypto';
-import { privacyLog } from './privacy.js';
+import { privacyLog, sanitizeWebContent, isDomainInAllowlist } from './privacy.js';
+import { getWatchlist, fetchAndExtractArticle, computeContentHash } from './web-scraper.js';
+import { checkAndIncrementBackgroundQuota } from './quota.js';
+import { ragEngine } from './rag/index.js';
+import { store } from './store/index.js';
 
 /**
  * Valid Job Lifecycle Statuses
@@ -868,4 +872,92 @@ jobEngine.registerJobHandler('document_indexing', async (job, updateProgress, si
     chunksIndexed: job.payload?.chunks?.length || 1,
     status: 'indexed',
   };
+});
+
+// Autonomous Web Knowledge Ingestion & Freshness Synchronization
+jobEngine.registerJobHandler('web_knowledge_scrape', async (job, updateProgress, signal) => {
+  await updateProgress(5, { step: 'Loading vetted watchlist' });
+  if (signal.aborted) throw new Error('Aborted');
+
+  const watchlist = await getWatchlist();
+  const enabledItems = watchlist.filter((item) => item.enabled !== false);
+  const results = {
+    total: enabledItems.length,
+    scraped: 0,
+    skippedDuplicate: 0,
+    skippedQuota: 0,
+    errors: 0,
+  };
+
+  for (let i = 0; i < enabledItems.length; i++) {
+    if (signal.aborted) throw new Error('Aborted');
+    const item = enabledItems[i];
+
+    // 1. Quota Gate: insulate user chat budgets
+    const quotaCheck = checkAndIncrementBackgroundQuota({ tokens: 1000 });
+    if (!quotaCheck.allowed) {
+      results.skippedQuota += enabledItems.length - i;
+      privacyLog('warn', 'WEB_LEARN_BACKGROUND_QUOTA_REACHED', { target: item.target });
+      break;
+    }
+
+    // 2. Allowlist Gate: strict vetted domain enforcement
+    if (!isDomainInAllowlist(item.target)) {
+      results.errors++;
+      continue;
+    }
+
+    try {
+      await updateProgress(Math.round(10 + (i / Math.max(1, enabledItems.length)) * 80), {
+        step: `Scraping ${item.target}`,
+      });
+
+      const article = await fetchAndExtractArticle(item.target);
+      if (!article || !article.ok || !article.text) {
+        results.errors++;
+        continue;
+      }
+
+      // 3. SHA-256 Deduplication: skip identical content
+      const hash = computeContentHash(article.text);
+      const hashKey = `web_learn:hash:${item.target}`;
+      const lastHash = await store.get(hashKey);
+
+      if (lastHash === hash && !job.payload?.force) {
+        results.skippedDuplicate++;
+        continue;
+      }
+
+      // 4. Anti-Poisoning: strip prompt injections and wrap inside untrusted XML
+      const sanitized = sanitizeWebContent(article.text, {
+        sourceUrl: item.target,
+        hash,
+      });
+
+      // 5. Ingestion into RAG with TTL and freshness decay metadata
+      if (ragEngine && typeof ragEngine.addDocument === 'function') {
+        await ragEngine.addDocument('system_web_knowledge', sanitized.sanitized, {
+          docId: `web_${hash.slice(0, 10)}`,
+          title: article.title || item.target,
+          metadata: {
+            source_url: item.target,
+            scraped_at: Date.now(),
+            ttlSec: item.ttlSec || 604800,
+            is_web_ingested: true,
+            hash,
+          },
+        });
+      }
+
+      await store.set(hashKey, hash, 30 * 86400);
+      item.lastScrapedAt = Date.now();
+      results.scraped++;
+    } catch (err) {
+      results.errors++;
+      privacyLog('warn', 'WEB_LEARN_SCRAPE_FAILED', { target: item.target, error: err.message });
+    }
+  }
+
+  await updateProgress(100, { step: 'Web knowledge ingestion complete' });
+  return results;
 });

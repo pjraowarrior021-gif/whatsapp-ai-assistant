@@ -12,6 +12,7 @@ import { updateUserProfile, detectActiveProject } from './conversation-adapter.j
 import { processImageFollowUpFeedback } from './image-learner.js';
 import { getKnowledgeGraph, ENTITY_TYPES } from './knowledge-graph.js';
 import { privacyLog } from './privacy.js';
+import { store } from './store/index.js';
 
 /**
  * High-precision deterministic regular expressions for fast, 0ms fact extraction.
@@ -135,6 +136,135 @@ export function extractDeterministicFacts(text) {
 }
 
 /**
+ * Deterministic patterns for detecting explicit user corrections.
+ */
+export const USER_CORRECTION_PATTERNS = [
+  {
+    scope: 'tool',
+    regex: /\b(?:no,?|not that,?|instead of \w+,?)\s*(?:use|run|switch to)\s+([A-Za-z0-9_-]+)/i,
+    transform: (m) => `Use ${m[1].trim()} instead`,
+  },
+  {
+    scope: 'format',
+    regex: /\b(?:always|please always)\s+(?:format|format as|show as|output in|reply in)\s+([A-Za-z0-9\s_-]{3,40})/i,
+    transform: (m) => `Always format as ${m[1].trim()}`,
+  },
+  {
+    scope: 'format',
+    regex: /\bnever\s+(?:use|format|include|show)\s+([A-Za-z0-9\s_-]{3,40})/i,
+    transform: (m) => `Never use ${m[1].trim()}`,
+  },
+  {
+    scope: 'general',
+    regex: /\bprefer\s+([A-Za-z0-9\s_-]{3,30})\s+(?:over|instead of)\s+([A-Za-z0-9\s_-]{3,30})/i,
+    transform: (m) => `Prefer ${m[1].trim()} over ${m[2].trim()}`,
+  },
+  {
+    scope: 'general',
+    regex: /\b(?:correction|actually),?\s+([A-Za-z0-9\s_-]{5,60})/i,
+    transform: (m) => `Correction: ${m[1].trim()}`,
+  },
+];
+
+/**
+ * Extracts explicit user corrections and preference rules from chat input.
+ * @param {string} text
+ * @returns {Array<{ rule: string, scope: 'tool'|'format'|'general', confidence: number }>}
+ */
+export function extractUserCorrections(text) {
+  if (!text || typeof text !== 'string') return [];
+  const clean = text.trim();
+  const corrections = [];
+
+  for (const item of USER_CORRECTION_PATTERNS) {
+    const match = clean.match(item.regex);
+    if (match) {
+      const rule = item.transform(match);
+      if (rule) {
+        corrections.push({
+          rule,
+          scope: item.scope,
+          confidence: 0.95,
+        });
+      }
+    }
+  }
+
+  return corrections;
+}
+
+const PREF_TTL_SECONDS = 90 * 86400; // 90 days
+
+/**
+ * Persists a scoped user preference rule into Redis/Store.
+ *
+ * @param {string} anonId
+ * @param {string} rule
+ * @param {'tool'|'format'|'general'} [scope='general']
+ * @returns {Promise<{ success: boolean, ruleId?: string }>}
+ */
+export async function addScopedUserPreference(anonId, rule, scope = 'general') {
+  if (!anonId || !rule) return { success: false };
+  const key = `user:preferences:${anonId}`;
+  const existing = await getScopedUserPreferences(anonId);
+
+  const cleanRule = String(rule).trim();
+  const ruleId = `pref_${Date.now().toString(36)}`;
+
+  // Deduplicate against identical existing rules
+  if (existing.some((p) => p.rule.toLowerCase() === cleanRule.toLowerCase())) {
+    return { success: true };
+  }
+
+  existing.push({
+    id: ruleId,
+    rule: cleanRule,
+    scope,
+    createdAt: Date.now(),
+  });
+
+  // Keep max 20 active preference rules
+  if (existing.length > 20) {
+    existing.shift();
+  }
+
+  await store.set(key, JSON.stringify(existing), PREF_TTL_SECONDS);
+  privacyLog('info', 'USER_PREFERENCE_RULE_LEARNED', { user: anonId, scope });
+  return { success: true, ruleId };
+}
+
+/**
+ * Retrieves all active scoped preference rules for a user.
+ * @param {string} anonId
+ * @returns {Promise<Array<object>>}
+ */
+export async function getScopedUserPreferences(anonId) {
+  if (!anonId) return [];
+  const raw = await store.get(`user:preferences:${anonId}`);
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Clears scoped preferences for an anonymized user.
+ * @param {string} anonId
+ */
+export async function clearScopedUserPreferences(anonId) {
+  if (anonId) {
+    await store.del(`user:preferences:${anonId}`);
+  }
+}
+
+/**
  * Classifies an incoming message into an interaction category for workflow learning.
  *
  * @param {string} text
@@ -218,6 +348,16 @@ export async function autoLearnFromTurn({ anonId, userMessage, _assistantReply, 
     } catch (err) {
       privacyLog('debug', 'AUTO_LEARN_FACT_SAVE_FAILED', { error: err.message });
     }
+  }
+
+  // 3b. User Correction & Preference Extraction
+  try {
+    const corrections = extractUserCorrections(userMessage);
+    for (const corr of corrections) {
+      await addScopedUserPreference(anonId, corr.rule, corr.scope);
+    }
+  } catch (corrErr) {
+    privacyLog('debug', 'AUTO_LEARN_CORRECTION_FAILED', { error: corrErr.message });
   }
 
   // 4. Continuous Adaptive Profile Learning (Topics of Interest & Active Projects)

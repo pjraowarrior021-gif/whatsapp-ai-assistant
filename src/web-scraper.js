@@ -1,6 +1,8 @@
 import { URL } from 'node:url';
+import crypto from 'node:crypto';
 import { config } from './config.js';
-import { privacyLog } from './privacy.js';
+import { privacyLog, isDomainInAllowlist } from './privacy.js';
+import { store } from './store/index.js';
 
 /**
  * URL matching regular expression (HTTP and HTTPS only).
@@ -306,4 +308,113 @@ export async function fetchAndExtractArticle(urlString, options = {}) {
 
     return { ok: false, reason: isTimeout ? 'timeout' : 'network_error' };
   }
+}
+
+/**
+ * Computes a SHA-256 hash of text content for change detection and deduplication.
+ * @param {string} text
+ * @returns {string}
+ */
+export function computeContentHash(text) {
+  return crypto
+    .createHash('sha256')
+    .update(String(text || ''), 'utf8')
+    .digest('hex');
+}
+
+const WATCHLIST_STORE_KEY = 'web_learn:watchlist';
+
+/**
+ * Retrieves the vetted watchlist from persistent store.
+ * @returns {Promise<Array<object>>}
+ */
+export async function getWatchlist() {
+  const raw = await store.get(WATCHLIST_STORE_KEY);
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Adds or updates a target in the vetted watchlist.
+ *
+ * @param {object} item
+ * @param {string} item.target - URL, domain, or research topic
+ * @param {'url'|'domain'|'topic'} [item.type='url']
+ * @param {number} [item.intervalSec=21600] - Ingestion interval (default: 6 hours)
+ * @param {number} [item.ttlSec=604800] - Freshness TTL (default: 7 days)
+ * @returns {Promise<{ success: boolean, item?: object, error?: string }>}
+ */
+export async function addToWatchlist({ target, type = 'url', intervalSec = 21600, ttlSec = 604800 }) {
+  if (!target || typeof target !== 'string') {
+    return { success: false, error: 'Target must be a non-empty string' };
+  }
+
+  const cleanTarget = target.trim();
+
+  // Validate against vetted domain allowlist if URL or domain
+  if (type === 'url' || type === 'domain' || cleanTarget.startsWith('http')) {
+    if (!isDomainInAllowlist(cleanTarget)) {
+      return {
+        success: false,
+        error: `Domain for "${cleanTarget}" is not on the vetted domain allowlist.`,
+      };
+    }
+  }
+
+  const list = await getWatchlist();
+  const id = `wl_${crypto.createHash('md5').update(cleanTarget).digest('hex').slice(0, 10)}`;
+
+  const existingIdx = list.findIndex((w) => w.id === id || w.target.toLowerCase() === cleanTarget.toLowerCase());
+  const entry = {
+    id,
+    target: cleanTarget,
+    type,
+    enabled: true,
+    intervalSec: Number(intervalSec) || 21600,
+    ttlSec: Number(ttlSec) || 604800,
+    addedAt: existingIdx >= 0 ? list[existingIdx].addedAt : Date.now(),
+    lastScrapedAt: existingIdx >= 0 ? list[existingIdx].lastScrapedAt : null,
+  };
+
+  if (existingIdx >= 0) {
+    list[existingIdx] = { ...list[existingIdx], ...entry };
+  } else {
+    list.push(entry);
+  }
+
+  await store.set(WATCHLIST_STORE_KEY, JSON.stringify(list));
+  privacyLog('info', 'WEB_LEARN_WATCHLIST_UPDATED', { target: cleanTarget, type });
+  return { success: true, item: entry };
+}
+
+/**
+ * Removes an item from the vetted watchlist.
+ * @param {string} idOrTarget
+ * @returns {Promise<{ success: boolean, removed: boolean }>}
+ */
+export async function removeFromWatchlist(idOrTarget) {
+  if (!idOrTarget) return { success: false, removed: false };
+  const list = await getWatchlist();
+  const filtered = list.filter((w) => w.id !== idOrTarget && w.target.toLowerCase() !== idOrTarget.toLowerCase());
+  const removed = filtered.length < list.length;
+  if (removed) {
+    await store.set(WATCHLIST_STORE_KEY, JSON.stringify(filtered));
+  }
+  return { success: true, removed };
+}
+
+/**
+ * Clears all items from the watchlist (for test teardown).
+ */
+export async function clearWatchlist() {
+  await store.del(WATCHLIST_STORE_KEY);
 }

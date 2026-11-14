@@ -317,6 +317,9 @@ export class PersonalKnowledgeGraph {
         status: 'active',
       },
       supersededBy: null,
+      source_url: relData.source_url || metadata.source_url || null,
+      scraped_at: relData.scraped_at || metadata.scraped_at || null,
+      ttlSec: relData.ttlSec || metadata.ttlSec || null,
       metadata: { ...metadata },
       createdAt: now,
       updatedAt: now,
@@ -380,6 +383,12 @@ export class PersonalKnowledgeGraph {
     for (const rel of this.relations.values()) {
       if (status !== 'all' && rel.temporal.status !== status) {
         continue;
+      }
+      if (rel.ttlSec && rel.scraped_at && !options.includeStale) {
+        const ageSec = (Date.now() - rel.scraped_at) / 1000;
+        if (ageSec > rel.ttlSec) {
+          continue; // Automatically decay and exclude stale relations
+        }
       }
       if (rel.confidence < minConfidence) {
         continue;

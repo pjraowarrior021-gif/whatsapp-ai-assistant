@@ -216,6 +216,7 @@ export class ModelRouter {
     };
     this.budgets = new Map(); // Map<userId | 'global', { maxTokensPerDay, maxRequestsPerDay, maxLatencyMs }>
     this.defaultCooldownMs = options.defaultCooldownMs || 30_000;
+    this.categoryEscalations = new Map(); // Map<category, { targetModel: string, reason: string, escalatedAt: number }>
 
     this.initDefaultModels();
   }
@@ -431,6 +432,86 @@ export class ModelRouter {
   }
 
   /**
+   * Dynamically escalates a task category to a higher-tier Gemini model.
+   *
+   * @param {string} category
+   * @param {string} [targetModel='gemini-2.5-pro']
+   * @param {string} [reason='Error/health threshold triggered']
+   */
+  escalateCategory(category, targetModel = 'gemini-2.5-pro', reason = 'Error/health threshold triggered') {
+    const cat = String(category).toLowerCase();
+    this.categoryEscalations.set(cat, {
+      targetModel,
+      reason,
+      escalatedAt: Date.now(),
+    });
+    privacyLog('warn', 'MODEL_ROUTER_CATEGORY_ESCALATED', { category: cat, targetModel, reason });
+  }
+
+  /**
+   * Retrieves active escalation for a task category.
+   * @param {string} category
+   * @returns {{ targetModel: string, reason: string, escalatedAt: number } | null}
+   */
+  getEscalation(category) {
+    const cat = String(category).toLowerCase();
+    return this.categoryEscalations.get(cat) || null;
+  }
+
+  /**
+   * Rolls back an escalation for a specific category.
+   * @param {string} category
+   * @returns {boolean}
+   */
+  rollbackEscalation(category) {
+    const cat = String(category).toLowerCase();
+    return this.categoryEscalations.delete(cat);
+  }
+
+  /**
+   * Resets all category escalations back to baseline (used on benchmark regression).
+   * @param {string} [reason='Benchmark regression detected']
+   * @returns {number} Count of rolled-back escalations
+   */
+  rollbackAllEscalations(reason = 'Benchmark regression detected') {
+    const count = this.categoryEscalations.size;
+    this.categoryEscalations.clear();
+    privacyLog('info', 'MODEL_ROUTER_ESCALATIONS_ROLLED_BACK', { count, reason });
+    return count;
+  }
+
+  /**
+   * Evaluates category health stats and automatically escalates if error/feedback thresholds are breached.
+   *
+   * @param {string} category
+   * @param {object} healthStats
+   * @returns {boolean} True if category was escalated
+   */
+  evaluateAndEscalateCategory(category, healthStats = {}) {
+    const cat = String(category).toLowerCase();
+    const errorRate = healthStats.errorRate || 0;
+    const consecutiveErrors = healthStats.consecutiveErrors || 0;
+    const negativeFeedback = healthStats.negativeFeedback || 0;
+
+    // Escalate if error rate > 15%, 2+ consecutive failures, or 2+ negative feedback signals
+    if (errorRate > 0.15 || consecutiveErrors >= 2 || negativeFeedback >= 2) {
+      const reason =
+        errorRate > 0.15
+          ? `High error rate (${(errorRate * 100).toFixed(1)}%)`
+          : consecutiveErrors >= 2
+            ? `${consecutiveErrors} consecutive errors`
+            : `${negativeFeedback} negative feedback reactions`;
+
+      // Escalate from standard flash-lite to gemini-2.5-pro or gemini-2.5-flash
+      const targetModel =
+        cat === TASK_TYPES.CODING || cat === TASK_TYPES.REASONING ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+      this.escalateCategory(cat, targetModel, reason);
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Routes a task to the optimal model based on task type and requirements.
    * @param {string} taskType - Member of TASK_TYPES
    * @param {object} requirements - Filtering and preference options
@@ -503,17 +584,28 @@ export class ModelRouter {
         score += 15;
       }
 
+      // Dynamic Metric-Driven Escalation Boost
+      const escalation = this.getEscalation(validTask);
+      if (escalation && model.id === escalation.targetModel) {
+        score += 60; // Prioritize escalated high-tier model
+      }
+
       return { model, score };
     });
 
     scored.sort((a, b) => b.score - a.score);
     const chosen = scored[0];
 
+    const activeEscalation = this.getEscalation(validTask);
+    const isEscalatedMatch = activeEscalation && chosen.model.id === activeEscalation.targetModel;
+
     return {
       modelId: chosen.model.id,
       model: chosen.model,
       score: chosen.score,
-      reason: `Optimal model for task '${validTask}' with score ${chosen.score}`,
+      reason: isEscalatedMatch
+        ? `Escalated due to performance/error threshold: ${activeEscalation.reason}`
+        : `Optimal model for task '${validTask}' with score ${chosen.score}`,
     };
   }
 

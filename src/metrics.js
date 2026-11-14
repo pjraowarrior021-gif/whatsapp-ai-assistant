@@ -50,6 +50,95 @@ export function recordMediaBytes(bytes) {
   }
 }
 
+// Category task performance & health tracking for model auto-tuning
+const categoryHealth = new Map();
+
+/**
+ * Records task execution health and user feedback per category.
+ *
+ * @param {string} category - Task category (e.g. 'coding', 'research', 'math', 'document', 'chat')
+ * @param {object} [stats]
+ * @param {boolean} [stats.success=true]
+ * @param {number} [stats.retries=0]
+ * @param {boolean} [stats.negativeFeedback=false]
+ * @param {number} [stats.latencyMs=0]
+ */
+export function recordCategoryPerformance(
+  category = 'chat',
+  { success = true, retries = 0, negativeFeedback = false, latencyMs = 0 } = {}
+) {
+  const cat = String(category).toLowerCase();
+  const current = categoryHealth.get(cat) || {
+    total: 0,
+    errors: 0,
+    retries: 0,
+    negativeFeedback: 0,
+    totalLatencyMs: 0,
+    consecutiveErrors: 0,
+  };
+
+  current.total += 1;
+  if (!success) {
+    current.errors += 1;
+    current.consecutiveErrors += 1;
+  } else {
+    current.consecutiveErrors = 0;
+  }
+  current.retries += retries;
+  if (negativeFeedback) {
+    current.negativeFeedback += 1;
+  }
+  current.totalLatencyMs += latencyMs;
+
+  categoryHealth.set(cat, current);
+}
+
+/**
+ * Returns performance and error rate health for a task category.
+ * @param {string} category
+ * @returns {object}
+ */
+export function getCategoryHealth(category) {
+  const cat = String(category).toLowerCase();
+  const h = categoryHealth.get(cat);
+  if (!h || h.total === 0) {
+    return {
+      category: cat,
+      total: 0,
+      errors: 0,
+      errorRate: 0,
+      retries: 0,
+      negativeFeedback: 0,
+      avgLatencyMs: 0,
+      consecutiveErrors: 0,
+    };
+  }
+  const errorRate = Number((h.errors / h.total).toFixed(3));
+  const avgLatencyMs = Math.round(h.totalLatencyMs / h.total);
+  return {
+    category: cat,
+    total: h.total,
+    errors: h.errors,
+    errorRate,
+    retries: h.retries,
+    negativeFeedback: h.negativeFeedback,
+    avgLatencyMs,
+    consecutiveErrors: h.consecutiveErrors,
+  };
+}
+
+/**
+ * Returns performance health across all tracked categories.
+ * @returns {Record<string, object>}
+ */
+export function getAllCategoryHealth() {
+  const result = {};
+  for (const cat of categoryHealth.keys()) {
+    result[cat] = getCategoryHealth(cat);
+  }
+  return result;
+}
+
 /**
  * Resets all metrics (primarily for test isolation).
  */
@@ -57,6 +146,7 @@ export function resetMetrics() {
   messagesTotal.clear();
   geminiRequestsTotal.clear();
   errorsTotal.clear();
+  categoryHealth.clear();
   mediaBytesTotal = 0;
 }
 

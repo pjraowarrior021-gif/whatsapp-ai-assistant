@@ -3,6 +3,7 @@
  * Deep fact-finding, search grounding, current events, and web synthesis.
  */
 import { TASK_TYPES } from '../model-router.js';
+import { sanitizeWebContent } from '../privacy.js';
 
 export const RESEARCH_TOOLS = Object.freeze([
   'web_search',
@@ -87,7 +88,8 @@ When synthesizing information:
       try {
         const urlResult = await callTool('extract_url_content', { url: urlMatch[0] });
         if (urlResult?.content) {
-          externalContext = `\n[Extracted Web Content from ${urlMatch[0]}]:\n${urlResult.content.slice(0, 2000)}`;
+          const sanitized = sanitizeWebContent(urlResult.content.slice(0, 3000), { sourceUrl: urlMatch[0] });
+          externalContext = `\n${sanitized.sanitized}`;
         }
       } catch (err) {
         externalContext = `\n[Failed to fetch URL ${urlMatch[0]}: ${err.message}]`;

@@ -374,25 +374,49 @@ export class RagEngine {
     const matches = this.store.search(anonId, {
       query: cleanQuery,
       queryEmbedding,
-      topK: options.topK || 5,
+      topK: (options.topK || 5) * 2, // Query extra to allow freshness filtering
       mode,
       alpha: options.alpha !== undefined ? options.alpha : 0.5,
       filter: options.filter || null,
     });
 
-    const results = matches.map((m) => ({
-      id: m.chunk.id,
-      docId: m.chunk.docId,
-      text: m.chunk.text,
-      source: m.chunk.source,
-      page: m.chunk.page,
-      chunkIndex: m.chunk.chunkIndex,
-      score: m.score,
-      denseScore: m.denseScore,
-      bm25Score: m.bm25Score,
-      rank: m.rank,
-      metadata: m.chunk.metadata || {},
-    }));
+    const now = Date.now();
+    const results = [];
+
+    for (const m of matches) {
+      const meta = m.chunk.metadata || {};
+      let freshness = 1.0;
+
+      if (meta.is_web_ingested || meta.scraped_at) {
+        const scrapedAt = meta.scraped_at || m.chunk.createdAt || now;
+        const ttlSec = meta.ttlSec || 604800; // default 7 days
+        const ageSec = (now - scrapedAt) / 1000;
+
+        if (ageSec > ttlSec && !options.includeStale) {
+          continue; // Automatically decay and exclude stale knowledge chunks
+        }
+        freshness = Math.max(0.1, 1 - ageSec / ttlSec);
+      }
+
+      results.push({
+        id: m.chunk.id,
+        docId: m.chunk.docId,
+        text: m.chunk.text,
+        source: m.chunk.source,
+        page: m.chunk.page,
+        chunkIndex: m.chunk.chunkIndex,
+        score: Number((m.score * freshness).toFixed(4)),
+        freshnessScore: Number(freshness.toFixed(3)),
+        denseScore: m.denseScore,
+        bm25Score: m.bm25Score,
+        rank: m.rank,
+        metadata: meta,
+      });
+
+      if (results.length >= (options.topK || 5)) {
+        break;
+      }
+    }
 
     return {
       query: cleanQuery,

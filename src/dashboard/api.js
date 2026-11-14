@@ -5,6 +5,9 @@ import { getRecentLogs, getActiveSessionCount, privacyLog } from '../privacy.js'
 import { getActiveModel, setActiveModel } from '../gemini.js';
 import { messageQueue } from '../queue.js';
 import { listActiveHandoffs, setHumanHandoff } from '../approval.js';
+import { getWatchlist, addToWatchlist, removeFromWatchlist } from '../web-scraper.js';
+import { getBackgroundQuotaReport } from '../quota.js';
+import { jobEngine } from '../job-engine.js';
 
 export const dashboardRouter = express.Router();
 
@@ -1127,6 +1130,53 @@ dashboardRouter.post('/handoff/:userId', async (req, res) => {
       enabled: Boolean(enabled),
       message: enabled ? 'Human handoff activated.' : 'Human handoff cleared. AI resumed.',
     });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /dashboard/api/web-learn/watchlist - List vetted domains/feeds/topics
+dashboardRouter.get('/web-learn/watchlist', async (_req, res) => {
+  try {
+    const list = await getWatchlist();
+    const quota = getBackgroundQuotaReport();
+    res.status(200).json({ success: true, count: list.length, watchlist: list, quota });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /dashboard/api/web-learn/watchlist - Add or update a target
+dashboardRouter.post('/web-learn/watchlist', async (req, res) => {
+  try {
+    const { target, type, intervalSec, ttlSec } = req.body || {};
+    const result = await addToWatchlist({ target, type, intervalSec, ttlSec });
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /dashboard/api/web-learn/watchlist/:id - Remove a target
+dashboardRouter.delete('/web-learn/watchlist/:id', async (req, res) => {
+  try {
+    const result = await removeFromWatchlist(req.params.id);
+    res.status(200).json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /dashboard/api/web-learn/trigger - Manually trigger background knowledge scrape
+dashboardRouter.post('/web-learn/trigger', async (req, res) => {
+  try {
+    const job = await jobEngine.submitJob('web_knowledge_scrape', {
+      force: Boolean(req.body?.force),
+    });
+    res.status(202).json({ success: true, jobId: job.id, status: job.status });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

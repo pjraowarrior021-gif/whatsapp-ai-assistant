@@ -43,6 +43,7 @@ import {
   updateUserProfile,
   clearUserProfile,
 } from '../src/conversation-adapter.js';
+import { modelRouter } from '../src/model-router.js';
 
 const results = [];
 
@@ -963,7 +964,58 @@ async function runAllBenchmarks() {
   console.log(JSON.stringify(results, null, 2));
 }
 
-runAllBenchmarks().catch((err) => {
-  console.error('Benchmark runner error:', err);
-  process.exit(1);
-});
+/**
+ * Programmatic self-benchmark check that automatically rolls back routing/model escalations
+ * if regressions in accuracy or latency are detected.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.rollbackOnRegression=true]
+ * @param {number} [options.maxRegressionErrorRate=0.2]
+ * @returns {Promise<{ success: boolean, passed: number, total: number, errorRate: number, durationMs: number, rolledBack: boolean }>}
+ */
+export async function runSelfBenchmark({ rollbackOnRegression = true, maxRegressionErrorRate = 0.2 } = {}) {
+  const tests = [
+    { name: 'Masking', fn: () => maskSensitiveInfo('card 4111111111111111') },
+    { name: 'URL Safety', fn: () => isSafeUrl('https://en.wikipedia.org') },
+    { name: 'Quota Check', fn: () => checkAndIncrementUserQuota('u_benchmark') },
+    { name: 'Rate Limiter', fn: () => checkUserRateLimit('u_benchmark') },
+  ];
+
+  let passed = 0;
+  const start = performance.now();
+  for (const t of tests) {
+    try {
+      await t.fn();
+      passed++;
+    } catch {
+      // failed
+    }
+  }
+
+  const durationMs = performance.now() - start;
+  const errorRate = (tests.length - passed) / tests.length;
+  let rolledBack = false;
+
+  if (errorRate > maxRegressionErrorRate || durationMs > 5000) {
+    if (rollbackOnRegression) {
+      modelRouter.rollbackAllEscalations('Self-benchmark regression detected');
+      rolledBack = true;
+    }
+  }
+
+  return {
+    success: errorRate <= maxRegressionErrorRate,
+    passed,
+    total: tests.length,
+    errorRate,
+    durationMs,
+    rolledBack,
+  };
+}
+
+if (process.argv[1] && process.argv[1].endsWith('benchmark.js')) {
+  runAllBenchmarks().catch((err) => {
+    console.error('Benchmark runner error:', err);
+    process.exit(1);
+  });
+}

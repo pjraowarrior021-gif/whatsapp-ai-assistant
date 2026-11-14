@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { URL } from 'node:url';
 import { config, normalizePhoneNumber } from './config.js';
 import { store } from './store/index.js';
 import { clearUserProfile } from './conversation-adapter.js';
@@ -196,6 +197,108 @@ export function maskSensitiveInfo(text) {
     sanitizedText: sanitized,
     hasRedactions: categories.length > 0,
     categories: [...new Set(categories)],
+  };
+}
+
+// Suspicious LLM prompt injection signatures to neutralize in web-scraped content
+const PROMPT_INJECTION_PATTERNS = [
+  /ignore\s+(?:all\s+)?previous\s+instructions/gi,
+  /disregard\s+(?:all\s+)?prior\s+prompts?/gi,
+  /you\s+are\s+now\s+(?:in\s+)?(?:developer|dan|god)\s+mode/gi,
+  /(?:system\s+prompt\s+override|override\s+system\s+(?:rules|prompt))/gi,
+  /output\s+all\s+(?:system\s+instructions|api\s+keys|secrets)/gi,
+  /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+  /javascript:[^)\s"']+/gi,
+  /!\[.*?\]\([^)]*\)/gi,
+  /(?:curl|wget)\s+-[sS]?\s+http/gi,
+];
+
+// Default vetted domains allowed for automated background ingestion
+const DEFAULT_VETTED_DOMAINS = new Set([
+  'wikipedia.org',
+  'en.wikipedia.org',
+  'github.com',
+  'developer.mozilla.org',
+  'stackoverflow.com',
+  'news.ycombinator.com',
+  'techcrunch.com',
+  'arxiv.org',
+  'nature.com',
+  'reuters.com',
+  'bbc.com',
+  'theverge.com',
+]);
+
+/**
+ * Checks if a URL or domain is permitted under the vetted domain allowlist.
+ * @param {string} urlOrDomain
+ * @param {Set<string>|string[]} [customAllowlist]
+ * @returns {boolean}
+ */
+export function isDomainInAllowlist(urlOrDomain, customAllowlist = null) {
+  if (!urlOrDomain || typeof urlOrDomain !== 'string') return false;
+  let hostname = urlOrDomain.toLowerCase().trim();
+  try {
+    if (hostname.startsWith('http://') || hostname.startsWith('https://')) {
+      hostname = new URL(hostname).hostname.toLowerCase();
+    }
+  } catch {
+    return false;
+  }
+
+  const allowlist = customAllowlist
+    ? new Set(Array.from(customAllowlist).map((d) => d.toLowerCase().trim()))
+    : DEFAULT_VETTED_DOMAINS;
+
+  for (const domain of allowlist) {
+    if (hostname === domain || hostname.endsWith(`.${domain}`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Strips prompt injections, harmful scripts, and hidden vectors from web-scraped content
+ * and encloses it within a strict, tamper-evident XML block.
+ *
+ * @param {string} text - Raw extracted web text
+ * @param {object} [meta]
+ * @param {string} [meta.sourceUrl='unknown']
+ * @param {string} [meta.hash='']
+ * @returns {{ sanitized: string, injectedDetected: boolean, strippedCount: number }}
+ */
+export function sanitizeWebContent(text, meta = {}) {
+  if (!text || typeof text !== 'string') {
+    return { sanitized: '', injectedDetected: false, strippedCount: 0 };
+  }
+
+  // 1. Strip zero-width & invisible unicode control characters
+  let clean = text.replace(/[\u200B-\u200D\uFEFF\u202A-\u202E]/g, '');
+
+  let strippedCount = 0;
+  let injectedDetected = false;
+
+  // 2. Neutralize suspicious prompt injection signatures
+  for (const pattern of PROMPT_INJECTION_PATTERNS) {
+    const matches = clean.match(pattern);
+    if (matches && matches.length > 0) {
+      injectedDetected = true;
+      strippedCount += matches.length;
+      clean = clean.replace(pattern, '[REDACTED_PROMPT_INJECTION]');
+    }
+  }
+
+  const sourceUrl = meta.sourceUrl ? String(meta.sourceUrl).trim() : 'unknown';
+  const contentHash = meta.hash ? String(meta.hash).trim() : '';
+
+  // 3. Enclose inside strict XML untrusted wrapper
+  const sanitized = `<untrusted_web_content source="${sourceUrl}" hash="${contentHash}">\n${clean.trim()}\n</untrusted_web_content>`;
+
+  return {
+    sanitized,
+    injectedDetected,
+    strippedCount,
   };
 }
 
