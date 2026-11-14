@@ -6,13 +6,18 @@ import { getWeather } from '../src/tools/weather.js';
 
 test('Tools: registry exposes expected function schemas', () => {
   assert.ok(Array.isArray(toolDeclarations));
-  assert.strictEqual(toolDeclarations.length, 4);
+  assert.strictEqual(toolDeclarations.length, 9);
 
   const toolNames = toolDeclarations.map((t) => t.name);
   assert.ok(toolNames.includes('get_current_time'));
   assert.ok(toolNames.includes('get_current_weather'));
   assert.ok(toolNames.includes('schedule_reminder'));
   assert.ok(toolNames.includes('add_todo_task'));
+  assert.ok(toolNames.includes('search_nearby'));
+  assert.ok(toolNames.includes('log_expense'));
+  assert.ok(toolNames.includes('get_monthly_expenses'));
+  assert.ok(toolNames.includes('create_calendar_invite'));
+  assert.ok(toolNames.includes('share_contact_card'));
 });
 
 test('Tools: getCurrentTime returns valid formatted time payload', async () => {

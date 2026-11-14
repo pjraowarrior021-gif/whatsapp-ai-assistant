@@ -11,6 +11,7 @@ export const MEDIA_TOOLS = Object.freeze([
   'transcribe_audio',
   'generate_image',
   'optimize_image_prompt',
+  'log_expense',
 ]);
 
 export class MediaAgent {

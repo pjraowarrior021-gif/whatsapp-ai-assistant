@@ -1,14 +1,10 @@
 /**
- * WhatsApp Message Formatter & Sanitizer
+ * WhatsApp Mobile Formatting & LaTeX Normalization Engine
  *
- * Ensures outbound messages display cleanly on WhatsApp mobile clients:
- * 1. Converts Markdown tables (| col | col |) into mobile-friendly structured lists.
- * 2. Translates LaTeX math and chemical syntax ($...$, \text{...}, _{sub}, ^{sup}) into Unicode.
- * 3. Converts Markdown headers (### *Title*) into clean WhatsApp bold headers (*Title*) with proper gap spacing.
- * 4. Converts raw markdown bullet asterisks (* *Title:*) to clean Unicode bullets (• *Title:*).
- * 5. Converts double-asterisk bold (**text**) to single-asterisk WhatsApp bold (*text*).
- * 6. Normalizes section and paragraph spacing to guarantee a clean gap between summaries.
- * 7. Preserves code blocks (```...```) untouched without corrupting code syntax.
+ * Converts Markdown tables into mobile-friendly card blocks, replaces LaTeX math
+ * with readable Unicode symbols, standardizes headers and bullet lists for WhatsApp,
+ * repairs broken/unmatched bold asterisks, and guarantees clean spacing gaps
+ * between summarization sections.
  */
 
 const SUB_MAP = {
@@ -73,6 +69,8 @@ const GREEK_MATH_SYMBOLS = {
   '\\div': '÷',
   '\\cdot': '·',
   '\\approx': '≈',
+  '\\simeq': '≃',
+  '\\sim': '~',
   '\\neq': '≠',
   '\\ne': '≠',
   '\\leq': '≤',
@@ -89,6 +87,10 @@ const GREEK_MATH_SYMBOLS = {
   '\\leftarrow': '←',
   '\\Delta': 'Δ',
   '\\Omega': 'Ω',
+  '\\Theta': 'Θ',
+  '\\Lambda': 'Λ',
+  '\\Sigma': 'Σ',
+  '\\Pi': 'Π',
   '\\mu': 'μ',
   '\\lambda': 'λ',
   '\\pi': 'π',
@@ -100,6 +102,20 @@ const GREEK_MATH_SYMBOLS = {
   '\\omega': 'ω',
   '\\phi': 'φ',
   '\\epsilon': 'ε',
+  '\\chi': 'χ',
+  '\\rho': 'ρ',
+  '\\tau': 'τ',
+  '\\eta': 'η',
+  '\\kappa': 'κ',
+  '\\zeta': 'ζ',
+  '\\psi': 'ψ',
+  '\\hbar': 'ħ',
+  '\\nabla': '∇',
+  '\\partial': '∂',
+  '\\forall': '∀',
+  '\\exists': '∃',
+  '\\in': '∈',
+  '\\notin': '∉',
 };
 
 /**
@@ -110,8 +126,10 @@ const GREEK_MATH_SYMBOLS = {
 function transformLatexExpr(expr) {
   let clean = expr;
 
-  // 1. Unwrap \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}
-  clean = clean.replace(/\\(?:text|mathrm|mathbf|mathit)\{([^}]+)\}/g, '$1');
+  // 1. Repeatedly unwrap nested \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}
+  while (/\\(?:text|mathrm|mathbf|mathit)\{([^}]+)\}/.test(clean)) {
+    clean = clean.replace(/\\(?:text|mathrm|mathbf|mathit)\{([^}]+)\}/g, '$1');
+  }
 
   // 2. Map standard Greek and math operator symbols
   for (const [symbol, replacement] of Object.entries(GREEK_MATH_SYMBOLS)) {
@@ -148,7 +166,7 @@ function transformLatexExpr(expr) {
 }
 
 /**
- * Converts LaTeX math expressions and chemical notation into readable Unicode strings,
+ * Converts LaTeX math expressions, chemical notation, and special symbols into readable Unicode strings,
  * without corrupting standard currency symbols ($50, $100).
  *
  * @param {string} text
@@ -179,12 +197,44 @@ export function sanitizeLatex(text) {
     return match;
   });
 
+  // 3. Process naked LaTeX commands anywhere in text (e.g. \chi, \pi, \approx, \text{...})
+  while (/\\(?:text|mathrm|mathbf|mathit)\{([^}]+)\}/.test(cleaned)) {
+    cleaned = cleaned.replace(/\\(?:text|mathrm|mathbf|mathit)\{([^}]+)\}/g, '$1');
+  }
+
+  for (const [symbol, replacement] of Object.entries(GREEK_MATH_SYMBOLS)) {
+    if (cleaned.includes(symbol)) {
+      cleaned = cleaned.split(symbol).join(replacement);
+    }
+  }
+
+  // 4. Transform naked exponents and superscripts: e.g. 10^-14 -> 10⁻¹⁴, (T/Tc)^2 -> (T/Tc)², x^2 -> x²
+  cleaned = cleaned.replace(/([0-9a-zA-Z)]+)\^([+-]?[0-9]+)\b/g, (_, base, exp) => {
+    const sup = Array.from(exp)
+      .map((c) => SUP_MAP[c] || c)
+      .join('');
+    return `${base}${sup}`;
+  });
+
+  // 5. Transform naked chemical and variable subscripts: e.g. H_{c1} -> Hc₁, H_{c2} -> Hc₂, H_c -> Hc, H_0 -> H₀
+  cleaned = cleaned.replace(/_\{([^}]+)\}/g, (_, sub) => {
+    return Array.from(sub)
+      .map((c) => SUB_MAP[c] || c)
+      .join('');
+  });
+  cleaned = cleaned.replace(/\b([A-Za-z]+)_([0-9a-zA-Z])\b/g, (_, base, sub) => {
+    return `${base}${SUB_MAP[sub] || sub}`;
+  });
+
+  // 6. Clean stray backslashes before recognized or remaining LaTeX command words
+  cleaned = cleaned.replace(/\\([a-zA-Z]+)/g, '$1');
+
   return cleaned;
 }
 
 /**
  * Converts Markdown headers (#, ##, ###) into clean WhatsApp bold headers (*Title*)
- * with proper section gap spacing before each header.
+ * with guaranteed blank line gap spacing before each header.
  *
  * @param {string} text
  * @returns {string}
@@ -212,15 +262,56 @@ export function convertMarkdownBullets(text) {
 }
 
 /**
- * Converts Markdown double-asterisk bold (**text**) to WhatsApp single-asterisk bold (*text*),
- * and repairs any dangling double-asterisks.
+ * Cleans dangling or unclosed asterisks on lines with odd asterisk counts,
+ * ensuring valid bold pairs (*word*) remain fully functional in WhatsApp.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function cleanUnmatchedAsterisks(text) {
+  return text
+    .split('\n')
+    .map((line) => {
+      const count = (line.match(/\*/g) || []).length;
+      if (count % 2 === 0) return line;
+
+      // Find and temporarily protect properly closed bold pairs: *(not space)...(not space)*
+      const pairs = [];
+      const masked = line.replace(/\*(?!\s)([^*\n]+?)(?<!\s)\*/g, (match) => {
+        pairs.push(match);
+        return `__VALID_BOLD_${pairs.length - 1}__`;
+      });
+
+      // Any remaining '*' is an unmatched/stray asterisk - remove it cleanly
+      const cleanedMasked = masked.replace(/\*/g, '');
+
+      // Restore valid bold pairs
+      return cleanedMasked.replace(/__VALID_BOLD_(\d+)__/g, (_, idx) => pairs[Number(idx)]);
+    })
+    .join('\n');
+}
+
+/**
+ * Converts Markdown bold markers to WhatsApp single-asterisk bold (*text*),
+ * repairs double asterisks (**text**), and removes dangling asterisks.
  *
  * @param {string} text
  * @returns {string}
  */
 export function convertMarkdownBold(text) {
   if (!text || typeof text !== 'string') return text || '';
-  return text.replace(/\*{2,}([^*]+)\*{2,}/g, '*$1*').replace(/\*\*/g, '*');
+
+  // Convert triple asterisks ***bold italic*** -> *_bold italic_*
+  let res = text.replace(/\*{3,}([^*]+)\*{3,}/g, '*_$1_*');
+
+  // Convert markdown double asterisks **bold** -> *bold*
+  res = res.replace(/\*{2,}([^*]+)\*{2,}/g, '*$1*');
+
+  // Repair any lingering unclosed double-asterisks
+  res = res.replace(/\*\*/g, '*');
+
+  // Clean unclosed/dangling asterisks that break WhatsApp bold rendering
+  return cleanUnmatchedAsterisks(res);
 }
 
 /**
@@ -318,12 +409,18 @@ export function convertMarkdownTables(text) {
  */
 export function normalizeSectionSpacing(text) {
   if (!text || typeof text !== 'string') return text || '';
-  return text
+  let formatted = text
     .split('\n')
     .map((l) => l.trimEnd())
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    .join('\n');
+
+  // Ensure clean double newline between headers and preceding text
+  formatted = formatted.replace(/([^\n])\n(\*[A-Za-z0-9\s&,()/-]+:\*|\*[A-Za-z0-9\s&,()/-]+\*)/g, '$1\n\n$2');
+
+  // Collapse 3+ newlines to clean double newline
+  formatted = formatted.replace(/\n{3,}/g, '\n\n').trim();
+
+  return formatted;
 }
 
 /**
@@ -354,7 +451,7 @@ export function formatForWhatsApp(text) {
   // 4. Convert bullet list markers (* item -> • item)
   formatted = convertMarkdownBullets(formatted);
 
-  // 5. Convert double-asterisk bold (**text** -> *text*)
+  // 5. Convert double-asterisk bold (**text** -> *text*) and clean unclosed asterisks
   formatted = convertMarkdownBold(formatted);
 
   // 6. Sanitize LaTeX math and chemical formulas into clean Unicode

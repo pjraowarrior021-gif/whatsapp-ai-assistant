@@ -51,7 +51,14 @@ import {
   resetImageLearner,
 } from './image-gen.js';
 import { parseVideoPrompt, parseVideoPromptOptions, generateVideo } from './video-gen.js';
-import { scheduleReminder, listReminders, deleteReminder } from './reminders.js';
+import { scheduleReminder, listReminders, deleteReminder, snoozeReminder, completeReminder } from './reminders.js';
+import {
+  saveUserLocation,
+  getUserLocation,
+  searchNearbyPlaces,
+  formatPlacesSummary,
+  LOCATION_CATEGORIES,
+} from './location.js';
 import { addTodo, listTodos, markTodoDone, clearCompletedTodos } from './todos.js';
 import { extractUrl, extractUserPromptAside, fetchAndExtractArticle } from './web-scraper.js';
 import { extractYouTubeVideoId, isYouTubeDomain, fetchYouTubeVideoData, buildYouTubeAiPrompt } from './youtube.js';
@@ -490,6 +497,50 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     }
   }
 
+  // 1c. Fast-path Interactive Action Buttons (Reminders & Location Quick Filters)
+  const interactiveButtonId =
+    message.interactive?.button_reply?.id ||
+    (typeof message.text?.body === 'string' &&
+    (message.text.body.startsWith('rem_') || message.text.body.startsWith('loc_cat_'))
+      ? message.text.body
+      : '');
+
+  if (interactiveButtonId) {
+    if (interactiveButtonId.startsWith('rem_done_')) {
+      const remId = interactiveButtonId.replace('rem_done_', '');
+      const res = completeReminder(remId);
+      await sendWhatsAppMessage(from, res.message || '✅ Marked reminder as done!');
+      return;
+    }
+    if (interactiveButtonId.startsWith('rem_snooze_')) {
+      const remId = interactiveButtonId.replace('rem_snooze_', '');
+      const res = snoozeReminder(remId, 15);
+      await sendWhatsAppMessage(from, res.message || '⏱️ Snoozed reminder for 15 minutes.');
+      return;
+    }
+    if (interactiveButtonId.startsWith('rem_dismiss_')) {
+      const remId = interactiveButtonId.replace('rem_dismiss_', '');
+      const res = completeReminder(remId);
+      await sendWhatsAppMessage(from, res.message || '❌ Reminder dismissed.');
+      return;
+    }
+    if (interactiveButtonId.startsWith('loc_cat_')) {
+      const catKey = interactiveButtonId.replace('loc_cat_', '');
+      const userLoc = await getUserLocation(from);
+      if (userLoc) {
+        const places = await searchNearbyPlaces({
+          latitude: userLoc.latitude,
+          longitude: userLoc.longitude,
+          category: catKey,
+        });
+        const catInfo = LOCATION_CATEGORIES[catKey];
+        const card = formatPlacesSummary(places, `📍 Nearby ${catInfo?.label || 'Places'}`);
+        await sendWhatsAppMessage(from, card);
+        return;
+      }
+    }
+  }
+
   // 1b. Fast-path unhandled message types
   if (messageType === 'reaction') {
     const reactionObj = message.reaction;
@@ -666,6 +717,10 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     const lng = loc.longitude;
     const locName = loc.name ? loc.name.trim() : '';
     const address = loc.address ? loc.address.trim() : '';
+
+    if (lat !== undefined && lng !== undefined) {
+      await saveUserLocation(from, { latitude: lat, longitude: lng, name: locName, address });
+    }
 
     const locParts = [];
     if (lat !== undefined && lng !== undefined) locParts.push(`Coordinates: ${lat}, ${lng}`);

@@ -6,6 +6,8 @@ import {
   scheduleReminder,
   listReminders,
   deleteReminder,
+  snoozeReminder,
+  completeReminder,
   stopReminders,
 } from '../src/reminders.js';
 
@@ -107,4 +109,26 @@ test('Reminders: formatReminderTime formats timestamps into readable Indian Stan
   const formatted = formatReminderTime(epoch);
   assert.ok(formatted.includes('Nov 2026') || formatted.includes('8'));
   assert.ok(formatted.includes('3:30') || formatted.includes('15:30'));
+});
+
+test('Reminders: snoozeReminder extends target time and completeReminder marks done', () => {
+  const testPhone = '919876543210';
+  const testUser = 'u_snooze_test_user';
+
+  const res = scheduleReminder(testPhone, testUser, '5m', 'Take daily medicine');
+  assert.strictEqual(res.success, true);
+  const remId = res.reminder.id;
+
+  // Snooze by 15 minutes
+  const snoozeRes = snoozeReminder(remId, 15);
+  assert.strictEqual(snoozeRes.success, true);
+  assert.ok(snoozeRes.message.includes('Snoozed'));
+  assert.ok(snoozeRes.reminder.targetTimeMs > Date.now() + 10 * 60 * 1000);
+
+  // Complete reminder
+  const completeRes = completeReminder(remId);
+  assert.strictEqual(completeRes.success, true);
+  assert.ok(completeRes.message.includes('Completed'));
+
+  stopReminders();
 });

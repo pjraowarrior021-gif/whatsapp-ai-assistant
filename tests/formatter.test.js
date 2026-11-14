@@ -91,26 +91,26 @@ test('Formatter: formats full superconductivity document summary with clean gaps
 
 ### *Core Concepts*
 * *Superconductivity:* A state where electrical resistivity drops to zero when a material is cooled below its *critical temperature (Tc)*.
-* *Meissner Effect:* A defining property where a superconductor expels all internal magnetic flux lines when cooled below Tc in a weak magnetic field, behaving as a *perfect diamagnet* (magnetic susceptibility χ = -1).
+* *Meissner Effect:* A defining property where a superconductor expels all internal magnetic flux lines when cooled below Tc in a weak magnetic field, behaving as a *perfect diamagnet* (magnetic susceptibility \\chi = -1).
 * *Critical Parameters:*
-  * *Critical Magnetic Field (Hc):* The field strength required to destroy the superconducting state. It follows the parabolic relation: *Hc(T) = H0 [1 - (T/Tc)²]*.
-  * *Critical Current (Ic):* The maximum current a wire of radius r can carry before its self-induced magnetic field destroys superconductivity, defined by *Ic = 2πrHc*.
+  * *Critical Magnetic Field (Hc):* The field strength required to destroy the superconducting state. It follows the parabolic relation: *Hc(T) = H0 [1 - (T/Tc)^2]*.
+  * *Critical Current (Ic):* The maximum current a wire of radius r can carry before its self-induced magnetic field destroys superconductivity, defined by *Ic = 2\\pi r Hc*.
 
 ### *Classifications*
 * *Type-I (Soft):* Exhibits a sharp transition; low Hc (< 0.1 Tesla); includes pure metals like Hg, Pb, and Sn.
 * *Type-II (Hard):* Exhibits a gradual "vortex/mixed state" between two critical fields (Hc1 and Hc2); high Hc (up to 30 Tesla); includes alloys like NbTi and ceramics like YBCO.
 
 ### *Theoretical Foundations*
-* *BCS Theory:* Explains superconductivity via *Cooper Pairs—electrons that form a bound state at low temperatures through an **electron-phonon-electron interaction*. These pairs act as bosons and condense into a single coherent quantum state.
+* *BCS Theory:* Explains superconductivity via *Cooper Pairs—electrons that form a bound state at low temperatures through an **electron-phonon-electron interaction**. These pairs act as bosons and condense into a single coherent quantum state.
 * *Energy Gap (Eg):* The binding energy required to break a Cooper pair, given by *Eg(0) = 3.528 kBTc*.
 
 ### *Advanced Phenomena & Applications*
 * *Josephson Junctions:* An S-I-S structure where Cooper pairs tunnel through an insulator.
   * *DC Effect:* Current flows without voltage.
-  * *AC Effect:* Applying a DC voltage causes an oscillating supercurrent with a frequency *v = 2eV/h* (≃ 483.6 GHz/mV).
-* *SQUID:* An ultra-sensitive magnetometer that uses Josephson junctions to measure magnetic fields as weak as 10⁻¹⁴ Tesla.
+  * *AC Effect:* Applying a DC voltage causes an oscillating supercurrent with a frequency *v = 2eV/h* (~ 483.6 GHz/mV).
+* *SQUID:* An ultra-sensitive magnetometer that uses Josephson junctions to measure magnetic fields as weak as 10^-14 Tesla.
 * *Maglev Vehicles:* Use superconducting magnets for levitation, guidance, and propulsion, enabling speeds exceeding 500 km/h by eliminating wheel-rail friction.
-* *High-Temperature Superconductors (HTS):* Materials like *YBCO (Tc ≈ 92 K)* that allow for cooling with liquid nitrogen (77 K) rather than the more expensive liquid helium (4.2 K).`;
+* *High-Temperature Superconductors (HTS):* Materials like *YBCO (Tc \\approx 92 K)* that allow for cooling with liquid nitrogen (77 K) rather than the more expensive liquid helium (4.2 K).`;
 
   const output = formatForWhatsApp(input);
 
@@ -129,7 +129,7 @@ test('Formatter: formats full superconductivity document summary with clean gaps
   assert.ok(output.includes('• *Meissner Effect:*'));
   assert.ok(output.includes('  • *Critical Magnetic Field (Hc):*'));
 
-  // 4. Verify double asterisks are resolved
+  // 4. Verify double asterisks are resolved and bolding is clean
   assert.strictEqual(output.includes('**'), false);
   assert.ok(output.includes('*electron-phonon-electron interaction*'));
 
@@ -138,6 +138,16 @@ test('Formatter: formats full superconductivity document summary with clean gaps
   assert.ok(output.includes('\n\n*Classifications*'));
   assert.ok(output.includes('\n\n*Theoretical Foundations*'));
   assert.ok(output.includes('\n\n*Advanced Phenomena & Applications*'));
+
+  // 6. Verify special characters & LaTeX math are properly rendered to Unicode
+  assert.ok(output.includes('χ = -1'));
+  assert.ok(output.includes('2π r Hc'));
+  assert.ok(output.includes('10⁻¹⁴'));
+  assert.ok(output.includes('(T/Tc)²'));
+  assert.ok(output.includes('≈ 92 K'));
+  assert.strictEqual(output.includes('\\chi'), false);
+  assert.strictEqual(output.includes('\\approx'), false);
+  assert.strictEqual(output.includes('\\pi'), false);
 });
 
 test('Formatter: preserves code blocks without modifying inner syntax', () => {

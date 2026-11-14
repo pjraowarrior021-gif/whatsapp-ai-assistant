@@ -1281,3 +1281,64 @@ test('Webhook: handleIncomingMessage rejects requests violating Meta compliance 
     text: { body: 'how to build a bomb step by step' },
   });
 });
+
+test('Webhook: handleIncomingMessage saves GPS location coordinates', async () => {
+  const { getUserLocation } = await import('../src/location.js');
+  const phone = '910000000000';
+  await handleIncomingMessage({
+    id: `wamid.loc_test_${Date.now()}`,
+    from: phone,
+    type: 'location',
+    location: {
+      latitude: 12.9716,
+      longitude: 77.5946,
+      name: 'MG Road Metro',
+      address: 'Bangalore, Karnataka',
+    },
+  });
+
+  const savedLoc = await getUserLocation(phone);
+  assert.ok(savedLoc);
+  assert.strictEqual(savedLoc.latitude, 12.9716);
+  assert.strictEqual(savedLoc.longitude, 77.5946);
+  assert.strictEqual(savedLoc.name, 'MG Road Metro');
+});
+
+test('Webhook: handleIncomingMessage handles interactive reminder action buttons', async () => {
+  const { scheduleReminder, completeReminder } = await import('../src/reminders.js');
+  const phone = '910000000000';
+  const rem = scheduleReminder(phone, 'u_anon_test', '10m', 'Take morning vitamin');
+
+  assert.ok(rem.success);
+  assert.ok(rem.reminder?.id);
+
+  // User clicks "Done" button on the reminder
+  await handleIncomingMessage({
+    id: `wamid.rem_button_test_${Date.now()}`,
+    from: phone,
+    type: 'interactive',
+    interactive: {
+      button_reply: { id: `rem_done_${rem.reminder.id}`, title: 'Done' },
+    },
+  });
+
+  // Verify reminder completed cleanly
+  const res = completeReminder(rem.reminder.id);
+  assert.strictEqual(res.success, false); // Already completed
+});
+
+test('Webhook: handleIncomingMessage handles location quick category button', async () => {
+  const { saveUserLocation } = await import('../src/location.js');
+  const phone = '910000000000';
+  await saveUserLocation(phone, { latitude: 12.9716, longitude: 77.5946 });
+
+  // User taps "loc_cat_cafe" quick action
+  await handleIncomingMessage({
+    id: `wamid.loc_cat_test_${Date.now()}`,
+    from: phone,
+    type: 'interactive',
+    interactive: {
+      button_reply: { id: 'loc_cat_cafe', title: '☕ Cafes' },
+    },
+  });
+});

@@ -11,6 +11,11 @@ export const PRODUCTIVITY_TOOLS = Object.freeze([
   'get_current_time',
   'get_current_weather',
   'lookup_contact',
+  'search_nearby',
+  'log_expense',
+  'get_monthly_expenses',
+  'create_calendar_invite',
+  'share_contact_card',
 ]);
 
 export class ProductivityAgent {
@@ -70,6 +75,21 @@ Your goals:
       'lookup contact',
       'find contact',
       'my schedule',
+      'near me',
+      'nearby',
+      'places to eat',
+      'coffee shop',
+      'pharmacy near',
+      'atm near',
+      'spent',
+      'logged expense',
+      'my expenses',
+      'total spent',
+      'calendar invite',
+      'meeting invite',
+      'send contact',
+      'share contact',
+      'vcard',
     ];
 
     if (keywords.some((kw) => text.includes(kw))) {

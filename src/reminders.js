@@ -9,7 +9,8 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { config, normalizePhoneNumber } from './config.js';
 import { privacyLog } from './privacy.js';
-import { sendProactiveMessage } from './templates.js';
+import { sendProactiveMessage, isWithinSessionWindow } from './templates.js';
+import { sendWhatsAppButtons } from './whatsapp.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -190,17 +191,32 @@ async function fireReminder(reminderId) {
   if (reminder.timerId) {
     clearTimeout(reminder.timerId);
   }
-  activeReminders.delete(reminderId);
+  reminder.fired = true;
+  reminder.firedAt = Date.now();
   savePersistedReminders();
 
   privacyLog('info', 'REMINDER_FIRED', { user: reminder.anonId, reminderId });
 
   const message = `⏰ *Reminder:*\n${reminder.text}`;
-  await sendProactiveMessage(reminder.to, {
-    text: message,
-    templateName: config.TEMPLATE_PROACTIVE_NAME || 'utility_reminder_notification',
-    templateParams: [reminder.text],
-  });
+  const buttons = [
+    { id: `rem_done_${reminder.id}`, title: '✅ Done' },
+    { id: `rem_snooze_${reminder.id}`, title: '⏱️ Snooze 15m' },
+    { id: `rem_dismiss_${reminder.id}`, title: '❌ Dismiss' },
+  ];
+
+  try {
+    if (await isWithinSessionWindow(reminder.to)) {
+      await sendWhatsAppButtons(reminder.to, message, buttons);
+    } else {
+      await sendProactiveMessage(reminder.to, {
+        text: message,
+        templateName: config.TEMPLATE_PROACTIVE_NAME || 'utility_reminder_notification',
+        templateParams: [reminder.text],
+      });
+    }
+  } catch (err) {
+    privacyLog('warn', 'REMINDER_DISPATCH_FAILED', { error: err.message });
+  }
 }
 
 /**
@@ -369,13 +385,87 @@ export function deleteReminder(anonId, reminderId) {
 }
 
 /**
+ * Snoozes an active or recently fired reminder by a specified number of minutes.
+ *
+ * @param {string} reminderId
+ * @param {number} [minutes=15]
+ * @returns {{ success: boolean, message: string, reminder?: object }}
+ */
+export function snoozeReminder(reminderId, minutes = 15) {
+  if (!reminderId) {
+    return { success: false, message: 'Missing reminder ID to snooze.' };
+  }
+
+  const cleanId = reminderId.trim().toLowerCase();
+  const reminder = activeReminders.get(cleanId);
+  if (!reminder) {
+    return { success: false, message: `⚠️ *Reminder Not Found:* No active reminder with ID \`${cleanId}\`.` };
+  }
+
+  if (reminder.timerId) {
+    clearTimeout(reminder.timerId);
+  }
+
+  const newTargetMs = Date.now() + Math.max(1, minutes) * 60 * 1000;
+  reminder.targetTimeMs = newTargetMs;
+  reminder.fired = false;
+  reminder.firedAt = null;
+
+  scheduleTimer(reminder);
+  savePersistedReminders();
+
+  const formattedTime = formatReminderTime(newTargetMs, reminder.to);
+  privacyLog('info', 'REMINDER_SNOOZED', { reminderId: cleanId, minutes, newTargetTime: formattedTime });
+
+  return {
+    success: true,
+    reminder,
+    message: `⏱️ *Reminder Snoozed:* I will remind you again in ${minutes} minutes (${formattedTime}).`,
+  };
+}
+
+/**
+ * Marks a reminder as done/completed.
+ *
+ * @param {string} reminderId
+ * @returns {{ success: boolean, message: string }}
+ */
+export function completeReminder(reminderId) {
+  if (!reminderId) {
+    return { success: false, message: 'Missing reminder ID to complete.' };
+  }
+
+  const cleanId = reminderId.trim().toLowerCase();
+  const reminder = activeReminders.get(cleanId);
+  if (!reminder) {
+    return { success: false, message: `⚠️ *Reminder Not Found:* No active reminder with ID \`${cleanId}\`.` };
+  }
+
+  if (reminder.timerId) {
+    clearTimeout(reminder.timerId);
+  }
+  activeReminders.delete(cleanId);
+  savePersistedReminders();
+
+  privacyLog('info', 'REMINDER_COMPLETED', { reminderId: cleanId });
+
+  return {
+    success: true,
+    message: `✅ *Reminder Completed:* "${reminder.text}" marked as done! Great job.`,
+  };
+}
+
+/**
  * 30-Second sweeper for catching missed timers or clock jumps.
  */
 function runReminderSweeper() {
   const now = Date.now();
   for (const [id, r] of activeReminders.entries()) {
-    if (r.targetTimeMs <= now) {
+    if (!r.fired && r.targetTimeMs <= now) {
       fireReminder(id).catch(() => {});
+    } else if (r.fired && r.firedAt && now - r.firedAt > 2 * 60 * 60 * 1000) {
+      // Retain fired reminders for 2 hours so action buttons resolve, then prune
+      activeReminders.delete(id);
     }
   }
 }
