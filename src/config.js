@@ -152,6 +152,11 @@ export const config = {
   // Topic & Compliance Guardrails
   ENABLE_GUARDRAILS: process.env.ENABLE_GUARDRAILS !== 'false',
   GUARDRAIL_ALLOWED_DOMAINS: process.env.GUARDRAIL_ALLOWED_DOMAINS || 'assistant,coding,productivity,media,research',
+
+  // 2026 Image Generation Pipeline
+  IMAGE_MODEL_FAST: process.env.IMAGE_MODEL_FAST || 'gemini-3.1-flash-image',
+  IMAGE_MODEL_PRO: process.env.IMAGE_MODEL_PRO || 'gemini-3-pro-image',
+  IMAGE_CACHE_TTL_DAYS: parseInt(process.env.IMAGE_CACHE_TTL_DAYS, 10) || 25,
 };
 
 /**
@@ -265,6 +270,11 @@ export function getSafeConfigSummary() {
     media: {
       maxBytes: config.MEDIA_MAX_BYTES,
       fetchTimeoutMs: config.MEDIA_FETCH_TIMEOUT_MS,
+    },
+    image: {
+      modelFast: config.IMAGE_MODEL_FAST,
+      modelPro: config.IMAGE_MODEL_PRO,
+      cacheTtlDays: config.IMAGE_CACHE_TTL_DAYS,
     },
     video: {
       engine: config.VIDEO_ENGINE,

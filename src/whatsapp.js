@@ -234,6 +234,67 @@ export async function sendWhatsAppTypingIndicator(messageId) {
 }
 
 /**
+ * Sends a native emoji reaction to a specific WhatsApp message.
+ *
+ * @param {string} to - Recipient phone number
+ * @param {string} messageId - Incoming message WAMID
+ * @param {string} [emoji=''] - Single emoji character (e.g. '⏳', '✅', '❤️', or '' to remove)
+ * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
+ */
+export async function sendWhatsAppReaction(to, messageId, emoji = '') {
+  const normalizedTo = normalizePhoneNumber(to);
+  if (!messageId) {
+    return { success: false, error: 'Missing message ID' };
+  }
+
+  // Bypass outbound network calls in test mode or with mock numbers
+  if (
+    config.NODE_ENV === 'test' ||
+    normalizedTo === '910000000000' ||
+    normalizedTo.startsWith('0000') ||
+    normalizedTo.startsWith('9999')
+  ) {
+    return { success: true, messageId: `sim_react_${Date.now()}` };
+  }
+
+  if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID) {
+    return { success: false, error: 'Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_NUMBER_ID' };
+  }
+
+  const endpoint = `${WHATSAPP_API_BASE}/${config.WHATSAPP_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: normalizedTo,
+    type: 'reaction',
+    reaction: {
+      message_id: messageId,
+      emoji: emoji || '',
+    },
+  };
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, error: data?.error?.message || `HTTP ${response.status}` };
+    }
+
+    return { success: true, messageId: data.messages?.[0]?.id };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * Sends an interactive button message (up to 3 buttons) via WhatsApp Cloud API.
  *
  * @param {string} to - Recipient phone number
@@ -622,7 +683,11 @@ export async function sendWhatsAppImage(to, imageSource, caption = '') {
   }
 
   let imagePayload;
-  if (Buffer.isBuffer(imageSource) || (imageSource && imageSource.buffer)) {
+  let uploadedMediaId = null;
+  if (imageSource && imageSource.mediaId) {
+    imagePayload = { id: imageSource.mediaId, caption: caption || undefined };
+    uploadedMediaId = imageSource.mediaId;
+  } else if (Buffer.isBuffer(imageSource) || (imageSource && imageSource.buffer)) {
     const buf = Buffer.isBuffer(imageSource) ? imageSource : imageSource.buffer;
     const mime = imageSource.mimeType || 'image/jpeg';
     const uploadRes = await uploadWhatsAppMedia(buf, mime);
@@ -634,6 +699,7 @@ export async function sendWhatsAppImage(to, imageSource, caption = '') {
       }
     } else {
       imagePayload = { id: uploadRes.mediaId, caption: caption || undefined };
+      uploadedMediaId = uploadRes.mediaId;
     }
   } else if (typeof imageSource === 'string') {
     imagePayload = { link: imageSource, caption: caption || undefined };
@@ -676,7 +742,7 @@ export async function sendWhatsAppImage(to, imageSource, caption = '') {
       messageId,
     });
 
-    return { success: true, messageId };
+    return { success: true, messageId, mediaId: uploadedMediaId };
   } catch (err) {
     privacyLog('error', 'WHATSAPP_IMAGE_SEND_NETWORK_ERROR', {
       message: err.message,
@@ -883,7 +949,13 @@ export async function sendWhatsAppAudio(to, audioSource) {
  * @param {string} [caption='']
  * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
  */
-export async function sendWhatsAppDocument(to, documentSource, filename = 'document.json', caption = '') {
+export async function sendWhatsAppDocument(
+  to,
+  documentSource,
+  filename = 'document.json',
+  caption = '',
+  mimeType = null
+) {
   const normalizedTo = normalizePhoneNumber(to);
 
   if (!config.WHATSAPP_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID) {
@@ -902,13 +974,28 @@ export async function sendWhatsAppDocument(to, documentSource, filename = 'docum
     return { success: true, messageId: `sim_test_doc_${Date.now()}` };
   }
 
+  let effectiveMime = mimeType;
+  if (!effectiveMime) {
+    if (filename.endsWith('.png')) effectiveMime = 'image/png';
+    else if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) effectiveMime = 'image/jpeg';
+    else if (filename.endsWith('.pdf')) effectiveMime = 'application/pdf';
+    else if (filename.endsWith('.json')) effectiveMime = 'application/json';
+    else effectiveMime = 'application/octet-stream';
+  }
+
   let docPayload;
-  if (Buffer.isBuffer(documentSource)) {
-    const uploadRes = await uploadWhatsAppMedia(documentSource, 'application/json');
+  let uploadedMediaId = null;
+  if (documentSource && documentSource.mediaId) {
+    docPayload = { id: documentSource.mediaId, filename, caption };
+    uploadedMediaId = documentSource.mediaId;
+  } else if (Buffer.isBuffer(documentSource) || (documentSource && documentSource.buffer)) {
+    const buf = Buffer.isBuffer(documentSource) ? documentSource : documentSource.buffer;
+    const uploadRes = await uploadWhatsAppMedia(buf, effectiveMime);
     if (!uploadRes.success) {
       return { success: false, error: uploadRes.error };
     }
     docPayload = { id: uploadRes.mediaId, filename, caption };
+    uploadedMediaId = uploadRes.mediaId;
   } else if (typeof documentSource === 'string') {
     docPayload = { link: documentSource, filename, caption };
   } else {
@@ -944,7 +1031,7 @@ export async function sendWhatsAppDocument(to, documentSource, filename = 'docum
     }
 
     const messageId = data?.messages?.[0]?.id;
-    return { success: true, messageId };
+    return { success: true, messageId, mediaId: uploadedMediaId };
   } catch (err) {
     privacyLog('error', 'WHATSAPP_DOCUMENT_SEND_NETWORK_ERROR', { error: err.message });
     return { success: false, error: err.message };

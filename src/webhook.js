@@ -36,6 +36,7 @@ import {
   sendWhatsAppVideo,
   sendWhatsAppAudio,
   sendWhatsAppButtons,
+  sendWhatsAppDocument,
   markMessageAsRead,
   sendWhatsAppTypingIndicator,
   getMediaUrl,
@@ -49,6 +50,8 @@ import {
   processImageReaction,
   recordImageGeneration,
   resetImageLearner,
+  cacheImageMediaId,
+  selectImageModel,
 } from './image-gen.js';
 import { parseVideoPrompt, parseVideoPromptOptions, generateVideo } from './video-gen.js';
 import { scheduleReminder, listReminders, deleteReminder, snoozeReminder, completeReminder } from './reminders.js';
@@ -980,30 +983,41 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   const imagePrompt = !mediaPart ? parseImagePrompt(effectiveCommand || rawText) : null;
   if (imagePrompt) {
     const parsedOptions = parseImagePromptOptions(imagePrompt);
+    const selectedModel = parsedOptions.hasExplicitModel ? parsedOptions.model : selectImageModel(imagePrompt);
+
     privacyLog('info', 'IMAGE_GENERATION_REQUESTED', {
       requestId,
       user: anonId,
       promptLength: parsedOptions.prompt.length,
-      model: parsedOptions.model,
+      model: selectedModel,
       dimensions: `${parsedOptions.width}x${parsedOptions.height}`,
+      isLossless: parsedOptions.isLossless,
     });
 
     const modelBadge =
-      parsedOptions.model === 'turbo'
-        ? '⚡ SDXL-Turbo (Fast)'
-        : parsedOptions.model === 'kontext'
-          ? '✨ FLUX.1 Kontext Pro'
-          : parsedOptions.model === 'realism'
-            ? '📸 FLUX Realism'
-            : '✨ FLUX.1 (HD)';
-    const dimBadge = `${parsedOptions.width}x${parsedOptions.height}`;
+      selectedModel === 'gemini-3-pro-image'
+        ? '👑 Gemini 3 Pro (Studio HD)'
+        : selectedModel === 'gemini-3.1-flash-image'
+          ? '⚡ Gemini 3.1 Flash Image'
+          : selectedModel === 'turbo'
+            ? '⚡ SDXL-Turbo (Fast)'
+            : selectedModel === 'kontext'
+              ? '✨ FLUX.1 Kontext Pro'
+              : selectedModel === 'realism'
+                ? '📸 FLUX Realism'
+                : '✨ FLUX.1 (HD)';
+    const dimBadge = `${parsedOptions.width}x${parsedOptions.height}${parsedOptions.isLossless ? ' [Lossless HD]' : ''}`;
 
     // Trigger native animated typing indicator instead of sending a bulky placeholder message
     if (messageId) {
       await sendWhatsAppTypingIndicator(messageId).catch(() => {});
     }
 
-    const cleanImage = await generateCleanImage(imagePrompt, { anonId });
+    const cleanImage = await generateCleanImage(imagePrompt, {
+      anonId,
+      model: selectedModel,
+      isLossless: parsedOptions.isLossless,
+    });
     const caption = [
       `🎨 *AI Generated Image* (${modelBadge})`,
       `📐 _Size:_ ${dimBadge}`,
@@ -1011,18 +1025,28 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       `_Prompt:_ "${parsedOptions.prompt}"`,
     ].join('\n');
 
-    const result = cleanImage
-      ? await sendWhatsAppImage(from, cleanImage, caption)
-      : await sendWhatsAppImage(from, generateImageUrl(imagePrompt, parsedOptions).imageUrl, caption);
+    let result;
+    if (cleanImage?.cachedMediaId) {
+      result = await sendWhatsAppImage(from, { mediaId: cleanImage.cachedMediaId }, caption);
+    } else if (cleanImage && cleanImage.isLossless && cleanImage.buffer) {
+      result = await sendWhatsAppDocument(from, cleanImage.buffer, 'image_hd.png', caption, 'image/png');
+    } else if (cleanImage && cleanImage.buffer) {
+      result = await sendWhatsAppImage(from, cleanImage, caption);
+    } else {
+      result = await sendWhatsAppImage(from, generateImageUrl(imagePrompt, parsedOptions).imageUrl, caption);
+    }
 
     if (result.success) {
+      if (cleanImage?.cacheKey && result.mediaId) {
+        await cacheImageMediaId(cleanImage.cacheKey, result.mediaId);
+      }
       saveTurn(anonId, rawText, `[Generated and sent image: ${parsedOptions.prompt}]`);
       recordMessageMetric('image_gen', 'success');
       recordImageGeneration(anonId, {
         id: result.messageId || requestId,
         prompt: parsedOptions.prompt,
         enhancedPrompt: cleanImage?.enhancedPrompt || imagePrompt,
-        model: parsedOptions.model,
+        model: selectedModel,
         style: parsedOptions.style,
         appliedLighting: cleanImage?.appliedLearning?.lighting,
         appliedComposition: cleanImage?.appliedLearning?.composition,

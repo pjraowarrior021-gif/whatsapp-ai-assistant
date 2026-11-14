@@ -6,6 +6,7 @@ import {
   buildFlowMessage,
   sendWhatsAppInteractive,
 } from '../src/interactive.js';
+import { buildInteractiveMenuOptions, detectInteractiveIntent } from '../src/conversation-adapter.js';
 
 test('Interactive: buildQuickReplyButtons builds valid button payload', () => {
   const payload = buildQuickReplyButtons(
@@ -125,4 +126,35 @@ test('Interactive: sendWhatsAppInteractive rejects invalid payload', async () =>
   const res = await sendWhatsAppInteractive('910000000000', null);
   assert.strictEqual(res.success, false);
   assert.ok(res.error);
+});
+
+test('Interactive Adapter: buildInteractiveMenuOptions switches between buttons and list menu', () => {
+  // 3 or fewer items -> Quick-Reply Buttons
+  const btnMenu = buildInteractiveMenuOptions('Quick Choices:', [
+    { id: '1', title: 'Action 1' },
+    { id: '2', title: 'Action 2' },
+  ]);
+  assert.strictEqual(btnMenu.type, 'button');
+  assert.strictEqual(btnMenu.action.buttons.length, 2);
+
+  // More than 3 items -> List Menu
+  const listMenu = buildInteractiveMenuOptions('Browse Categories:', [
+    { id: '1', title: 'Weather', description: 'Forecast' },
+    { id: '2', title: 'News', description: 'Headlines' },
+    { id: '3', title: 'Reminders', description: 'Tasks' },
+    { id: '4', title: 'Finance', description: 'Expenses' },
+  ]);
+  assert.strictEqual(listMenu.type, 'list');
+  assert.strictEqual(listMenu.action.sections[0].rows.length, 4);
+
+  // Null on empty
+  assert.strictEqual(buildInteractiveMenuOptions('Empty', []), null);
+});
+
+test('Interactive Adapter: detectInteractiveIntent identifies user choice requests', () => {
+  assert.strictEqual(detectInteractiveIntent('What can you do?'), true);
+  assert.strictEqual(detectInteractiveIntent('Show me menu'), true);
+  assert.strictEqual(detectInteractiveIntent('help menu'), true);
+  assert.strictEqual(detectInteractiveIntent('What are the quick actions available?'), true);
+  assert.strictEqual(detectInteractiveIntent('How is the weather today in Tokyo?'), false);
 });

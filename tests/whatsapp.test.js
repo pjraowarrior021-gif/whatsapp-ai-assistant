@@ -259,3 +259,16 @@ test('WhatsApp Typing & Read Receipt: markMessageAsRead and sendWhatsAppTypingIn
     globalThis.fetch = originalFetch;
   }
 });
+
+test('WhatsApp Reaction: sendWhatsAppReaction constructs valid reaction payload', async () => {
+  const { sendWhatsAppReaction } = await import('../src/whatsapp.js');
+
+  // Test mode simulation
+  const simRes = await sendWhatsAppReaction('910000000000', 'wamid.12345', '⏳');
+  assert.strictEqual(simRes.success, true);
+  assert.ok(simRes.messageId.startsWith('sim_react_'));
+
+  // Missing messageId rejects
+  const failRes = await sendWhatsAppReaction('910000000000', '', '⏳');
+  assert.strictEqual(failRes.success, false);
+});

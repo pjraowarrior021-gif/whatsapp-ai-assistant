@@ -7,7 +7,7 @@
 import { config } from './config.js';
 import { privacyLog } from './privacy.js';
 import { recordErrorMetric } from './metrics.js';
-import { sendWhatsAppMessage } from './whatsapp.js';
+import { sendWhatsAppMessage, sendWhatsAppReaction } from './whatsapp.js';
 import { store } from './store/index.js';
 
 export class MessageQueue {
@@ -111,6 +111,13 @@ export class MessageQueue {
 
     this.queue.push(item);
     this.stats.enqueued++;
+
+    // Fast status signal: React with ⏳ to indicate queued execution
+    const targetRecipient = task.to || task.message?.from;
+    const targetMsgId = task.message?.id || task.messageId;
+    if (targetRecipient && targetMsgId) {
+      sendWhatsAppReaction(targetRecipient, targetMsgId, '⏳').catch(() => {});
+    }
 
     this._processNext();
     return true;

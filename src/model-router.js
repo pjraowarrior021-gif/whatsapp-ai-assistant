@@ -12,6 +12,7 @@ export const TASK_TYPES = Object.freeze({
   VISION: 'vision',
   DOCUMENT: 'document',
   AUDIO: 'audio',
+  IMAGE: 'image',
 });
 
 export const SPEED_TIERS = Object.freeze({
@@ -133,6 +134,40 @@ const DEFAULT_MODELS = [
     priority: 7,
     costPer1kInput: 0.00125,
     costPer1kOutput: 0.005,
+  },
+  {
+    id: 'gemini-3.1-flash-image',
+    provider: PROVIDERS.GOOGLE,
+    displayName: 'Gemini 3.1 Flash Image',
+    capabilities: [TASK_TYPES.IMAGE],
+    flags: {
+      imageGeneration: true,
+      vision: true,
+    },
+    contextWindow: 32_000,
+    speedTier: SPEED_TIERS.FAST,
+    costTier: COST_TIERS.LOW,
+    maxOutputTokens: 2048,
+    priority: 10,
+    costPer1kInput: 0.0,
+    costPer1kOutput: 0.0,
+  },
+  {
+    id: 'gemini-3-pro-image',
+    provider: PROVIDERS.GOOGLE,
+    displayName: 'Gemini 3 Pro Image',
+    capabilities: [TASK_TYPES.IMAGE],
+    flags: {
+      imageGeneration: true,
+      vision: true,
+    },
+    contextWindow: 65_000,
+    speedTier: SPEED_TIERS.STANDARD,
+    costTier: COST_TIERS.MEDIUM,
+    maxOutputTokens: 4096,
+    priority: 9,
+    costPer1kInput: 0.0,
+    costPer1kOutput: 0.0,
   },
   {
     id: 'llama-3.3-70b-versatile',

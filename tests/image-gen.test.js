@@ -6,6 +6,12 @@ import {
   parseImagePromptOptions,
   generateImageUrl,
   generateCleanImage,
+  computeImageCacheKey,
+  getCachedImageMediaId,
+  cacheImageMediaId,
+  inferAspectRatio,
+  selectImageModel,
+  isLosslessDocumentRequested,
   createDefaultState,
   resetImageLearner,
   getImageLearnerState,
@@ -19,6 +25,7 @@ import {
   applyCircuitBreaker,
   PHOTOREALISTIC_MODIFIERS,
 } from '../src/image-gen.js';
+import { expandVisualPrompt } from '../src/agents/media.js';
 
 test('ImageGen: parseImagePrompt detects slash commands', () => {
   assert.strictEqual(parseImagePrompt('/image a cybernetic lion'), 'a cybernetic lion');
@@ -479,4 +486,141 @@ test('ImageGen: generateCleanImage appends photorealistic sharpness modifiers an
   assert.strictEqual(outputMeta.width, 1024);
   assert.strictEqual(outputMeta.height, 1024);
   assert.strictEqual(outputMeta.format, 'jpeg');
+});
+
+test('ImageGen 2026: computeImageCacheKey produces deterministic, normalized SHA-256 hash', () => {
+  const key1 = computeImageCacheKey('A futuristic flying car', 'gemini-3.1-flash-image', '1:1');
+  const key2 = computeImageCacheKey('  a futuristic flying car  ', 'gemini-3.1-flash-image', '1:1');
+  const diffKey = computeImageCacheKey('A futuristic flying car', 'gemini-3-pro-image', '1:1');
+  const diffAspect = computeImageCacheKey('A futuristic flying car', 'gemini-3.1-flash-image', '16:9');
+
+  assert.strictEqual(typeof key1, 'string');
+  assert.strictEqual(key1.length, 64);
+  assert.strictEqual(key1, key2);
+  assert.notStrictEqual(key1, diffKey);
+  assert.notStrictEqual(key1, diffAspect);
+});
+
+test('ImageGen 2026: cacheImageMediaId and getCachedImageMediaId store and retrieve media IDs', async () => {
+  const cacheKey = computeImageCacheKey('hypercar on mountain ridge', 'gemini-3.1-flash-image', '16:9');
+  const testMediaId = 'wamid_media_cached_998877';
+
+  // Store in cache
+  const saved = await cacheImageMediaId(cacheKey, testMediaId, 3600);
+  assert.strictEqual(saved, true);
+
+  // Retrieve from cache
+  const retrieved = await getCachedImageMediaId(cacheKey);
+  assert.strictEqual(retrieved, testMediaId);
+
+  // Non-existent key returns null
+  const missing = await getCachedImageMediaId('non_existent_key_12345');
+  assert.strictEqual(missing, null);
+});
+
+test('ImageGen 2026: inferAspectRatio extracts 9:16, 16:9, 3:4, 4:3, and 1:1 ratios', () => {
+  assert.strictEqual(inferAspectRatio('a phone lockscreen wallpaper of the cosmos'), '9:16');
+  assert.strictEqual(inferAspectRatio('tiktok video cover with neon lights'), '9:16');
+  assert.strictEqual(inferAspectRatio('youtube banner for gaming channel'), '16:9');
+  assert.strictEqual(inferAspectRatio('cinematic wide angle desktop landscape'), '16:9');
+  assert.strictEqual(inferAspectRatio('classic book cover poster'), '3:4');
+  assert.strictEqual(inferAspectRatio('standard photo of a dog'), '4:3');
+  assert.strictEqual(inferAspectRatio('a cute cat sitting on a chair'), '1:1');
+});
+
+test('ImageGen 2026: selectImageModel routes complex typography and posters to gemini-3-pro-image', () => {
+  // Complex layout / typography triggers Pro model
+  assert.strictEqual(selectImageModel('movie poster with typography saying NEON CITY'), 'gemini-3-pro-image');
+  assert.strictEqual(selectImageModel('infographic diagram explaining solar energy'), 'gemini-3-pro-image');
+  assert.strictEqual(selectImageModel('vintage lettering logo with text STARLIGHT'), 'gemini-3-pro-image');
+
+  // Standard requests route to Flash Image
+  assert.strictEqual(selectImageModel('a golden retriever playing in autumn leaves'), 'gemini-3.1-flash-image');
+
+  // Explicit model overrides are honored
+  assert.strictEqual(selectImageModel('anything', 'turbo'), 'turbo');
+  assert.strictEqual(selectImageModel('anything', 'flux'), 'flux');
+  assert.strictEqual(selectImageModel('anything', 'pro'), 'gemini-3-pro-image');
+  assert.strictEqual(selectImageModel('anything', 'flash'), 'gemini-3.1-flash-image');
+});
+
+test('ImageGen 2026: isLosslessDocumentRequested detects flags and uncompressed phrases', () => {
+  assert.strictEqual(isLosslessDocumentRequested('architectural blueprint --hd'), true);
+  assert.strictEqual(isLosslessDocumentRequested('galaxy wallpaper --4k'), true);
+  assert.strictEqual(isLosslessDocumentRequested('family portrait --lossless'), true);
+  assert.strictEqual(isLosslessDocumentRequested('product shoot uncompressed'), true);
+  assert.strictEqual(isLosslessDocumentRequested('render this and send as document please'), true);
+  assert.strictEqual(isLosslessDocumentRequested('just a normal image of a pizza'), false);
+});
+
+test('ImageGen 2026: generateCleanImage returns cachedMediaId on cache hit without re-generation', async () => {
+  const prompt = 'majestic eagle soaring over rocky canyon';
+  const model = 'gemini-3.1-flash-image';
+  const aspect = '1:1';
+  const cacheKey = computeImageCacheKey(prompt, model, aspect);
+  const mediaId = 'media_id_cached_eagle_456';
+
+  await cacheImageMediaId(cacheKey, mediaId, 3600);
+
+  const result = await generateCleanImage(prompt, { model, width: 1024, height: 1024 });
+  assert.ok(result);
+  assert.strictEqual(result.cachedMediaId, mediaId);
+  assert.strictEqual(result.buffer, null);
+});
+
+test('ImageGen 2026: generateCleanImage with lossless flag produces PNG format', async () => {
+  const sample = await sharp({
+    create: {
+      width: 500,
+      height: 500,
+      channels: 4,
+      background: { r: 120, g: 60, b: 200, alpha: 1 },
+    },
+  })
+    .png()
+    .toBuffer();
+
+  const clean = await generateCleanImage('crisp architectural wireframe --hd', {
+    mockBuffer: sample,
+  });
+
+  assert.ok(clean);
+  assert.strictEqual(clean.isLossless, true);
+  assert.strictEqual(clean.mimeType, 'image/png');
+
+  const meta = await sharp(clean.buffer).metadata();
+  assert.strictEqual(meta.format, 'png');
+});
+
+test('ImageGen 2026: generateCleanImage caps longest edge at 1600px without distortion', async () => {
+  const largeSample = await sharp({
+    create: {
+      width: 2400,
+      height: 1800,
+      channels: 3,
+      background: { r: 30, g: 30, b: 30 },
+    },
+  })
+    .jpeg()
+    .toBuffer();
+
+  const clean = await generateCleanImage('ultra panoramic landscape', {
+    mockBuffer: largeSample,
+    width: 2400,
+    height: 1800,
+  });
+
+  assert.ok(clean);
+  const meta = await sharp(clean.buffer).metadata();
+  assert.ok(meta.width <= 1600);
+  assert.ok(meta.height <= 1600);
+});
+
+test('ImageGen 2026: expandVisualPrompt enriches brief prompts and infers aspect ratio', () => {
+  const res = expandVisualPrompt('cyberpunk city wallpaper --hd');
+  assert.strictEqual(res.aspectRatio, '9:16');
+  assert.strictEqual(res.isLossless, true);
+  assert.ok(res.expandedPrompt.includes('cyberpunk city'));
+  assert.ok(res.expandedPrompt.includes('professional studio lighting'));
+  assert.ok(res.expandedPrompt.includes('8k resolution'));
 });

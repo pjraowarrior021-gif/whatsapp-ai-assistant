@@ -5,6 +5,7 @@
  */
 import { store } from './store/index.js';
 import { privacyLog } from './privacy.js';
+import { buildQuickReplyButtons, buildListMenu } from './interactive.js';
 
 // In-memory cache for fast synchronous access (< 0.5ms) during Gemini prompt composition
 // Map<anonId, { topics: Map<string, number>, activeProject?: string, preferredPacing?: string, lastUpdated: number }>
@@ -351,4 +352,59 @@ export function getConversationAdaptationContext(anonId, history = [], currentMe
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Builds native WhatsApp interactive options (Quick-Reply Buttons or List Menu)
+ * based on the number of available options, avoiding long plain-text menus.
+ *
+ * @param {string} bodyText - Main card or question prompt
+ * @param {Array<{ id: string, title: string, description?: string }>} items - Action items
+ * @param {object} [options]
+ * @param {string} [options.buttonText='Select Option'] - List menu action button text
+ * @param {string} [options.header] - Optional header
+ * @param {string} [options.footer] - Optional footer
+ * @returns {object} WhatsApp interactive message payload
+ */
+export function buildInteractiveMenuOptions(bodyText, items = [], options = {}) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return null;
+  }
+
+  // If 3 or fewer items, render as native Quick-Reply Buttons
+  if (items.length <= 3) {
+    const buttons = items.map((item, idx) => ({
+      id: item.id || `btn_${idx + 1}`,
+      title: item.title || item.label || `Option ${idx + 1}`,
+    }));
+    return buildQuickReplyButtons(bodyText, buttons, options);
+  }
+
+  // If more than 3 items, render as an organized WhatsApp List Menu
+  const rows = items.map((item, idx) => ({
+    id: item.id || `row_${idx + 1}`,
+    title: item.title || item.label || `Option ${idx + 1}`,
+    description: item.description || '',
+  }));
+
+  const sections = [
+    {
+      title: options.sectionTitle || 'Available Options',
+      rows,
+    },
+  ];
+
+  return buildListMenu(bodyText, options.buttonText || 'Choose Option', sections, options);
+}
+
+/**
+ * Detects whether user message expresses intent for choices, actions, or menu guidance.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function detectInteractiveIntent(text = '') {
+  if (!text || typeof text !== 'string') return false;
+  return /\b(what can you do|show (?:me )?menu|options|help menu|quick actions|actions available|what next)\b/i.test(
+    text.trim()
+  );
 }

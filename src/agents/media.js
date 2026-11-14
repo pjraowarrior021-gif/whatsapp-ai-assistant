@@ -5,6 +5,7 @@
  */
 import { TASK_TYPES } from '../model-router.js';
 import { transcribeAudioBuffer } from '../stt.js';
+import { inferAspectRatio, isLosslessDocumentRequested } from '../image-gen.js';
 
 export const MEDIA_TOOLS = Object.freeze([
   'analyze_image',
@@ -13,6 +14,36 @@ export const MEDIA_TOOLS = Object.freeze([
   'optimize_image_prompt',
   'log_expense',
 ]);
+
+/**
+ * Expands a brief visual user prompt into a high-detail generative prompt.
+ * Automatically infers aspect ratio and preserves lossless/HD markers.
+ * @param {string} prompt
+ * @param {object} [context]
+ * @returns {{ expandedPrompt: string, aspectRatio: string, isLossless: boolean }}
+ */
+export function expandVisualPrompt(prompt = '', _context = {}) {
+  const raw = String(prompt || '').trim();
+  const aspectRatio = inferAspectRatio(raw);
+  const isLossless = isLosslessDocumentRequested(raw);
+
+  let clean = raw
+    .replace(/(?:^|\s+)--(?:hd|4k|lossless|uncompressed|doc|document)\b/gi, ' ')
+    .replace(/(?:^|\s+)--(?:wallpaper|story|portrait|vertical|wide|landscape|square)\b/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  // If prompt is brief (< 6 words), enrich with photographic composition details
+  if (clean.split(/\s+/).length < 6 && !clean.toLowerCase().includes('detailed')) {
+    clean = `${clean}, highly detailed visual composition, professional studio lighting, 8k resolution, sharp focus`;
+  }
+
+  return {
+    expandedPrompt: clean,
+    aspectRatio,
+    isLossless,
+  };
+}
 
 export class MediaAgent {
   constructor(options = {}) {

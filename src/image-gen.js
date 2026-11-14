@@ -4,10 +4,12 @@
  * Powered by FLUX.1 (default SOTA) and SDXL-Turbo with Gemini AI prompt co-pilot.
  * Features an autonomous self-improving prompt and style optimization system with strict safety clamps.
  */
+import crypto from 'crypto';
 import sharp from 'sharp';
 import { config } from './config.js';
-import { enhanceImagePrompt } from './gemini.js';
+import { enhanceImagePrompt, getGeminiClient } from './gemini.js';
 import { privacyLog } from './privacy.js';
+import { store } from './store/index.js';
 import {
   buildSelfImprovedPrompt,
   recordImageGeneration,
@@ -41,6 +43,144 @@ export {
   sanitizeModifier,
   applyCircuitBreaker,
 };
+
+/**
+ * Computes deterministic SHA-256 cache key for an image prompt, model, and aspect ratio.
+ * @param {string} prompt
+ * @param {string} [model='gemini-3.1-flash-image']
+ * @param {string} [aspect='1:1']
+ * @returns {string} SHA-256 hex hash
+ */
+export function computeImageCacheKey(prompt, model = 'gemini-3.1-flash-image', aspect = '1:1') {
+  const p = String(prompt || '')
+    .trim()
+    .toLowerCase();
+  const m = String(model || '')
+    .trim()
+    .toLowerCase();
+  const a = String(aspect || '')
+    .trim()
+    .toLowerCase();
+  return crypto.createHash('sha256').update(`${p}|${m}|${a}`).digest('hex');
+}
+
+/**
+ * Retrieves a cached WhatsApp media_id from Redis / active store by cacheKey.
+ * @param {string} cacheKey
+ * @returns {Promise<string|null>}
+ */
+export async function getCachedImageMediaId(cacheKey) {
+  if (!cacheKey) return null;
+  try {
+    const key = cacheKey.startsWith('image_cache:') ? cacheKey : `image_cache:${cacheKey}`;
+    const cached = await store.get(key);
+    return cached || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stores a WhatsApp media_id in Redis / active store for image_cache:<hash> with TTL (default 25 days).
+ * @param {string} cacheKey
+ * @param {string} mediaId
+ * @param {number} [ttlSec]
+ * @returns {Promise<boolean>}
+ */
+export async function cacheImageMediaId(cacheKey, mediaId, ttlSec = null) {
+  if (!cacheKey || !mediaId) return false;
+  try {
+    const key = cacheKey.startsWith('image_cache:') ? cacheKey : `image_cache:${cacheKey}`;
+    const ttl = ttlSec !== null ? ttlSec : (config.IMAGE_CACHE_TTL_DAYS || 25) * 86400;
+    await store.set(key, String(mediaId), ttl);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Infers target aspect ratio from keywords in prompt text.
+ * @param {string} text
+ * @returns {'9:16' | '16:9' | '3:4' | '4:3' | '1:1'}
+ */
+export function inferAspectRatio(text) {
+  if (!text || typeof text !== 'string') return '1:1';
+  const lower = text.toLowerCase();
+  if (
+    /(?:--ar\s+9:16\b|--wallpaper\b|--story\b|--reel\b|--status\b|--tiktok\b|--phone\b|--vertical\b|\bwallpaper\b|\bstory\b|\breels?\b|\btiktok\b|\bphone lockscreen\b|\bvertical\b)/i.test(
+      lower
+    )
+  ) {
+    return '9:16';
+  }
+  if (
+    /(?:--ar\s+16:9\b|--wide\b|--landscape\b|--horizontal\b|--banner\b|--desktop\b|--thumbnail\b|\blandscape\b|\bbanner\b|\bdesktop\b|\byoutube thumbnail\b|\bwide angle\b|\bhorizontal\b|\bcinematic aspect\b)/i.test(
+      lower
+    )
+  ) {
+    return '16:9';
+  }
+  if (
+    /(?:--ar\s+3:4\b|--portrait\b|--poster\b|\bposter\b|\bportrait photo\b|\bmagazine cover\b|\bbook cover\b)/i.test(
+      lower
+    )
+  ) {
+    return '3:4';
+  }
+  if (
+    /(?:--ar\s+4:3\b|--standard\b|--classic\b|\bclassic photo\b|\bstandard photo\b|\bstandard\b|\bclassic\b)/i.test(
+      lower
+    )
+  ) {
+    return '4:3';
+  }
+  return '1:1';
+}
+
+/**
+ * Selects optimal generative image model based on prompt complexity or explicit model requested.
+ * Routes standard requests to gemini-3.1-flash-image and poster/typography/complex layout to gemini-3-pro-image.
+ * @param {string} [prompt='']
+ * @param {string|null} [explicitModel=null]
+ * @returns {string}
+ */
+export function selectImageModel(prompt = '', explicitModel = null) {
+  if (explicitModel) {
+    const norm = String(explicitModel).trim().toLowerCase();
+    if (norm === 'turbo' || norm === 'fast') return 'turbo';
+    if (norm === 'pro' || norm === 'pro-image' || norm === 'gemini-3-pro-image') {
+      return config.IMAGE_MODEL_PRO || 'gemini-3-pro-image';
+    }
+    if (norm === 'flash' || norm === 'flash-image' || norm === 'gemini-3.1-flash-image') {
+      return config.IMAGE_MODEL_FAST || 'gemini-3.1-flash-image';
+    }
+    if (norm === 'flux' || norm === 'realism' || norm === 'kontext') return norm;
+    return explicitModel;
+  }
+  const lower = String(prompt || '').toLowerCase();
+  if (
+    /\b(poster|typography|infographic|diagram|detailed layout|lettering|calligraphy|text saying|words written|logo with text)\b/i.test(
+      lower
+    )
+  ) {
+    return config.IMAGE_MODEL_PRO || 'gemini-3-pro-image';
+  }
+  return config.IMAGE_MODEL_FAST || 'gemini-3.1-flash-image';
+}
+
+/**
+ * Checks if user requested an uncompressed / lossless document delivery for the image.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isLosslessDocumentRequested(text) {
+  if (!text || typeof text !== 'string') return false;
+  return (
+    /(?:^|\s+)--(?:hd|4k|lossless|uncompressed|doc|document)\b/i.test(text) ||
+    /\b(?:uncompressed|send as (?:a )?document|lossless(?: quality)?|highest resolution|raw format)\b/i.test(text)
+  );
+}
 
 /**
  * Parses user input to detect if it is an image generation request.
@@ -101,6 +241,8 @@ export function parseImagePromptOptions(rawPrompt) {
       style: null,
       resetLearner: false,
       hasExplicitAspect: false,
+      hasExplicitModel: false,
+      isLossless: false,
     };
   }
 
@@ -112,24 +254,43 @@ export function parseImagePromptOptions(rawPrompt) {
   let style = null;
   let resetLearner = false;
   let hasExplicitAspect = false;
+  let hasExplicitModel = false;
+
+  const isLossless = isLosslessDocumentRequested(text);
+  if (/(?:^|\s+)--(?:hd|4k|lossless|uncompressed|doc|document)\b/i.test(text)) {
+    text = text.replace(/(?:^|\s+)--(?:hd|4k|lossless|uncompressed|doc|document)\b/gi, ' ');
+  }
 
   // 1. Model flags
   if (/(?:^|\s+)--(?:fast|turbo|quick|lightning)\b/i.test(text)) {
     model = 'turbo';
+    hasExplicitModel = true;
     text = text.replace(/(?:^|\s+)--(?:fast|turbo|quick|lightning)\b/gi, ' ');
   } else if (/(?:^|\s+)--kontext\b/i.test(text)) {
     model = 'kontext';
+    hasExplicitModel = true;
     text = text.replace(/(?:^|\s+)--kontext\b/gi, ' ');
   } else if (/(?:^|\s+)--(?:realism|flux-realism)\b/i.test(text)) {
     model = 'realism';
+    hasExplicitModel = true;
     text = text.replace(/(?:^|\s+)--(?:realism|flux-realism)\b/gi, ' ');
+  } else if (/(?:^|\s+)--pro\b/i.test(text)) {
+    model = config.IMAGE_MODEL_PRO || 'gemini-3-pro-image';
+    hasExplicitModel = true;
+    text = text.replace(/(?:^|\s+)--pro\b/gi, ' ');
+  } else if (/(?:^|\s+)--flash\b/i.test(text)) {
+    model = config.IMAGE_MODEL_FAST || 'gemini-3.1-flash-image';
+    hasExplicitModel = true;
+    text = text.replace(/(?:^|\s+)--flash\b/gi, ' ');
   } else if (/(?:^|\s+)--flux\b/i.test(text)) {
     model = 'flux';
+    hasExplicitModel = true;
     text = text.replace(/(?:^|\s+)--flux\b/gi, ' ');
   } else {
     const customModelMatch = text.match(/(?:^|\s+)--model\s+([a-zA-Z0-9_.-]+)\b/i);
     if (customModelMatch) {
       model = customModelMatch[1];
+      hasExplicitModel = true;
       text = text.replace(/(?:^|\s+)--model\s+[a-zA-Z0-9_.-]+\b/gi, ' ');
     }
   }
@@ -162,6 +323,21 @@ export function parseImagePromptOptions(rawPrompt) {
     height = 1024;
     hasExplicitAspect = true;
     text = text.replace(/(?:^|\s+)--square\b/gi, ' ').replace(/(?:^|\s+)--ar\s+1:1\b/gi, ' ');
+  } else {
+    const inferred = inferAspectRatio(text);
+    if (inferred === '9:16') {
+      width = 720;
+      height = 1280;
+    } else if (inferred === '16:9') {
+      width = 1280;
+      height = 720;
+    } else if (inferred === '3:4') {
+      width = 768;
+      height = 1024;
+    } else if (inferred === '4:3') {
+      width = 1024;
+      height = 768;
+    }
   }
 
   // 3. Raw flag (bypasses Gemini prompt enhancer)
@@ -224,6 +400,8 @@ export function parseImagePromptOptions(rawPrompt) {
     isPhotorealistic,
     resetLearner,
     hasExplicitAspect,
+    hasExplicitModel,
+    isLossless: Boolean(isLossless),
   };
 }
 
@@ -316,8 +494,18 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
     }
   }
 
+  const effectiveModel =
+    userOptions.model ||
+    (parsed.hasExplicitModel
+      ? parsed.model
+      : userOptions.mockBuffer
+        ? learnedModel || parsed.model
+        : selectImageModel(rawPrompt, learnedModel));
+
+  const isLossless = Boolean(parsed.isLossless || userOptions.isLossless);
+
   const options = {
-    model: userOptions.model || (parsed.model !== 'flux' ? parsed.model : learnedModel || parsed.model),
+    model: effectiveModel,
     width: userOptions.width || learnedWidth || 1024,
     height: userOptions.height || learnedHeight || 1024,
     enhance: userOptions.enhance !== undefined ? userOptions.enhance : parsed.enhance,
@@ -326,6 +514,31 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
     mockBuffer: userOptions.mockBuffer,
     anonId,
   };
+
+  const aspect = parsed.hasExplicitAspect ? `${options.width}:${options.height}` : inferAspectRatio(rawPrompt);
+  const cacheKey = computeImageCacheKey(parsed.prompt || rawPrompt, effectiveModel, aspect);
+
+  // Return cached WhatsApp media_id if available (zero re-generation & zero upload cost)
+  if (!options.mockBuffer) {
+    const cachedMediaId = await getCachedImageMediaId(cacheKey);
+    if (cachedMediaId) {
+      privacyLog('info', 'IMAGE_CACHE_HIT', { cacheKey, cachedMediaId, model: effectiveModel });
+      return {
+        buffer: null,
+        mimeType: isLossless ? 'image/png' : 'image/jpeg',
+        prompt: parsed.prompt,
+        enhancedPrompt: parsed.prompt,
+        fallbackUrl: '',
+        model: effectiveModel,
+        width: options.width,
+        height: options.height,
+        isLossless,
+        cacheKey,
+        cachedMediaId,
+        appliedLearning: null,
+      };
+    }
+  }
 
   let effectivePrompt = parsed.prompt || String(rawPrompt).trim();
 
@@ -398,10 +611,41 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
   const { imageUrl } = generateImageUrl(finalPrompt, options);
 
   try {
-    let rawBuffer;
+    let rawBuffer = null;
+    let isGeminiSource = false;
+
     if (options.mockBuffer) {
       rawBuffer = options.mockBuffer;
-    } else {
+    } else if (effectiveModel.startsWith('gemini-') && config.GEMINI_API_KEY) {
+      try {
+        const client = getGeminiClient();
+        const geminiRes = await client.models.generateImages({
+          model: effectiveModel,
+          prompt: finalPrompt,
+          config: {
+            numberOfImages: 1,
+            aspectRatio: aspect,
+          },
+        });
+        const b64 = geminiRes?.generatedImages?.[0]?.image?.imageBytes;
+        if (b64) {
+          rawBuffer = Buffer.from(b64, 'base64');
+          isGeminiSource = true;
+          privacyLog('info', 'GEMINI_IMAGE_GENERATED', {
+            model: effectiveModel,
+            aspect,
+            bytes: rawBuffer.length,
+          });
+        }
+      } catch (geminiErr) {
+        privacyLog('warn', 'GEMINI_IMAGE_GEN_FALLBACK_TO_POLLINATIONS', {
+          error: geminiErr.message,
+          model: effectiveModel,
+        });
+      }
+    }
+
+    if (!rawBuffer) {
       const signal = AbortSignal.timeout(config.MEDIA_FETCH_TIMEOUT_MS);
       let res = await fetch(imageUrl, { signal });
       if (!res.ok && (res.status === 402 || res.status === 429)) {
@@ -441,36 +685,48 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
     }
 
     const metadata = await sharp(rawBuffer).metadata();
-
-    // The platform watermark resides in the bottom-right corner (~45px high).
-    // Extracting height minus 45px removes the text and vector mark cleanly in memory,
-    // followed by Lanczos3 resampling to guarantee the exact target resolution (1024x1024) without distortion.
     const targetWidth = options.width || 1024;
     const targetHeight = options.height || 1024;
     const rawWidth = metadata.width || targetWidth;
     const rawHeight = metadata.height || targetHeight;
-    const cropHeight = Math.max(10, rawHeight - 45);
 
-    const cleanBuffer = await sharp(rawBuffer)
-      .extract({
+    let pipeline = sharp(rawBuffer);
+
+    // If sourced from Pollinations, crop watermark
+    if (!isGeminiSource && !options.mockBuffer) {
+      const cropHeight = Math.max(10, rawHeight - 45);
+      pipeline = pipeline.extract({
         left: 0,
         top: 0,
         width: rawWidth,
         height: cropHeight,
-      })
-      .resize(targetWidth, targetHeight, {
-        kernel: sharp.kernel.lanczos3,
-        fit: 'fill',
-      })
-      .jpeg({ quality: 95 })
-      .toBuffer();
+      });
+    }
+
+    // Cap longest edge at 1600px (< 5MB, 90% quality)
+    pipeline = pipeline.resize({
+      width: Math.min(1600, targetWidth),
+      height: Math.min(1600, targetHeight),
+      fit: 'inside',
+      withoutEnlargement: true,
+      kernel: sharp.kernel.lanczos3,
+    });
+
+    let cleanBuffer;
+    let mimeType = 'image/jpeg';
+    if (isLossless) {
+      cleanBuffer = await pipeline.png({ compressionLevel: 9 }).toBuffer();
+      mimeType = 'image/png';
+    } else {
+      cleanBuffer = await pipeline.jpeg({ quality: 90 }).toBuffer();
+    }
 
     // Record generation for continuous learning
     if (anonId) {
       recordImageGeneration(anonId, {
         prompt: parsed.prompt,
         enhancedPrompt: finalPrompt,
-        model: options.model,
+        model: effectiveModel,
         style: options.style,
         aspect: `${options.width}:${options.height}`,
         appliedLighting: appliedLearning?.lighting,
@@ -481,13 +737,16 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
 
     return {
       buffer: cleanBuffer,
-      mimeType: 'image/jpeg',
+      mimeType,
       prompt: parsed.prompt,
       enhancedPrompt: finalPrompt,
       fallbackUrl: imageUrl,
-      model: options.model,
+      model: effectiveModel,
       width: options.width,
       height: options.height,
+      isLossless,
+      cacheKey,
+      cachedMediaId: null,
       appliedLearning,
     };
   } catch {
