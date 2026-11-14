@@ -24,6 +24,8 @@ import {
   applyCircuitBreaker,
 } from './image-learner.js';
 
+export const PHOTOREALISTIC_MODIFIERS = 'sharp focus, 8k resolution, crisp glass reflections, distinct textures';
+
 export {
   loadImageLearnerState,
   getImageLearnerState,
@@ -207,6 +209,11 @@ export function parseImagePromptOptions(rawPrompt) {
   // Clean double spaces
   text = text.replace(/\s{2,}/g, ' ').trim();
 
+  // Detect photorealistic intent from style or keywords
+  const isPhotorealistic =
+    style === 'photo' ||
+    /\b(?:photo|photorealistic|photorealism|realistic|realism|hyperrealistic|dslr|real life)\b/i.test(text);
+
   return {
     prompt: text,
     model,
@@ -214,6 +221,7 @@ export function parseImagePromptOptions(rawPrompt) {
     height,
     enhance,
     style,
+    isPhotorealistic,
     resetLearner,
     hasExplicitAspect,
   };
@@ -325,7 +333,7 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
   if (options.style === 'anime') {
     effectivePrompt += ', vibrant anime art style, Studio Ghibli aesthetic, detailed anime illustration';
   } else if (options.style === 'photo') {
-    effectivePrompt += ', 8k photorealistic photography, shot on 35mm lens, natural soft lighting, hyper-detailed';
+    effectivePrompt += `, 8k photorealistic photography, shot on 35mm lens, natural soft lighting, hyper-detailed, ${PHOTOREALISTIC_MODIFIERS}`;
   } else if (options.style === 'cyberpunk') {
     effectivePrompt += ', cyberpunk aesthetic, neon glow, dark futuristic city, volumetric lighting, synthwave';
   } else if (options.style === '3d') {
@@ -342,6 +350,17 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
   } else if (options.style === 'sketch') {
     effectivePrompt +=
       ', detailed graphite pencil sketch, cross-hatching shading, artist sketchbook page, fine line art';
+  }
+
+  // Detect photorealistic intent from flags or natural language
+  const isPhotorealistic =
+    options.style === 'photo' ||
+    Boolean(parsed.isPhotorealistic) ||
+    Boolean(userOptions.photorealistic) ||
+    /\b(?:photo|photorealistic|photorealism|realistic|realism|hyperrealistic|dslr|real life)\b/i.test(effectivePrompt);
+
+  if (isPhotorealistic && !effectivePrompt.toLowerCase().includes('sharp focus')) {
+    effectivePrompt += `, ${PHOTOREALISTIC_MODIFIERS}`;
   }
 
   // Apply self-improving prompt adjustments with safety clamps:
@@ -364,6 +383,11 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
     } catch {
       finalPrompt = effectivePrompt;
     }
+  }
+
+  // Ensure photorealistic sharpness and detail modifiers are strictly preserved
+  if (isPhotorealistic && !finalPrompt.toLowerCase().includes('sharp focus')) {
+    finalPrompt += `, ${PHOTOREALISTIC_MODIFIERS}`;
   }
 
   // Deterministic watermark-free directive guarantee across all prompts
@@ -420,16 +444,18 @@ export async function generateCleanImage(rawPrompt, userOptions = {}) {
 
     // The platform watermark resides in the bottom-right corner (~45px high).
     // Extracting height minus 45px removes the text and vector mark cleanly in memory,
-    // followed by Lanczos3 resampling to preserve the exact requested dimensions without distortion.
-    const targetWidth = metadata.width || options.width || 1024;
-    const targetHeight = metadata.height || options.height || 1024;
-    const cropHeight = Math.max(10, targetHeight - 45);
+    // followed by Lanczos3 resampling to guarantee the exact target resolution (1024x1024) without distortion.
+    const targetWidth = options.width || 1024;
+    const targetHeight = options.height || 1024;
+    const rawWidth = metadata.width || targetWidth;
+    const rawHeight = metadata.height || targetHeight;
+    const cropHeight = Math.max(10, rawHeight - 45);
 
     const cleanBuffer = await sharp(rawBuffer)
       .extract({
         left: 0,
         top: 0,
-        width: targetWidth,
+        width: rawWidth,
         height: cropHeight,
       })
       .resize(targetWidth, targetHeight, {

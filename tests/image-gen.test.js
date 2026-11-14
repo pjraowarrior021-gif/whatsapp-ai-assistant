@@ -17,6 +17,7 @@ import {
   exportImageLearnerProfile,
   sanitizeModifier,
   applyCircuitBreaker,
+  PHOTOREALISTIC_MODIFIERS,
 } from '../src/image-gen.js';
 
 test('ImageGen: parseImagePrompt detects slash commands', () => {
@@ -417,4 +418,65 @@ test('ImageGen Learner: exportImageLearnerProfile outputs sanitized stats', () =
   assert.strictEqual(profile.topStyles[0].score, 0.88);
   assert.strictEqual(profile.topLighting[0].lighting, 'golden hour');
   assert.deepStrictEqual(profile.learnedNegativeModifiers, ['blurry', 'mutated hands']);
+});
+
+test('ImageGen: generateImageUrl strictly enforces FLUX, 1024x1024, and nologo parameters', () => {
+  const result = generateImageUrl('a majestic golden eagle');
+  assert.strictEqual(result.model, 'flux');
+  assert.ok(result.imageUrl.includes('model=flux'));
+  assert.ok(result.imageUrl.includes('width=1024'));
+  assert.ok(result.imageUrl.includes('height=1024'));
+  assert.ok(result.imageUrl.includes('nologo=true'));
+  assert.ok(result.imageUrl.includes('nofeed=true'));
+  assert.ok(result.imageUrl.includes('private=true'));
+});
+
+test('ImageGen: parseImagePromptOptions identifies photorealistic intent from flags and keywords', () => {
+  const photoFlag = parseImagePromptOptions('vintage classic car --photo');
+  assert.strictEqual(photoFlag.style, 'photo');
+  assert.strictEqual(photoFlag.isPhotorealistic, true);
+
+  const realFlag = parseImagePromptOptions('portrait of a sailor --realistic');
+  assert.strictEqual(realFlag.style, 'photo');
+  assert.strictEqual(realFlag.isPhotorealistic, true);
+
+  const naturalPhoto = parseImagePromptOptions('photorealistic close up of a crystal whiskey glass on a wooden table');
+  assert.strictEqual(naturalPhoto.isPhotorealistic, true);
+
+  const nonPhoto = parseImagePromptOptions('retro 8-bit arcade spaceship');
+  assert.strictEqual(nonPhoto.isPhotorealistic, false);
+});
+
+test('ImageGen: generateCleanImage appends photorealistic sharpness modifiers and preserves 1024x1024 output', async () => {
+  const sample1024 = await sharp({
+    create: {
+      width: 1024,
+      height: 1024,
+      channels: 3,
+      background: { r: 50, g: 80, b: 120 },
+    },
+  })
+    .jpeg()
+    .toBuffer();
+
+  const clean = await generateCleanImage('a luxury mechanical wristwatch with exposed gears --photo', {
+    mockBuffer: sample1024,
+  });
+
+  assert.ok(clean);
+  assert.ok(clean.buffer);
+  assert.strictEqual(clean.width, 1024);
+  assert.strictEqual(clean.height, 1024);
+  assert.strictEqual(clean.model, 'flux');
+  assert.ok(clean.enhancedPrompt.includes(PHOTOREALISTIC_MODIFIERS));
+  assert.ok(clean.enhancedPrompt.includes('sharp focus'));
+  assert.ok(clean.enhancedPrompt.includes('8k resolution'));
+  assert.ok(clean.enhancedPrompt.includes('crisp glass reflections'));
+  assert.ok(clean.enhancedPrompt.includes('distinct textures'));
+
+  // Inspect output metadata using sharp
+  const outputMeta = await sharp(clean.buffer).metadata();
+  assert.strictEqual(outputMeta.width, 1024);
+  assert.strictEqual(outputMeta.height, 1024);
+  assert.strictEqual(outputMeta.format, 'jpeg');
 });
