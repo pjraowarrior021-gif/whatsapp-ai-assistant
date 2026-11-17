@@ -96,6 +96,7 @@ import { transcribeAudioBuffer } from './stt.js';
 import { getPendingApproval, resolveApproval, isHumanHandoffActive, setHumanHandoff } from './approval.js';
 import { recordLastInboundInteraction } from './templates.js';
 import { evaluateInputGuardrails } from './guardrails.js';
+import { applyContextualReaction } from './reactions.js';
 
 // Mount JSON body parser (with raw buffer capture for HMAC) and URL-encoded parser strictly on /webhook
 webhookRouter.use(
@@ -488,8 +489,14 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
               deleteReminder(resolution.action.payload.reminderId);
             }
             await sendWhatsAppMessage(from, resolution.message || '✅ Action confirmed.');
+            if (message?.id) {
+              applyContextualReaction(from, message.id, '', { action: 'approval_granted' }).catch(() => {});
+            }
           } else {
             await sendWhatsAppMessage(from, resolution.message || '❌ Action cancelled.');
+            if (message?.id) {
+              applyContextualReaction(from, message.id, '', { action: 'approval_denied' }).catch(() => {});
+            }
           }
           return;
         } else if (resolution.hasPending) {
@@ -1042,6 +1049,9 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
       }
       saveTurn(anonId, rawText, `[Generated and sent image: ${parsedOptions.prompt}]`);
       recordMessageMetric('image_gen', 'success');
+      if (message?.id) {
+        applyContextualReaction(from, message.id, imagePrompt, { action: 'image_gen' }).catch(() => {});
+      }
       recordImageGeneration(anonId, {
         id: result.messageId || requestId,
         prompt: parsedOptions.prompt,
@@ -1103,6 +1113,9 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
         if (sendRes.success) {
           saveTurn(anonId, rawText, `[Generated and sent video: ${parsedVidOptions.prompt}]`);
           recordMessageMetric('video_gen', 'success');
+          if (message?.id) {
+            applyContextualReaction(from, message.id, rawText, { action: 'video_gen' }).catch(() => {});
+          }
         } else {
           recordErrorMetric('video_gen');
           await sendWhatsAppMessage(
@@ -1355,6 +1368,9 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     const schedResult = scheduleReminder(from, anonId, whenStr, reminderText);
     await sendWhatsAppMessage(from, schedResult.message);
     recordMessageMetric('reminder', schedResult.success ? 'success' : 'rejected');
+    if (schedResult.success && message?.id) {
+      applyContextualReaction(from, message.id, reminderText, { action: 'reminder_created' }).catch(() => {});
+    }
     return;
   }
 
@@ -1371,6 +1387,9 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
     const result = addTodo(anonId, taskText);
     await sendWhatsAppMessage(from, result.message);
     recordMessageMetric('todo', result.success ? 'success' : 'rejected');
+    if (result.success && message?.id) {
+      applyContextualReaction(from, message.id, taskText, { action: 'todo_created' }).catch(() => {});
+    }
     return;
   }
 
@@ -1854,6 +1873,12 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   // 15. Send response back to user
   await sendWhatsAppMessage(from, finalMessage);
   recordMessageMetric(messageType, 'success');
+
+  // 15a. Contextual Reaction: React authentically only when intent/sentiment warrants (gratitude, agreement, laughter, celebration)
+  // Queries, educational questions ("Explain in detail"), documents, and general text return null (clean messages)
+  if (message?.id) {
+    applyContextualReaction(from, message.id, sanitizedText || rawText).catch(() => {});
+  }
 
   // 15b. Cleanup temporary Gemini Files API upload if one was created
   if (mediaPart?.geminiFileName) {

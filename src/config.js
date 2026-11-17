@@ -87,6 +87,7 @@ export const config = {
   WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET || (isTestEnv ? 'mock_test_app_secret' : ''),
   WHATSAPP_API_VERSION: process.env.WHATSAPP_API_VERSION || 'v21.0',
   SKIP_SIGNATURE_VERIFICATION: process.env.SKIP_SIGNATURE_VERIFICATION === 'true',
+  ENABLE_CONTEXTUAL_REACTIONS: process.env.ENABLE_CONTEXTUAL_REACTIONS !== 'false',
 
   // Media Download Hardening (Aligned with WhatsApp Cloud API 100MB document limit)
   MEDIA_MAX_BYTES: parseInt(process.env.MEDIA_MAX_BYTES, 10) || 100 * 1024 * 1024, // 100MB

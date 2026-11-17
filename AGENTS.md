@@ -40,3 +40,12 @@ Do NOT re-read large files blindly. Use this reference for line locations and re
 
 - Before editing any function in `src/webhook.js`, consult the line index above and read ONLY the specific line range needed. Never read the entire file in 800-line blocks.
 - Do not re-read files after editing; verify test results with `npm test`.
+
+## Browser Testing Protocol (`agent-browser`)
+
+- Do NOT use the built-in `/browser` tool. Use `agent-browser` via CLI for all web testing.
+- Before marking any frontend task complete:
+  1. Ensure the dev server is running (`localhost:3000` or the active dev port).
+  2. Run `agent-browser open http://localhost:<port>` and `agent-browser snapshot -i` to test interactive flows using `@e` refs.
+  3. Run `agent-browser errors` and `agent-browser console` to verify zero runtime or console errors.
+  4. Run `agent-browser close` when finished.

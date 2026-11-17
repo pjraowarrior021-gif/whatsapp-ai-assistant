@@ -264,11 +264,16 @@ test('WhatsApp Reaction: sendWhatsAppReaction constructs valid reaction payload'
   const { sendWhatsAppReaction } = await import('../src/whatsapp.js');
 
   // Test mode simulation
-  const simRes = await sendWhatsAppReaction('910000000000', 'wamid.12345', '⏳');
+  const simRes = await sendWhatsAppReaction('910000000000', 'wamid.12345', '🎨');
   assert.strictEqual(simRes.success, true);
   assert.ok(simRes.messageId.startsWith('sim_react_'));
 
+  // Clearing reaction with empty string
+  const clearRes = await sendWhatsAppReaction('910000000000', 'wamid.12345', '');
+  assert.strictEqual(clearRes.success, true);
+  assert.ok(clearRes.messageId.startsWith('sim_react_'));
+
   // Missing messageId rejects
-  const failRes = await sendWhatsAppReaction('910000000000', '', '⏳');
+  const failRes = await sendWhatsAppReaction('910000000000', '', '🎨');
   assert.strictEqual(failRes.success, false);
 });
