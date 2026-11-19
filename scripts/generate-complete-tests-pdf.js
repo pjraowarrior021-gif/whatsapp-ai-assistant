@@ -8,7 +8,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import PDFDocument from 'pdfkit';
 
-const ARTIFACT_DIR = 'C:/Users/PJ/.gemini/antigravity/brain/b1e60977-78d7-4409-aeee-8b5fcb68ae6e';
+const ARTIFACT_DIR =
+  process.env.ARTIFACT_DIR || 'C:/Users/PJ/.gemini/antigravity/brain/4c3c5efc-82e0-491a-8fcc-f142a9e476ac';
 const REPORTS_DIR = path.resolve('reports');
 
 if (!fs.existsSync(REPORTS_DIR)) {
