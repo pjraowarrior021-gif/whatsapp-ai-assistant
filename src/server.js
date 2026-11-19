@@ -145,7 +145,8 @@ app.get('/admin', requireOpsAuth, (req, res) => {
   const model = getActiveModel();
   const logs = getRecentLogs();
   const personas = listPersonas();
-  const tokenQuery = req.query.token ? `?token=${encodeURIComponent(req.query.token)}` : '';
+  const safeToken = req.query.token ? String(req.query.token).replace(/[^a-zA-Z0-9_-]/g, '') : '';
+  const tokenQuery = safeToken ? `?token=${encodeURIComponent(safeToken)}` : '';
 
   // Handle optional quick model switch via ?switch_model=...
   if (req.query.switch_model) {
@@ -185,7 +186,7 @@ app.get('/admin', requireOpsAuth, (req, res) => {
           <h4>Active AI Model</h4>
           <div class="val" style="font-size:1.3em;">${model}</div>
           <form method="GET" action="/admin" style="margin-top:10px;">
-            <input type="hidden" name="token" value="${req.query.token || ''}" />
+            <input type="hidden" name="token" value="${safeToken}" />
             <select name="switch_model">
               <option value="gemini-3.5-flash-lite" ${model === 'gemini-3.5-flash-lite' ? 'selected' : ''}>gemini-3.5-flash-lite</option>
               <option value="gemini-3.1-flash-lite" ${model === 'gemini-3.1-flash-lite' ? 'selected' : ''}>gemini-3.1-flash-lite</option>

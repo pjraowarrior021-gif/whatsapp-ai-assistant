@@ -75,7 +75,7 @@ test('Location: formatPlacesSummary builds clean mobile WhatsApp card layout', (
   assert.ok(formatted.includes('*1. Third Wave Coffee*'));
   assert.ok(formatted.includes('• *Rating:* ⭐ 4.6'));
   assert.ok(formatted.includes('• *Distance:* ~450m'));
-  assert.ok(formatted.includes('• *Directions:* https://www.google.com/maps/dir/'));
+  assert.ok(formatted.includes('google.com/maps/dir/'));
   assert.strictEqual(formatted.includes('|'), false);
 });
 

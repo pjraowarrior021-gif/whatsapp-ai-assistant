@@ -158,6 +158,70 @@ export const config = {
   IMAGE_MODEL_FAST: process.env.IMAGE_MODEL_FAST || 'gemini-3.1-flash-image',
   IMAGE_MODEL_PRO: process.env.IMAGE_MODEL_PRO || 'gemini-3-pro-image',
   IMAGE_CACHE_TTL_DAYS: parseInt(process.env.IMAGE_CACHE_TTL_DAYS, 10) || 25,
+
+  // ---------------------------------------------------------------------
+  // Autonomous Group Administrator
+  // ---------------------------------------------------------------------
+  // Master switch for the group subsystem. Groups are ALWAYS disabled by
+  // default regardless of this flag; it only controls whether the subsystem
+  // is wired into the message pipeline at all.
+  GROUP_ADMIN_ENABLED: process.env.GROUP_ADMIN_ENABLED !== 'false',
+  GROUP_ADMIN_DATA_DIR: process.env.GROUP_ADMIN_DATA_DIR || '',
+  // Explicitly import legacy ALLOWED_GROUP_IDS as enabled groups (these were
+  // already an explicit opt-in via environment config). Never applies to
+  // newly discovered groups.
+  GROUP_ADMIN_IMPORT_LEGACY: process.env.GROUP_ADMIN_IMPORT_LEGACY !== 'false',
+  GROUP_ADMIN_DEFAULT_PERSONA: process.env.GROUP_ADMIN_DEFAULT_PERSONA || 'professional',
+  GROUP_ADMIN_BOT_ALIASES: process.env.GROUP_ADMIN_BOT_ALIASES || 'ai,assistant,bot,admin',
+  GROUP_ADMIN_CONTEXT_MESSAGES: parseInt(process.env.GROUP_ADMIN_CONTEXT_MESSAGES, 10) || 24,
+  GROUP_ADMIN_HISTORY_TTL_MINUTES: parseInt(process.env.GROUP_ADMIN_HISTORY_TTL_MINUTES, 10) || 360,
+  GROUP_ADMIN_MAX_REPLIES_PER_HOUR: parseInt(process.env.GROUP_ADMIN_MAX_REPLIES_PER_HOUR, 10) || 30,
+  GROUP_ADMIN_REPLY_COOLDOWN_MS: parseInt(process.env.GROUP_ADMIN_REPLY_COOLDOWN_MS, 10) || 15000,
+  GROUP_ADMIN_QUEUE_CONCURRENCY: parseInt(process.env.GROUP_ADMIN_QUEUE_CONCURRENCY, 10) || 2,
+  GROUP_ADMIN_AUDIT_MAX_ENTRIES: parseInt(process.env.GROUP_ADMIN_AUDIT_MAX_ENTRIES, 10) || 2000,
+  GROUP_ADMIN_HUMAN_ADMINS: process.env.GROUP_ADMIN_HUMAN_ADMINS || '',
+  GROUP_ADMIN_REPORT_HOUR: parseInt(process.env.GROUP_ADMIN_REPORT_HOUR, 10) || 21,
+  GROUP_ADMIN_REPORT_TIMEZONE: process.env.GROUP_ADMIN_REPORT_TIMEZONE || process.env.TIMEZONE || 'Asia/Kolkata',
+  GROUP_ADMIN_REQUIRE_APPROVAL: process.env.GROUP_ADMIN_REQUIRE_APPROVAL !== 'false',
+
+  // Personal-account transport (deferred / opt-in). The driver is shipped but
+  // stays entirely inactive unless explicitly enabled. Unofficial transport:
+  // review WhatsApp's terms and the account-restriction risk before enabling.
+  PERSONAL_WHATSAPP_ENABLED: process.env.PERSONAL_WHATSAPP_ENABLED === 'true',
+  PERSONAL_WHATSAPP_AUTH_DIR: process.env.PERSONAL_WHATSAPP_AUTH_DIR || '',
+  PERSONAL_WHATSAPP_PRIVATE_CHATS: process.env.PERSONAL_WHATSAPP_PRIVATE_CHATS === 'true',
+  PERSONAL_WHATSAPP_RECONNECT_MAX_MS: parseInt(process.env.PERSONAL_WHATSAPP_RECONNECT_MAX_MS, 10) || 60000,
+  PERSONAL_WHATSAPP_PAIRING_NUMBER: process.env.PERSONAL_WHATSAPP_PAIRING_NUMBER || '',
+
+  // ---------------------------------------------------------------------
+  // Multi-provider AI gateway (group tasks). Existing Gemini chat pipeline
+  // is untouched; this gateway is used only by group agents.
+  // ---------------------------------------------------------------------
+  AI_PROVIDER_ORDER: process.env.AI_PROVIDER_ORDER || 'gemini,openrouter,qwen,openai_compatible',
+  AI_FREE_ONLY: process.env.AI_FREE_ONLY === 'true',
+  AI_RATE_LIMIT_PER_MINUTE: parseInt(process.env.AI_RATE_LIMIT_PER_MINUTE, 10) || 30,
+  AI_REQUEST_TIMEOUT_MS: parseInt(process.env.AI_REQUEST_TIMEOUT_MS, 10) || 30000,
+  AI_MAX_FALLBACKS: parseInt(process.env.AI_MAX_FALLBACKS, 10) || 3,
+  AI_USAGE_RETENTION_DAYS: parseInt(process.env.AI_USAGE_RETENTION_DAYS, 10) || 90,
+
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || '',
+  OPENROUTER_BASE_URL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+  OPENROUTER_APP_NAME: process.env.OPENROUTER_APP_NAME || 'WhatsApp Group AI Administrator',
+
+  QWEN_API_KEY: process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || '',
+  QWEN_BASE_URL:
+    process.env.QWEN_BASE_URL ||
+    process.env.DASHSCOPE_BASE_URL ||
+    'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+
+  OPENAI_COMPAT_API_KEY: process.env.OPENAI_COMPAT_API_KEY || '',
+  OPENAI_COMPAT_BASE_URL: process.env.OPENAI_COMPAT_BASE_URL || 'https://api.openai.com/v1',
+
+  AI_MODEL_CHAT: process.env.AI_MODEL_CHAT || '',
+  AI_MODEL_MODERATION: process.env.AI_MODEL_MODERATION || '',
+  AI_MODEL_SUMMARY: process.env.AI_MODEL_SUMMARY || '',
+  AI_MODEL_REPORT: process.env.AI_MODEL_REPORT || '',
+  AI_MODEL_MEMORY: process.env.AI_MODEL_MEMORY || '',
 };
 
 /**
@@ -289,6 +353,24 @@ export function getSafeConfigSummary() {
     },
     ops: {
       hasOpsToken: Boolean(config.OPS_TOKEN),
+    },
+    groupAdmin: {
+      enabled: config.GROUP_ADMIN_ENABLED,
+      importLegacyGroups: config.GROUP_ADMIN_IMPORT_LEGACY,
+      defaultPersona: config.GROUP_ADMIN_DEFAULT_PERSONA,
+      requireApprovalForHighImpact: config.GROUP_ADMIN_REQUIRE_APPROVAL,
+      humanAdminsConfigured: Boolean(config.GROUP_ADMIN_HUMAN_ADMINS),
+      personalTransportEnabled: config.PERSONAL_WHATSAPP_ENABLED,
+    },
+    aiGateway: {
+      providers: {
+        gemini: Boolean(config.GEMINI_API_KEY),
+        openrouter: Boolean(config.OPENROUTER_API_KEY),
+        qwen: Boolean(config.QWEN_API_KEY),
+        openaiCompatible: Boolean(config.OPENAI_COMPAT_API_KEY),
+      },
+      freeOnly: config.AI_FREE_ONLY,
+      rateLimitPerMinute: config.AI_RATE_LIMIT_PER_MINUTE,
     },
     state: {
       backend: config.STATE_BACKEND,

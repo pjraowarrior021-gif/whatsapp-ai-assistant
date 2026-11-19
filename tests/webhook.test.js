@@ -833,7 +833,7 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
                   messages: [
                     {
                       from: authorizedNumber,
-                      id: `wamid.cmd_${Date.now()}_${Math.random()}`,
+                      id: `wamid.cmd_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
                       timestamp: '1730000000',
                       type: 'text',
                       text: { body: cmdText },
@@ -887,7 +887,7 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
                   messages: [
                     {
                       from: authorizedNumber,
-                      id: `wamid.cmd_${Date.now()}_${Math.random()}`,
+                      id: `wamid.cmd_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
                       timestamp: '1730000000',
                       type: 'text',
                       text: { body: cmdText },
@@ -941,7 +941,7 @@ test('HTTP Endpoints: Integration tests on live server instance', async (t) => {
                   messages: [
                     {
                       from: authorizedNumber,
-                      id: `wamid.cmd_${Date.now()}_${Math.random()}`,
+                      id: `wamid.cmd_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
                       timestamp: '1730000000',
                       type: 'text',
                       text: { body: cmdText },

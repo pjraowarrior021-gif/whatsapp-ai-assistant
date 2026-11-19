@@ -29,14 +29,15 @@ async function sleep(ms) {
 }
 
 async function main() {
+  const maskedPhone = TARGET_PHONE ? `***${String(TARGET_PHONE).slice(-4)}` : 'target';
   console.log('========================================================');
   console.log(`🚀 OUTBOUND DISPATCH VERIFICATION: TEXT, IMAGE & VIDEO`);
-  console.log(`📱 Recipient: +${TARGET_PHONE}`);
+  console.log(`📱 Recipient: +${maskedPhone}`);
   console.log(`⏱️  Timestamp: ${new Date().toISOString()}`);
   console.log('========================================================\n');
 
   const report = {
-    targetPhone: TARGET_PHONE,
+    targetPhone: maskedPhone,
     timestamp: new Date().toISOString(),
     items: {},
   };

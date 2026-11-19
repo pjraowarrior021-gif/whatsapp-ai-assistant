@@ -40,8 +40,23 @@ function chunkDocumentText(text, maxChars = 500) {
     if (para.length <= maxChars) {
       chunks.push(para);
     } else {
-      // Split large paragraphs by sentence or character boundary
-      const sentences = para.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [para];
+      // Split large paragraphs by sentence boundary safely without regex backtracking
+      const sentences = [];
+      let startIdx = 0;
+      for (let sIdx = 0; sIdx < para.length; sIdx++) {
+        const char = para[sIdx];
+        if (char === '.' || char === '!' || char === '?') {
+          if (sIdx === para.length - 1 || /\s/.test(para[sIdx + 1])) {
+            sentences.push(para.slice(startIdx, sIdx + 1).trim());
+            startIdx = sIdx + 1;
+          }
+        }
+      }
+      if (startIdx < para.length) {
+        const remaining = para.slice(startIdx).trim();
+        if (remaining) sentences.push(remaining);
+      }
+      if (sentences.length === 0) sentences.push(para);
       let currentChunk = '';
       for (const sentence of sentences) {
         if ((currentChunk + ' ' + sentence).trim().length <= maxChars) {

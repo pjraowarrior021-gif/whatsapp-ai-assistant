@@ -11,11 +11,14 @@ async function runDiagnostics() {
   const summary = getSafeConfigSummary();
 
   console.log('📋 [1/3] Environment Configuration:');
+  const maskedPhoneId = summary.whatsapp.phoneNumberId
+    ? `***${String(summary.whatsapp.phoneNumberId).slice(-4)}`
+    : 'Not configured';
   console.log(`   • Port: ${summary.port}`);
   console.log(`   • Environment: ${summary.environment}`);
   console.log(`   • Gemini Model: ${summary.gemini.model}`);
   console.log(`   • Gemini API Key: ${summary.gemini.apiKeyMasked}`);
-  console.log(`   • WhatsApp Phone ID: ${summary.whatsapp.phoneNumberId}`);
+  console.log(`   • WhatsApp Phone ID: ${maskedPhoneId}`);
   console.log(`   • WhatsApp Token: ${summary.whatsapp.tokenMasked}`);
   console.log(`   • Webhook Verify Token: ${summary.whatsapp.hasVerifyToken ? 'Configured ✅' : 'Missing ❌'}`);
   console.log(
@@ -71,9 +74,10 @@ async function runDiagnostics() {
       });
       const data = await res.json();
       if (res.ok) {
-        console.log(
-          `   ✅ WhatsApp API Token Verified: Connected to ${data.verified_name || data.display_phone_number || 'Phone ID'}`
-        );
+        const displayName =
+          data.verified_name ||
+          (data.display_phone_number ? `***${String(data.display_phone_number).slice(-4)}` : 'Phone ID');
+        console.log(`   ✅ WhatsApp API Token Verified: Connected to ${displayName}`);
       } else {
         console.log(`   ❌ WhatsApp Graph API check failed: [${data?.error?.code}] ${data?.error?.message}`);
       }

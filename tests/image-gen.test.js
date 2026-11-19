@@ -57,7 +57,9 @@ test('ImageGen: parseImagePrompt ignores normal conversational queries and progr
 test('ImageGen: generateImageUrl constructs valid URL with parameters', () => {
   const result = generateImageUrl('a neon cyberpunk street', { width: 1024, height: 1024, seed: 42 });
   assert.strictEqual(result.prompt, 'a neon cyberpunk street');
-  assert.ok(result.imageUrl.includes('https://image.pollinations.ai/prompt/'));
+  const parsedUrl = new URL(result.imageUrl);
+  assert.strictEqual(parsedUrl.origin, 'https://image.pollinations.ai');
+  assert.ok(parsedUrl.pathname.startsWith('/prompt/'));
   assert.ok(result.imageUrl.includes('width=1024'));
   assert.ok(result.imageUrl.includes('height=1024'));
   assert.ok(result.imageUrl.includes('seed=42'));

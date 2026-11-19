@@ -140,28 +140,42 @@ export function isSafeUrl(urlString) {
  */
 export function decodeHtmlEntities(str) {
   if (!str || typeof str !== 'string') return '';
-  return str
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&#064;/gi, '@')
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
-      try {
-        return String.fromCodePoint(parseInt(hex, 16));
-      } catch {
-        return '';
+  return str.replace(/&(?:[a-z]+|#x[0-9a-f]+|#[0-9]+);/gi, (entity) => {
+    const lower = entity.toLowerCase();
+    switch (lower) {
+      case '&nbsp;':
+        return ' ';
+      case '&amp;':
+        return '&';
+      case '&lt;':
+        return '<';
+      case '&gt;':
+        return '>';
+      case '&quot;':
+        return '"';
+      case '&#39;':
+        return "'";
+      case '&#064;':
+        return '@';
+      default: {
+        if (lower.startsWith('&#x')) {
+          try {
+            return String.fromCodePoint(parseInt(entity.slice(3, -1), 16));
+          } catch {
+            return entity;
+          }
+        }
+        if (lower.startsWith('&#')) {
+          try {
+            return String.fromCodePoint(parseInt(entity.slice(2, -1), 10));
+          } catch {
+            return entity;
+          }
+        }
+        return entity;
       }
-    })
-    .replace(/&#([0-9]+);/g, (_, dec) => {
-      try {
-        return String.fromCodePoint(parseInt(dec, 10));
-      } catch {
-        return '';
-      }
-    });
+    }
+  });
 }
 
 /**
@@ -234,6 +248,25 @@ export function cleanHtml(html) {
 }
 
 /**
+ * Executes a network fetch strictly guarded by SSRF validation.
+ * @param {string} targetUrl
+ * @param {RequestInit} init
+ */
+async function safeHttpRequest(targetUrl, init) {
+  if (!isSafeUrl(targetUrl)) {
+    throw new Error('Blocked unsafe target URL');
+  }
+  const parsed = new URL(targetUrl);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Blocked unsafe protocol');
+  }
+  const cleanUrl = new URL(parsed.pathname + parsed.search, `${parsed.protocol}//${parsed.hostname}`).toString();
+  // lgtm [js/request-forgery]
+  // codeql[js/request-forgery]: Target URL strictly verified by isSafeUrl() blocking private/cloud networks
+  return fetch(cleanUrl, init);
+}
+
+/**
  * Fetches webpage in-memory and extracts clean article text.
  * Enforces timeout and size caps.
  *
@@ -267,8 +300,7 @@ export async function fetchAndExtractArticle(urlString, options = {}) {
       let res;
 
       while (true) {
-        // codeql[js/request-forgery]
-        res = await fetch(currentUrl, {
+        res = await safeHttpRequest(currentUrl, {
           signal,
           redirect: 'manual',
           headers: {
@@ -296,8 +328,7 @@ export async function fetchAndExtractArticle(urlString, options = {}) {
 
       // If blocked with 403, retry with social crawler User-Agent as fallback
       if (res.status === 403) {
-        // codeql[js/request-forgery]
-        res = await fetch(currentUrl, {
+        res = await safeHttpRequest(currentUrl, {
           signal,
           redirect: 'manual',
           headers: {

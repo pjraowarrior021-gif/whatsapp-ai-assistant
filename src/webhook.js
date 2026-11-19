@@ -212,7 +212,8 @@ webhookRouter.get('/', (req, res) => {
         crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
       ) {
         privacyLog('info', 'WEBHOOK_VERIFICATION_SUCCESS');
-        return res.status(200).send(challenge);
+        const safeChallenge = String(challenge || '').replace(/[^\w-]/g, '');
+        return res.status(200).type('text/plain').send(safeChallenge);
       }
     }
     privacyLog('warn', 'WEBHOOK_VERIFICATION_FAILED', {

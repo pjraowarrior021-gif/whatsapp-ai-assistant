@@ -17,6 +17,10 @@ export default [
         AbortSignal: 'readonly',
         FormData: 'readonly',
         Blob: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        structuredClone: 'readonly',
+        crypto: 'readonly',
       },
     },
     rules: {
