@@ -36,9 +36,14 @@ Do NOT re-read large files blindly. Use this reference for line locations and re
 - Performance benchmark: `node tests/benchmark.js`
 - PDF report generation: `node scripts/generate-pdf-report.js`
 
-## File Reading Directives
+## File & Directory Directives
 
-- Before editing any function in `src/webhook.js`, consult the line index above and read ONLY the specific line range needed. Never read the entire file in 800-line blocks.
+### 🚨 Never Re-Scan or Re-Read Unchanged Folders (MANDATORY)
+- Once a folder (e.g. `src/`, `tests/`, `scripts/`) is listed, use the existing directory structure from context. Never call `Get-ChildItem` on the same folder repeatedly unless a file inside it was created, deleted, or renamed.
+- Never run recursive dumps (`Get-ChildItem -Recurse`). Use exact paths.
+
+### Line-Targeted File Reads
+- Before editing any function in `src/webhook.js`, consult the line index above and read ONLY the specific line range needed (e.g. 20-30 lines). Never read the entire file in 800-line blocks.
 - Do not re-read files after editing; verify test results with `npm test`.
 
 ## Browser Testing Protocol (`agent-browser`)
