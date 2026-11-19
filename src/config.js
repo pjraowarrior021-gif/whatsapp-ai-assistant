@@ -50,7 +50,7 @@ function parseAllowedNumbers(rawList) {
  * @returns {string[]}
  */
 export function parseFallbackModels(rawList, primaryModel) {
-  const defaults = 'gemini-3.5-flash-lite,gemini-3.8-flash';
+  const defaults = 'gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.8-flash';
   const source = typeof rawList === 'string' ? rawList : defaults;
   const list = source
     .split(',')
