@@ -74,7 +74,6 @@ async function main() {
   };
 
   console.log(`   Text Dispatch Result: ${textRes.success ? '✅ SUCCESS' : '❌ FAILED'}`);
-  console.log(`   WAMID: ${report.items.text.messageId}`);
   console.log(`   Latency: ${textDurationMs}ms\n`);
 
   await sleep(2000);
@@ -123,7 +122,6 @@ async function main() {
     };
 
     console.log(`   Image Dispatch Result: ${imgSendRes.success ? '✅ SUCCESS' : '❌ FAILED'}`);
-    console.log(`   WAMID: ${report.items.image.messageId}`);
     console.log(`   Upload & Send Latency: ${imgSendDurationMs}ms\n`);
   } else {
     report.items.image = { success: false, error: 'Image generation failed' };
@@ -209,7 +207,6 @@ async function main() {
     };
 
     console.log(`   Video Dispatch Result: ${vidSendRes.success ? '✅ SUCCESS' : '❌ FAILED'}`);
-    console.log(`   WAMID: ${report.items.video.messageId}`);
     console.log(`   Upload & Send Latency: ${vidSendDurationMs}ms\n`);
   } else {
     report.items.video = { success: false, error: 'Video encoding failed' };
@@ -218,7 +215,13 @@ async function main() {
 
   console.log('========================================================');
   console.log('📊 FINAL DISPATCH SUMMARY:');
-  console.log(JSON.stringify(report, null, 2));
+  const summaryReport = {
+    status: 'completed',
+    textDelivered: Boolean(report.items?.text?.success),
+    imageDelivered: Boolean(report.items?.image?.success),
+    videoDelivered: Boolean(report.items?.video?.success),
+  };
+  console.log(JSON.stringify(summaryReport, null, 2));
   console.log('========================================================');
 
   fs.writeFileSync(path.join(REPORTS_DIR, 'live_test_dispatch_report.json'), JSON.stringify(report, null, 2));

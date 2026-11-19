@@ -1,0 +1,10 @@
+name: 'Production Code Security Analysis'
+
+paths:
+  - 'src/**'
+
+paths-ignore:
+  - 'scripts/**'
+  - 'tests/**'
+  - 'docs/**'
+  - 'reports/**'

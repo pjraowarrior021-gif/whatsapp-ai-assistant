@@ -10,19 +10,21 @@ async function runDiagnostics() {
   const validation = validateConfig();
   const summary = getSafeConfigSummary();
 
+  const geminiAuthStatus = summary.gemini.hasApiKey ? 'Configured ✅' : 'Missing ❌';
+  const waAccountStatus = summary.whatsapp.phoneNumberId ? 'Configured ✅' : 'Missing ❌';
+  const waTokenStatus = summary.whatsapp.hasToken ? 'Configured ✅' : 'Missing ❌';
+  const waVerifyStatus = summary.whatsapp.hasVerifyToken ? 'Configured ✅' : 'Missing ❌';
+  const metaSigStatus = summary.whatsapp.hasAppSecret ? 'Configured ✅' : 'Missing ⚠️ (HMAC bypassed)';
+
   console.log('📋 [1/3] Environment Configuration:');
   console.log(`   • Port: ${summary.port}`);
   console.log(`   • Environment: ${summary.environment}`);
   console.log(`   • Gemini Model: ${summary.gemini.model}`);
-  console.log(`   • Gemini Service Auth: ${summary.gemini.apiKeyMasked ? 'Configured ✅' : 'Missing ❌'}`);
-  console.log(`   • WhatsApp Account ID: ${summary.whatsapp.phoneNumberId ? 'Configured ✅' : 'Missing ❌'}`);
-  console.log(`   • WhatsApp Access Credential: ${summary.whatsapp.tokenMasked ? 'Configured ✅' : 'Missing ❌'}`);
-  console.log(
-    `   • Webhook Verification Handshake: ${summary.whatsapp.hasVerifyToken ? 'Configured ✅' : 'Missing ❌'}`
-  );
-  console.log(
-    `   • Meta Signature Verification: ${summary.whatsapp.hasAppSecret ? 'Configured ✅' : 'Missing ⚠️ (HMAC bypassed)'}`
-  );
+  console.log(`   • Gemini Service Auth: ${geminiAuthStatus}`);
+  console.log(`   • WhatsApp Account ID: ${waAccountStatus}`);
+  console.log(`   • WhatsApp Access Credential: ${waTokenStatus}`);
+  console.log(`   • Webhook Verification Handshake: ${waVerifyStatus}`);
+  console.log(`   • Meta Signature Verification: ${metaSigStatus}`);
   console.log(`   • Authorized Senders Allowlist: ${summary.privacy.authorizedNumbersCount} sender(s)`);
   console.log(`   • In-Memory Idle Timeout: ${summary.privacy.sessionTimeoutMinutes} minutes (RAM Only)\n`);
 

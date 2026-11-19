@@ -176,9 +176,9 @@ export function setGeminiClient(mockClient) {
  */
 export function setActiveModel(modelName) {
   if (modelName && typeof modelName === 'string') {
-    const sanitized = modelName.trim().replace(/[^a-zA-Z0-9._-]/g, '');
-    if (sanitized) {
-      activeModel = sanitized;
+    const trimmed = modelName.trim();
+    if (/^(?:(?:models|tunedModels)\/)?[a-zA-Z0-9][-a-zA-Z0-9._]{1,127}$/.test(trimmed)) {
+      activeModel = trimmed;
       privacyLog('info', 'GEMINI_MODEL_SWITCHED', { model: activeModel });
     }
   }

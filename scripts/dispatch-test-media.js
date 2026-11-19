@@ -57,10 +57,8 @@ async function main() {
       img1.buffer,
       '🖼️ *Test Image 1: Majestic Snow Leopard (16:9 Cinematic)*\n• Model: FLUX.1 Schnell\n• Dimensions: 1280x720\n• Watermark Status: 100% Watermark-Free (Lanczos3 Clean Excision + nologo=true)'
     );
-    console.log(
-      `   WhatsApp Dispatch Result:`,
-      res1.success ? `SUCCESS (MsgID: ${res1.messageId})` : `FAILED: ${res1.error}`
-    );
+    const isOk1 = Boolean(res1?.success);
+    console.log(`   WhatsApp Dispatch Result: ${isOk1 ? 'SUCCESS' : 'FAILED'}`);
   } else {
     console.error('   Failed to generate Test Image 1');
   }
@@ -88,10 +86,8 @@ async function main() {
       img2.buffer,
       '🎨 *Test Image 2: Futuristic Eco-City (1:1 Watercolor)*\n• Model: FLUX.1 Schnell\n• Dimensions: 1024x1024\n• Watermark Status: 100% Watermark-Free (Lanczos3 Clean Excision + nologo=true)'
     );
-    console.log(
-      `   WhatsApp Dispatch Result:`,
-      res2.success ? `SUCCESS (MsgID: ${res2.messageId})` : `FAILED: ${res2.error}`
-    );
+    const isOk2 = Boolean(res2?.success);
+    console.log(`   WhatsApp Dispatch Result: ${isOk2 ? 'SUCCESS' : 'FAILED'}`);
   } else {
     console.error('   Failed to generate Test Image 2');
   }
@@ -116,10 +112,8 @@ async function main() {
         videoBuffer,
         '🎬 *Test Video: Tropical Island Motion Clip (16:9 MP4)*\n• Format: ISO MP4 / H.264 Video Stream\n• Watermark Status: 100% Watermark-Free (Clean Frame + No Overlays)'
       );
-      console.log(
-        `   WhatsApp Video Dispatch Result:`,
-        res3.success ? `SUCCESS (MsgID: ${res3.messageId})` : `FAILED: ${res3.error}`
-      );
+      const isOk3 = Boolean(res3?.success);
+      console.log(`   WhatsApp Video Dispatch Result: ${isOk3 ? 'SUCCESS' : 'FAILED'}`);
     } else {
       console.error('   Failed to download video stream');
     }

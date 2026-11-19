@@ -120,7 +120,7 @@ export function parseExpenseFromText(text = '') {
 
   // 2. Extract Amount (look for total, amount, grand total, or standalone price)
   const totalRegex =
-    /(?:total|grand\s+total|amount\s+paid|bill\s+amount|net\s+amount|sum)[:=\s]+[^\d\r\n\s]*\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
+    /(?:total|grand\s+total|amount\s+paid|bill\s+amount|net\s+amount|sum)(?:\s*\([^)\r\n]{1,40}\))?[:=\s]+[^\d\r\n\s]*\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
   const generalPriceRegex =
     /(?:₹|rs\.?|inr|\$|€|£)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
 

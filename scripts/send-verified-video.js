@@ -19,4 +19,5 @@ const caption = [
 console.log(`Sending verified video (${videoBuffer.length} bytes)...`);
 
 const res = await sendWhatsAppVideo(TARGET_PHONE, videoBuffer, caption);
-console.log('Dispatch result:', res);
+const isDelivered = Boolean(res?.success);
+console.log('Dispatch result: success =', isDelivered);

@@ -99,7 +99,8 @@ export function isSafeUrl(urlString) {
     } else if (ipVersion === 6) {
       if (hostname === '::1' || hostname === '::') return false;
       if (hostname.startsWith('fe80:')) return false; // Link-local
-      if (hostname.startsWith('fc00:') || hostname.startsWith('fd00:')) return false; // Unique local
+      const firstHextet = parseInt(hostname.split(':')[0], 16);
+      if (!isNaN(firstHextet) && firstHextet >= 0xfc00 && firstHextet <= 0xfdff) return false; // Unique local (fc00::/7)
       if (hostname.startsWith('::ffff:')) {
         const mapped = hostname.slice(7);
         if (net.isIP(mapped) === 4) {
@@ -196,9 +197,9 @@ export function stripTagBlocks(content, tagNames) {
     const closeTag = `</${lowerTag}>`;
     let out = '';
     let cursor = 0;
+    const lower = result.toLowerCase();
 
     while (cursor < result.length) {
-      const lower = result.toLowerCase();
       const startIndex = lower.indexOf(openTagPrefix, cursor);
       if (startIndex === -1) {
         out += result.slice(cursor);
@@ -318,7 +319,8 @@ async function safeHttpRequest(targetUrl, init) {
   }
   const verifiedUrl = String.fromCharCode(...safeChars);
 
-  // lgtm [js/request-forgery]
+  // codeql[js/request-forgery] Target URL is verified to be a public Internet address by isSafeUrl()
+  // lgtm[js/request-forgery]
   return fetch(verifiedUrl, init);
 }
 
