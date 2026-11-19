@@ -157,4 +157,22 @@ test('Server E2E: Full HTTP wiring across public, operational, admin, and webhoo
     config.SKIP_SIGNATURE_VERIFICATION = origSkip;
     config.NODE_ENV = origEnv;
   });
+
+  // 7. GET /admin and GET / escape HTML and reject unwhitelisted model XSS
+  await t.test('GET /admin and GET / prevent reflected XSS injection', async () => {
+    // Attempt switch_model injection with valid ops auth
+    const token = config.OPS_TOKEN || 'ops_test_token';
+    const xssPayload = '<script>alert("xss")</script>';
+    const switchRes = await fetch(`${baseUrl}/admin?token=${token}&switch_model=${encodeURIComponent(xssPayload)}`, {
+      redirect: 'manual',
+    });
+    // Redirects back to /admin without switching to invalid model
+    assert.strictEqual(switchRes.status, 302);
+
+    // Root page renders active model safely
+    const rootRes = await fetch(`${baseUrl}/`);
+    assert.strictEqual(rootRes.status, 200);
+    const rootHtml = await rootRes.text();
+    assert.ok(!rootHtml.includes('<script>alert'));
+  });
 });

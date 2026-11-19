@@ -5,6 +5,7 @@ import {
   extractUserPromptAside,
   isSafeUrl,
   cleanHtml,
+  stripTagBlocks,
   fetchAndExtractArticle,
 } from '../src/web-scraper.js';
 
@@ -189,4 +190,12 @@ test('WebScraper: fetchAndExtractArticle succeeds on JS SPA shell by extracting 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('WebScraper: stripTagBlocks strips container blocks linearly without regular expressions', () => {
+  const html = '<div>Safe</div><script type="text/javascript">bad();</script><p>Text</p><style>.bad{}</style>';
+  const stripped = stripTagBlocks(html, ['script', 'style']);
+  assert.strictEqual(stripped, '<div>Safe</div><p>Text</p>');
+  assert.strictEqual(stripTagBlocks('', ['script']), '');
+  assert.strictEqual(stripTagBlocks(null, ['script']), '');
 });

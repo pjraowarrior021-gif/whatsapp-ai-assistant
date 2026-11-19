@@ -34,9 +34,8 @@ async function sleep(ms) {
 }
 
 async function main() {
-  const maskedPhone = targetPhone ? `***${String(targetPhone).slice(-4)}` : 'target';
   console.log('========================================================');
-  console.log(`🚀 DISPATCHING WATERMARK-FREE TEST MEDIA TO: ${maskedPhone}`);
+  console.log('🚀 DISPATCHING WATERMARK-FREE TEST MEDIA TO CONFIGURED RECIPIENT');
   console.log('========================================================\n');
 
   // 1. Generate & Dispatch Test Image 1 (Cinematic 16:9)

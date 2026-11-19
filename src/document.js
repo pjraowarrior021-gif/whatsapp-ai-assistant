@@ -48,6 +48,32 @@ const EXTENSION_TO_MIME = {
 };
 
 /**
+ * Decodes XML entities in a single regex pass to prevent double unescaping.
+ * @param {string} str
+ * @returns {string}
+ */
+export function decodeXmlEntities(str) {
+  if (!str) return '';
+  return str.replace(/&(?:amp|lt|gt|quot|apos|#39);/g, (match) => {
+    switch (match) {
+      case '&amp;':
+        return '&';
+      case '&lt;':
+        return '<';
+      case '&gt;':
+        return '>';
+      case '&quot;':
+        return '"';
+      case '&apos;':
+      case '&#39;':
+        return "'";
+      default:
+        return match;
+    }
+  });
+}
+
+/**
  * Infers or corrects the MIME type using the reported MIME and filename extension.
  *
  * @param {string} reportedMime - MIME reported by WhatsApp Cloud API
@@ -125,7 +151,7 @@ export function extractTextFromPptx(buffer) {
       const regex = /<a:t[^>]*>([^<]*)<\/a:t>/g;
       let match;
       while ((match = regex.exec(xml)) !== null) {
-        const text = match[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+        const text = decodeXmlEntities(match[1]).trim();
         if (text) {
           texts.push(text);
         }
@@ -179,7 +205,7 @@ export function extractTextFromDocx(buffer) {
         runs.push(tMatch[1]);
       }
 
-      const text = runs.join('').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+      const text = decodeXmlEntities(runs.join('')).trim();
 
       if (text) {
         paragraphs.push(text);
@@ -213,7 +239,7 @@ export function extractTextFromXlsx(buffer) {
       const tRegex = /<t[^>]*>([^<]*)<\/t>/g;
       let match;
       while ((match = tRegex.exec(xml)) !== null) {
-        const val = match[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+        const val = decodeXmlEntities(match[1]).trim();
         if (val) sharedStrings.push(val);
       }
     }

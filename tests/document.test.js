@@ -8,6 +8,7 @@ import {
   extractTextFromDocx,
   extractTextFromXlsx,
   extractDocumentContent,
+  decodeXmlEntities,
   SUPPORTED_DOCUMENT_MIMES,
 } from '../src/document.js';
 
@@ -128,4 +129,15 @@ test('Document: extractDocumentContent handles PDF and plain text', () => {
   const csvRes = extractDocumentContent(Buffer.from('name,age\nAlice,30\nBob,25'), 'text/csv', 'data.csv');
   assert.strictEqual(csvRes.ok, true);
   assert.strictEqual(csvRes.text, 'name,age\nAlice,30\nBob,25');
+});
+
+test('Document: decodeXmlEntities safely unescapes XML entities in single pass', () => {
+  assert.strictEqual(
+    decodeXmlEntities('AT&amp;T &lt;corp&gt; &quot;quote&quot; &apos;single&apos; &#39;apostrophe&#39;'),
+    "AT&T <corp> \"quote\" 'single' 'apostrophe'"
+  );
+  // Double unescaping defense: &amp;lt; should become &lt;, NOT <
+  assert.strictEqual(decodeXmlEntities('&amp;lt;script&amp;gt;'), '&lt;script&gt;');
+  assert.strictEqual(decodeXmlEntities(''), '');
+  assert.strictEqual(decodeXmlEntities(null), '');
 });
