@@ -242,7 +242,11 @@ doc
 doc.moveDown(0.6);
 
 // Suite Breakdown Table (First 23 suites)
-doc.fillColor(textPrimary).font('Helvetica-Bold').fontSize(10).text('2. Test Suite Module Summary (Suites 1 to 23 of 46)');
+doc
+  .fillColor(textPrimary)
+  .font('Helvetica-Bold')
+  .fontSize(10)
+  .text('2. Test Suite Module Summary (Suites 1 to 23 of 46)');
 doc.moveDown(0.2);
 
 const summaryTableTop = doc.y;
@@ -507,7 +511,11 @@ doc.rect(36, certBoxY, 523, 95).fill('#f0fdf4');
 doc.rect(36, certBoxY, 523, 95).stroke('#86efac');
 doc.rect(36, certBoxY, 4, 95).fill(brandAccent);
 
-doc.fillColor('#166534').font('Helvetica-Bold').fontSize(11).text('PASSING SYSTEM VERIFICATION LEVEL: PRODUCTION READY', 50, certBoxY + 10);
+doc
+  .fillColor('#166534')
+  .font('Helvetica-Bold')
+  .fontSize(11)
+  .text('PASSING SYSTEM VERIFICATION LEVEL: PRODUCTION READY', 50, certBoxY + 10);
 doc.moveDown(0.3);
 
 doc
@@ -525,7 +533,11 @@ doc
 doc.y = certBoxY + 110;
 
 // Deployment Environment Metadata Table
-doc.fillColor(textPrimary).font('Helvetica-Bold').fontSize(9.5).text('Production Deployment Telemetry & Build Metadata');
+doc
+  .fillColor(textPrimary)
+  .font('Helvetica-Bold')
+  .fontSize(9.5)
+  .text('Production Deployment Telemetry & Build Metadata');
 doc.moveDown(0.3);
 
 const envMeta = [
@@ -570,13 +582,21 @@ const signWidth = 240;
 // Box 1: Lead Architect
 doc.rect(36, signY, signWidth, 60).fill('#f8fafc');
 doc.rect(36, signY, signWidth, 60).stroke(borderLight);
-doc.fillColor(textMuted).font('Helvetica-Bold').fontSize(6).text('VERIFIED BY (LEAD ARCHITECT)', 46, signY + 8);
+doc
+  .fillColor(textMuted)
+  .font('Helvetica-Bold')
+  .fontSize(6)
+  .text('VERIFIED BY (LEAD ARCHITECT)', 46, signY + 8);
 doc
   .fillColor(brandAccent)
   .font('Helvetica-Bold')
   .fontSize(10)
   .text('Elephant-Goldfish QA System', 46, signY + 21);
-doc.fillColor(textMuted).font('Helvetica').fontSize(5.5).text('Autonomous Quality Gate & Regressions Defense', 46, signY + 36);
+doc
+  .fillColor(textMuted)
+  .font('Helvetica')
+  .fontSize(5.5)
+  .text('Autonomous Quality Gate & Regressions Defense', 46, signY + 36);
 doc
   .fillColor(textMuted)
   .font('Helvetica')
@@ -586,10 +606,26 @@ doc
 // Box 2: Operations Release
 doc.rect(319, signY, signWidth, 60).fill('#f8fafc');
 doc.rect(319, signY, signWidth, 60).stroke(borderLight);
-doc.fillColor(textMuted).font('Helvetica-Bold').fontSize(6).text('RELEASE APPROVAL STATUS', 329, signY + 8);
-doc.fillColor(passText).font('Helvetica-Bold').fontSize(10).text('APPROVED FOR PRODUCTION', 329, signY + 21);
-doc.fillColor(textMuted).font('Helvetica').fontSize(5.5).text('Status: Deployed & Active on Railway Cloud', 329, signY + 36);
-doc.fillColor(textMuted).font('Helvetica').fontSize(5.5).text('Verification ID: 422-ALL-PASS-CERT-2026', 329, signY + 46);
+doc
+  .fillColor(textMuted)
+  .font('Helvetica-Bold')
+  .fontSize(6)
+  .text('RELEASE APPROVAL STATUS', 329, signY + 8);
+doc
+  .fillColor(passText)
+  .font('Helvetica-Bold')
+  .fontSize(10)
+  .text('APPROVED FOR PRODUCTION', 329, signY + 21);
+doc
+  .fillColor(textMuted)
+  .font('Helvetica')
+  .fontSize(5.5)
+  .text('Status: Deployed & Active on Railway Cloud', 329, signY + 36);
+doc
+  .fillColor(textMuted)
+  .font('Helvetica')
+  .fontSize(5.5)
+  .text('Verification ID: 422-ALL-PASS-CERT-2026', 329, signY + 46);
 
 // ==========================================
 // APPLY RUNNING FOOTERS TO ALL PAGES (No page break triggers)

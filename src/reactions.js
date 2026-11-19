@@ -30,7 +30,7 @@ const GRATITUDE_REGEX =
   /(?:^|\b)(thank(s|\s+you|\s+u)?|thx|ty|appreciate\s+it|grateful|great\s+job|awesome|amazing|perfect|good\s+bot|you('re|\s+are)\s+the\s+best)(?:$|\b)/iu;
 const ACKNOWLEDGMENT_REGEX =
   /^(ok(ay)?|cool|got\s+it|noted|understood|sure|alright|fine|sounds\s+good|roger\s+that|k|👍)$/iu;
-const LAUGHTER_REGEX = /(?:^|\b)(ha(ha)+|he(he)+|lol|lmao|rofl|xd|hilarious)(?:$|\b)|[😂🤣]/iu;
+const LAUGHTER_REGEX = /(?:^|\b)((?:ha){2,}|(?:he){2,}|lol|lmao|rofl|xd|hilarious)(?:$|\b)|[😂🤣]/iu;
 const CELEBRATION_REGEX =
   /(?:^|\b)(congrat(s|ulations)?|happy\s+birthday|hbd|cheers|hurray|hooray|yay|kudos)(?:$|\b)|[🎉🥳]/iu;
 const LOVE_REGEX = /(?:^|\b)(love\s+(this|you)|love\s+it|<3)(?:$|\b)|[❤️💖]/iu;

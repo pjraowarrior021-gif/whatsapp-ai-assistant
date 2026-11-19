@@ -4,6 +4,7 @@
  * Parses receipts, invoices, and expense logs from natural text and multimodal OCR,
  * stores them per user with running monthly totals, and formats clean WhatsApp receipt cards.
  */
+import crypto from 'node:crypto';
 import { store } from './store/index.js';
 import { formatForWhatsApp } from './formatter.js';
 import { privacyLog } from './privacy.js';
@@ -119,7 +120,7 @@ export function parseExpenseFromText(text = '') {
 
   // 2. Extract Amount (look for total, amount, grand total, or standalone price)
   const totalRegex =
-    /(?:total|grand\s+total|amount\s+paid|bill\s+amount|net\s+amount|sum)[\s:=]*[^\d\n]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
+    /(?:total|grand\s+total|amount\s+paid|bill\s+amount|net\s+amount|sum)[:=\s]+[^\d\r\n\s]*\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
   const generalPriceRegex =
     /(?:₹|rs\.?|inr|\$|€|£)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
 
@@ -187,7 +188,7 @@ export async function logExpense(userId, expense) {
   }
 
   const expenseItem = {
-    id: `exp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    id: `exp_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
     amount: Math.round(expense.amount * 100) / 100,
     currency: expense.currency || '₹',
     merchant: String(expense.merchant || 'Store').trim(),

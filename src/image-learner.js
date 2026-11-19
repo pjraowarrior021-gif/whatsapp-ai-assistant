@@ -5,6 +5,7 @@
  * Learns stylistic preferences, lighting, composition, and defect mitigations from user turns,
  * emoji reactions, and explicit corrections without prompt drift, hallucinations, or breaking changes.
  */
+import crypto from 'node:crypto';
 import { store } from './store/index.js';
 import { privacyLog } from './privacy.js';
 
@@ -206,7 +207,7 @@ export function recordImageGeneration(anonId, genData) {
   state.totalGenerations = (state.totalGenerations || 0) + 1;
 
   const record = {
-    id: genData.id || `gen_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    id: genData.id || `gen_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
     prompt: genData.prompt || '',
     enhancedPrompt: genData.enhancedPrompt || '',
     model: genData.model || 'flux',

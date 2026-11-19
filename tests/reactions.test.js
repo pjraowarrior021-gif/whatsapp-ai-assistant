@@ -163,7 +163,6 @@ test('Reactions E2E: User screenshots replication - zero reactions for questions
 
   // Queue push must not react with ⏳
   const { MessageQueue } = await import('../src/queue.js');
-  let reactionSent = null;
   const mockQueue = new MessageQueue({
     concurrency: 1,
     handler: async () => {},

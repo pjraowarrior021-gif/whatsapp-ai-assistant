@@ -338,7 +338,15 @@ export function convertMarkdownTables(text) {
       }
 
       // Must have header, separator line, and at least one data row
-      const isSep = (l) => /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(l);
+      const isSep = (l) => {
+        const trimmed = l.trim();
+        if (!trimmed.includes('-')) return false;
+        const parts = trimmed
+          .split('|')
+          .map((c) => c.trim())
+          .filter(Boolean);
+        return parts.length > 0 && parts.every((c) => /^:?-+:?$/.test(c));
+      };
       if (tableLines.length >= 3 && isSep(tableLines[1])) {
         const parseRow = (row) =>
           row

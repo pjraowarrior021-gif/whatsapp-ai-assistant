@@ -15,7 +15,7 @@ export const DEFAULT_CHUNK_OVERLAP = 50;
  * Standard page delimiter patterns (PDF form-feed or explicit page markers)
  */
 const PAGE_MARKER_REGEX =
-  /(?:\f|(?:^|\n)\s*[-=_]{3,}\s*(?:Page|PAGE)\s*(\d+)\s*[-=_]{3,}|(?:^|\n)<!--\s*page\s*(\d+)\s*-->)/i;
+  /(?:\f|^[ \t]*[-=_]{3,}[ \t]*(?:Page|PAGE)[ \t]*(\d+)[ \t]*[-=_]{3,}|^[ \t]*<!--[ \t]*page[ \t]*(\d+)[ \t]*-->)/im;
 
 /**
  * Splits text into sentence/clause segments while keeping boundary delimiters.
@@ -222,7 +222,7 @@ export function chunkText(text, options = {}) {
 function chunkPageDelimitedText(text, opts) {
   // Split on form feeds or explicit page boundaries
   const parts = text.split(
-    /(?=\f|(?:^|\n)\s*[-=_]{3,}\s*(?:Page|PAGE)\s*\d+\s*[-=_]{3,}|(?:^|\n)<!--\s*page\s*\d+\s*-->)/i
+    /(?=\f|^[ \t]*[-=_]{3,}[ \t]*(?:Page|PAGE)[ \t]*\d+[ \t]*[-=_]{3,}|^[ \t]*<!--[ \t]*page[ \t]*\d+[ \t]*-->)/im
   );
   const allChunks = [];
   let pageCounter = opts.page || 1;
@@ -239,8 +239,8 @@ function chunkPageDelimitedText(text, opts) {
     // Clean out the form feed / marker line for clean chunk text
     const cleanedText = part
       .replace(/\f/g, '')
-      .replace(/(?:^|\n)\s*[-=_]{3,}\s*(?:Page|PAGE)\s*\d+\s*[-=_]{3,}/gi, '')
-      .replace(/(?:^|\n)<!--\s*page\s*\d+\s*-->/gi, '')
+      .replace(/^[ \t]*[-=_]{3,}[ \t]*(?:Page|PAGE)[ \t]*\d+[ \t]*[-=_]{3,}/gim, '')
+      .replace(/^[ \t]*<!--[ \t]*page[ \t]*\d+[ \t]*-->/gim, '')
       .trim();
 
     if (!cleanedText) {

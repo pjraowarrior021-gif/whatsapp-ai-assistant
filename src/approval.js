@@ -3,6 +3,7 @@
  * Stateful Redis-backed two-turn approval gate for high-risk actions
  * and per-chat human operator takeover pause flags.
  */
+import crypto from 'node:crypto';
 import { store } from './store/index.js';
 import { config } from './config.js';
 import { privacyLog } from './privacy.js';
@@ -32,7 +33,7 @@ export async function requestActionApproval(userId, action = {}, ttlSec = DEFAUL
     throw new Error('UserId and action details are required for approval gate');
   }
 
-  const actionId = action.actionId || `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const actionId = action.actionId || `act_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
   const description = action.description || `Execute action: ${action.type}`;
 
   const record = {

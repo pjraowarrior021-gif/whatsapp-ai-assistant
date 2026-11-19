@@ -421,7 +421,7 @@ export function generateImageUrl(prompt, options = {}) {
   const width = options.width || 1024;
   const height = options.height || 1024;
   const model = options.model || 'flux';
-  const seed = options.seed || Math.floor(Math.random() * 1000000);
+  const seed = options.seed || crypto.randomInt(1, 1000000);
   const encoded = encodeURIComponent(cleanPrompt);
   const enhanceParam = options.enhance ? '&enhance=true' : '';
 

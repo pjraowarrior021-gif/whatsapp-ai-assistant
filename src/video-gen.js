@@ -5,6 +5,7 @@
  * Enforces strict volatile in-memory streaming with zero permanent disk writes.
  */
 import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -306,8 +307,8 @@ export function synthesizeMotionVideo(imageBuffer, options = {}) {
     filter = `zoompan=z='min(zoom+0.002,1.3)':d=${totalFrames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=25`;
   }
 
-  const tempIn = path.join(os.tmpdir(), `motion_in_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`);
-  const tempOut = path.join(os.tmpdir(), `motion_out_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
+  const tempIn = path.join(os.tmpdir(), `motion_in_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.jpg`);
+  const tempOut = path.join(os.tmpdir(), `motion_out_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.mp4`);
 
   try {
     fs.writeFileSync(tempIn, imageBuffer);
@@ -386,11 +387,11 @@ export function synthesizeStoryboardVideo(keyframeBuffers, options = {}) {
   const targetDuration = Math.min(15, Math.max(10, options.duration || config.VIDEO_DEFAULT_DURATION || 11.6));
 
   const tmpFiles = frames.slice(0, 4).map((buf, i) => {
-    const f = path.join(os.tmpdir(), `sb_key_${i}_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`);
+    const f = path.join(os.tmpdir(), `sb_key_${i}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.jpg`);
     fs.writeFileSync(f, buf);
     return f;
   });
-  const tempOut = path.join(os.tmpdir(), `sb_out_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
+  const tempOut = path.join(os.tmpdir(), `sb_out_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.mp4`);
 
   try {
     const filterGraph = [

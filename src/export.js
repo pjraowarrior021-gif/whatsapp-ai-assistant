@@ -6,6 +6,7 @@
  * 2. Standard RFC 5545 iCalendar (.ics) event generator & dispatcher.
  * 3. Standard vCard 3.0 (.vcf) contact card generator & dispatcher.
  */
+import crypto from 'node:crypto';
 import { getConversation, isVoiceReplyEnabled } from './privacy.js';
 import { getPersona, isSearchGroundingEnabled } from './gemini.js';
 import { getUserLanguage } from './language.js';
@@ -98,7 +99,7 @@ export async function exportUserData(from, anonId) {
  * @returns {Buffer}
  */
 export function generateCalendarEventIcs(options = {}) {
-  const uid = options.uid || `evt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}@whatsapp.ai`;
+  const uid = options.uid || `evt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}@whatsapp.ai`;
   const now = new Date();
   const formatUtc = (d) =>
     d

@@ -40,13 +40,28 @@ export function extractTextFromPdfBuffer(buffer) {
       return { ok: false, error: 'Not a valid PDF document' };
     }
 
-    // Locate stream ... endstream blocks
-    const streamRegex = /stream[\r\n]+([\s\S]*?)[\r\n]+endstream/g;
+    // Locate stream ... endstream blocks safely without regex backtracking
     const extractedParagraphs = [];
-    let match;
+    let searchPos = 0;
 
-    while ((match = streamRegex.exec(pdfString)) !== null) {
-      const streamBinary = match[1];
+    while (searchPos < pdfString.length) {
+      const streamIdx = pdfString.indexOf('stream', searchPos);
+      if (streamIdx === -1) break;
+
+      let streamStart = streamIdx + 6;
+      if (pdfString[streamStart] === '\r') streamStart++;
+      if (pdfString[streamStart] === '\n') streamStart++;
+
+      const endstreamIdx = pdfString.indexOf('endstream', streamStart);
+      if (endstreamIdx === -1) break;
+
+      let streamEnd = endstreamIdx;
+      if (streamEnd > streamStart && pdfString[streamEnd - 1] === '\n') streamEnd--;
+      if (streamEnd > streamStart && pdfString[streamEnd - 1] === '\r') streamEnd--;
+
+      const streamBinary = pdfString.slice(streamStart, streamEnd);
+      searchPos = endstreamIdx + 9;
+
       const streamBuf = Buffer.from(streamBinary, 'binary');
 
       let uncompressed = null;
@@ -69,7 +84,7 @@ export function extractTextFromPdfBuffer(buffer) {
       const textMatches = [];
 
       // Operator 1: (Text) Tj or '
-      const tjRegex = /\((.*?)\)\s*(?:Tj|'|")/g;
+      const tjRegex = /\(([^()\r\n]*)\)\s*(?:Tj|'|")/g;
       let tjMatch;
       while ((tjMatch = tjRegex.exec(contentStr)) !== null) {
         const decoded = decodePdfString(tjMatch[1]);
@@ -77,11 +92,11 @@ export function extractTextFromPdfBuffer(buffer) {
       }
 
       // Operator 2: [(T) 100 (ext)] TJ
-      const tjArrayRegex = /\[(.*?)\]\s*TJ/g;
+      const tjArrayRegex = /\[([^\[\]\r\n]*)\]\s*TJ/g;
       let arrayMatch;
       while ((arrayMatch = tjArrayRegex.exec(contentStr)) !== null) {
         const inner = arrayMatch[1];
-        const innerStrings = inner.match(/\((.*?)\)/g);
+        const innerStrings = inner.match(/\(([^()\r\n]*)\)/g);
         if (innerStrings) {
           const combined = innerStrings
             .map((s) => decodePdfString(s.slice(1, -1)))

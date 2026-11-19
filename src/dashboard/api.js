@@ -499,7 +499,7 @@ dashboardRouter.post('/memory', (req, res) => {
     }
 
     const factCategory = category && typeof category === 'string' ? category.trim() : 'general';
-    const factId = id ? String(id).trim() : `fact-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const factId = id ? String(id).trim() : `fact-${Date.now()}-${crypto.randomInt(1000, 10000)}`;
     const now = new Date().toISOString();
 
     const existing = memoryFacts.get(factId);
@@ -619,7 +619,7 @@ dashboardRouter.post('/knowledge', (req, res) => {
       return res.status(400).json({ success: false, error: 'Document content is required.' });
     }
 
-    const docId = `doc-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const docId = `doc-${Date.now()}-${crypto.randomInt(1000, 10000)}`;
     const chunks = chunkDocumentText(content.trim(), 500);
     const now = new Date().toISOString();
 

@@ -122,7 +122,7 @@ export function extractTextFromPptx(buffer) {
       const xml = entry.getData().toString('utf8');
 
       const texts = [];
-      const regex = /<a:t[^>]*>([\s\S]*?)<\/a:t>/g;
+      const regex = /<a:t[^>]*>([^<]*)<\/a:t>/g;
       let match;
       while ((match = regex.exec(xml)) !== null) {
         const text = match[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
@@ -171,7 +171,7 @@ export function extractTextFromDocx(buffer) {
 
     while ((pMatch = pRegex.exec(xml)) !== null) {
       const pXml = pMatch[1];
-      const tRegex = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
+      const tRegex = /<w:t[^>]*>([^<]*)<\/w:t>/g;
       let tMatch;
       const runs = [];
 
@@ -210,7 +210,7 @@ export function extractTextFromXlsx(buffer) {
     const sharedStrings = [];
     if (stringsEntry) {
       const xml = stringsEntry.getData().toString('utf8');
-      const tRegex = /<t[^>]*>([\s\S]*?)<\/t>/g;
+      const tRegex = /<t[^>]*>([^<]*)<\/t>/g;
       let match;
       while ((match = tRegex.exec(xml)) !== null) {
         const val = match[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();

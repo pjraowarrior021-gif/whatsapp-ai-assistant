@@ -1,5 +1,6 @@
 import { URL } from 'node:url';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import { config } from './config.js';
 import { privacyLog, isDomainInAllowlist } from './privacy.js';
 import { store } from './store/index.js';
@@ -60,37 +61,70 @@ export function isSafeUrl(urlString) {
       return false;
     }
 
-    const hostname = parsed.hostname.toLowerCase();
+    let hostname = parsed.hostname.toLowerCase();
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
 
-    // Block localhost and local names
+    // Block localhost, local names, and internal cloud metadata hostnames
     if (
       hostname === 'localhost' ||
       hostname.endsWith('.localhost') ||
       hostname.endsWith('.local') ||
       hostname.endsWith('.internal') ||
+      hostname.endsWith('.lan') ||
+      hostname.endsWith('.home') ||
+      hostname.endsWith('.arpa') ||
+      hostname === 'metadata.google.internal' ||
       hostname === '0.0.0.0' ||
       hostname === '::1' ||
-      hostname === '[::1]'
+      hostname === '::'
     ) {
       return false;
     }
 
-    // Block IPv4 private & link-local ranges
-    // 127.0.0.0/8 (Loopback)
-    // 10.0.0.0/8 (Private)
-    // 192.168.0.0/16 (Private)
-    // 172.16.0.0/12 (Private: 172.16 - 172.31)
-    // 169.254.0.0/16 (Link-Local / Cloud Metadata e.g. AWS 169.254.169.254)
-    const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-    const ipMatch = hostname.match(ipv4Regex);
-    if (ipMatch) {
-      const [o1, o2] = [parseInt(ipMatch[1], 10), parseInt(ipMatch[2], 10)];
-      if (o1 === 127) return false;
-      if (o1 === 10) return false;
-      if (o1 === 192 && o2 === 168) return false;
-      if (o1 === 172 && o2 >= 16 && o2 <= 31) return false;
-      if (o1 === 169 && o2 === 254) return false;
-      if (o1 === 0) return false;
+    // Check if hostname is an IP (IPv4 or IPv6)
+    const ipVersion = net.isIP(hostname);
+    if (ipVersion === 4) {
+      const parts = hostname.split('.').map((p) => parseInt(p, 10));
+      const [o1, o2] = parts;
+      if (o1 === 127) return false; // Loopback
+      if (o1 === 10) return false; // RFC-1918 Private
+      if (o1 === 192 && o2 === 168) return false; // RFC-1918 Private
+      if (o1 === 172 && o2 >= 16 && o2 <= 31) return false; // RFC-1918 Private
+      if (o1 === 169 && o2 === 254) return false; // Link-local / Cloud metadata (AWS/GCP/Azure)
+      if (o1 === 100 && o2 >= 64 && o2 <= 127) return false; // Carrier-grade NAT
+      if (o1 === 0) return false; // Current network
+      if (o1 >= 224) return false; // Multicast / Reserved
+    } else if (ipVersion === 6) {
+      if (hostname === '::1' || hostname === '::') return false;
+      if (hostname.startsWith('fe80:')) return false; // Link-local
+      if (hostname.startsWith('fc00:') || hostname.startsWith('fd00:')) return false; // Unique local
+      if (hostname.startsWith('::ffff:')) {
+        const mapped = hostname.slice(7);
+        if (net.isIP(mapped) === 4) {
+          return isSafeUrl(`http://${mapped}`);
+        }
+        return false;
+      }
+    } else {
+      // Regex fallback for non-canonical IPv4 representations
+      const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+      const ipMatch = hostname.match(ipv4Regex);
+      if (ipMatch) {
+        const [o1, o2] = [parseInt(ipMatch[1], 10), parseInt(ipMatch[2], 10)];
+        if (
+          o1 === 127 ||
+          o1 === 10 ||
+          (o1 === 192 && o2 === 168) ||
+          (o1 === 172 && o2 >= 16 && o2 <= 31) ||
+          (o1 === 169 && o2 === 254) ||
+          o1 === 0 ||
+          o1 >= 224
+        ) {
+          return false;
+        }
+      }
     }
 
     return true;
@@ -226,19 +260,46 @@ export async function fetchAndExtractArticle(urlString, options = {}) {
       const signal = AbortSignal.timeout(config.MEDIA_FETCH_TIMEOUT_MS);
       const defaultUa =
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 (WhatsAppAssistant/1.0; +https://github.com/pjraowarrior021-gif/whatsapp-ai-assistant)';
-      let res = await fetch(url, {
-        signal,
-        headers: {
-          'User-Agent': defaultUa,
-          Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      });
+
+      let currentUrl = url;
+      let redirectCount = 0;
+      const maxRedirects = 3;
+      let res;
+
+      while (true) {
+        // codeql[js/request-forgery]
+        res = await fetch(currentUrl, {
+          signal,
+          redirect: 'manual',
+          headers: {
+            'User-Agent': defaultUa,
+            Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+        });
+
+        if ([301, 302, 303, 307, 308].includes(res.status)) {
+          const location = res.headers.get('location');
+          if (location && redirectCount < maxRedirects) {
+            const nextUrl = new URL(location, currentUrl).toString();
+            if (!isSafeUrl(nextUrl)) {
+              privacyLog('warn', 'SSRF_ATTEMPT_BLOCKED', { host: new URL(nextUrl).hostname });
+              return { ok: false, reason: 'ssrf_blocked' };
+            }
+            currentUrl = nextUrl;
+            redirectCount++;
+            continue;
+          }
+        }
+        break;
+      }
 
       // If blocked with 403, retry with social crawler User-Agent as fallback
       if (res.status === 403) {
-        res = await fetch(url, {
+        // codeql[js/request-forgery]
+        res = await fetch(currentUrl, {
           signal,
+          redirect: 'manual',
           headers: {
             'User-Agent':
               'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php) WhatsApp/2.23.23.77',

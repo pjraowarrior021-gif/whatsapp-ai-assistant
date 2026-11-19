@@ -4,6 +4,7 @@
  * provides exponential backoff retries for transient errors, and routes
  * exhausted tasks to a privacy-safe dead-letter notification path.
  */
+import crypto from 'node:crypto';
 import { config } from './config.js';
 import { privacyLog } from './privacy.js';
 import { recordErrorMetric } from './metrics.js';
@@ -233,7 +234,7 @@ export class MessageQueue {
     this.stats.deadLettered++;
     recordErrorMetric('dead_letter');
 
-    const dlId = task.requestId || `dlq_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const dlId = task.requestId || `dlq_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
     const dlEntry = {
       id: dlId,
       task: { ...task, retryCount: 0 },
