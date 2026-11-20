@@ -106,8 +106,8 @@ export function isValidLuhn(digits) {
   return sum % 10 === 0;
 }
 
-// Payment card candidate regex (13-19 digits with optional spaces or dashes, supporting repeated separators)
-const CARD_CANDIDATE_REGEX = /\b\d(?:[ -]{0,3}\d){12,18}\b/g;
+// Payment card candidate regex (13-19 digits with optional spaces or dashes)
+const CARD_CANDIDATE_REGEX = /\b\d(?:[ -]?\d){12,18}\b/g;
 
 /**
  * Privacy Guard: Sensitive data regex patterns
@@ -207,7 +207,7 @@ const PROMPT_INJECTION_PATTERNS = [
   /you\s+are\s+now\s+(?:in\s+)?(?:developer|dan|god)\s+mode/gi,
   /(?:system\s+prompt\s+override|override\s+system\s+(?:rules|prompt))/gi,
   /output\s+all\s+(?:system\s+instructions|api\s+keys|secrets)/gi,
-  /<\s*\/?\s*script(?:\s|>|\/|$)/gi,
+  /<\/?script\b[^>]*>/gi,
   /javascript:[^)\s"']+/gi,
   /!\[.*?\]\([^)]*\)/gi,
   /(?:curl|wget)\s+-[sS]?\s+http/gi,

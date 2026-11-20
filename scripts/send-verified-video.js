@@ -16,8 +16,8 @@ const caption = [
   '• *Durability:* Watermark-Free & High Performance',
 ].join('\n');
 
-console.log(`Sending verified video (${videoBuffer.length} bytes)...`);
+const maskedPhone = TARGET_PHONE ? `***${String(TARGET_PHONE).slice(-4)}` : 'target';
+console.log(`Sending verified video to ${maskedPhone} (${videoBuffer.length} bytes)...`);
 
 const res = await sendWhatsAppVideo(TARGET_PHONE, videoBuffer, caption);
-const isDelivered = Boolean(res?.success);
-console.log('Dispatch result: success =', isDelivered);
+console.log('Dispatch result:', res);

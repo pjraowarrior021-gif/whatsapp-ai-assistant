@@ -39,23 +39,13 @@ export class DedupeStore {
     if (this.memory.has(normalized)) return false;
     this.memory.add(normalized);
 
-    let evicted = [];
-    try {
-      await this.file.mutate((data) => {
-        if (!Array.isArray(data.ids)) data.ids = [];
-        data.ids.push(normalized);
-        if (data.ids.length > this.maxEntries) {
-          evicted = data.ids.slice(0, data.ids.length - this.maxEntries);
-          data.ids = data.ids.slice(-this.maxEntries);
-        }
-      });
-      for (const id of evicted) {
-        this.memory.delete(id);
+    await this.file.mutate((data) => {
+      if (!Array.isArray(data.ids)) data.ids = [];
+      data.ids.push(normalized);
+      if (data.ids.length > this.maxEntries) {
+        data.ids = data.ids.slice(-this.maxEntries);
       }
-    } catch (err) {
-      this.memory.delete(normalized);
-      throw err;
-    }
+    });
     return true;
   }
 

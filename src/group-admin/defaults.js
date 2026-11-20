@@ -40,7 +40,9 @@ export function defaultGroupSettings() {
     botAliases: [],
     replyCooldownMs: 15000,
     maxRepliesPerHour: 30,
+    maxReplyChars: 1400,
     respondToQuestions: true,
+    processPreActivationHistory: false,
     welcomeNewMembers: false,
     welcomeMessage: '',
     allowAnnouncements: false,
@@ -114,7 +116,11 @@ export function mergeGroupSettings(patch = {}, base = defaultGroupSettings()) {
   if (patch.maxRepliesPerHour !== undefined) {
     next.maxRepliesPerHour = clampInt(patch.maxRepliesPerHour, 1, 500, 30);
   }
+  if (patch.maxReplyChars !== undefined) next.maxReplyChars = clampInt(patch.maxReplyChars, 200, 3000, 1400);
   if (patch.respondToQuestions !== undefined) next.respondToQuestions = Boolean(patch.respondToQuestions);
+  if (patch.processPreActivationHistory !== undefined) {
+    next.processPreActivationHistory = Boolean(patch.processPreActivationHistory);
+  }
   if (patch.welcomeNewMembers !== undefined) next.welcomeNewMembers = Boolean(patch.welcomeNewMembers);
   if (typeof patch.welcomeMessage === 'string') next.welcomeMessage = patch.welcomeMessage.slice(0, 1000);
   if (patch.allowAnnouncements !== undefined) next.allowAnnouncements = Boolean(patch.allowAnnouncements);

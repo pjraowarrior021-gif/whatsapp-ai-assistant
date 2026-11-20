@@ -176,11 +176,8 @@ export function setGeminiClient(mockClient) {
  */
 export function setActiveModel(modelName) {
   if (modelName && typeof modelName === 'string') {
-    const trimmed = modelName.trim();
-    if (/^(?:(?:models|tunedModels)\/)?[a-zA-Z0-9][-a-zA-Z0-9._]{1,127}$/.test(trimmed)) {
-      activeModel = trimmed;
-      privacyLog('info', 'GEMINI_MODEL_SWITCHED', { model: activeModel });
-    }
+    activeModel = modelName.trim();
+    privacyLog('info', 'GEMINI_MODEL_SWITCHED', { model: activeModel });
   }
 }
 
@@ -365,19 +362,13 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
         });
 
         // Dynamic circuit breaker:
-        // Multi-page PDFs, large documents, audio, and large prompts require generous time (60s).
-        // Web search grounding and images require 35s.
-        // Standard conversational text requires 30s (AI_REQUEST_TIMEOUT_MS) to allow Gemini to generate deep, thoughtful responses without premature aborts.
+        // Multi-page PDFs, large documents, audio, and large prompts require generous time (45s).
+        // Web search grounding and images require 20s. Standard short text cascades quickly (8s).
         const isDocumentOrLarge =
           Boolean(imagePart && (imagePart.mimeType === 'application/pdf' || imagePart.fileUri)) ||
           (userMessage && userMessage.length > 2500);
 
-        const baseTimeout = config.AI_REQUEST_TIMEOUT_MS || 30000;
-        const timeoutMs = isDocumentOrLarge
-          ? Math.max(baseTimeout, 60000)
-          : shouldGround || Boolean(imagePart)
-            ? Math.max(baseTimeout, 35000)
-            : baseTimeout;
+        const timeoutMs = isDocumentOrLarge ? 45000 : shouldGround || Boolean(imagePart) ? 20000 : 8000;
 
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
@@ -439,8 +430,8 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
         let followUpTimeoutId;
         const followUpTimeoutPromise = new Promise((_, reject) => {
           followUpTimeoutId = setTimeout(
-            () => reject(new Error(`Timeout: ${modelToTry} tool follow-up did not respond within 30000ms`)),
-            30000
+            () => reject(new Error(`Timeout: ${modelToTry} tool follow-up did not respond within 20000ms`)),
+            20000
           );
         });
 
@@ -508,10 +499,6 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
 
   if (errorMsg.includes('quota') || errorMsg.includes('QUOTA_EXCEEDED')) {
     return '⚠️ *Quota Exceeded:* The Gemini API free quota has been temporarily reached. Please try again later or check your API limits at https://aistudio.google.com.';
-  }
-
-  if (errorMsg.includes('503') || errorMsg.includes('high demand') || errorMsg.includes('overloaded')) {
-    return '⏳ *High Demand Notice:* Google Gemini is currently experiencing heavy traffic spikes. Please wait a few moments and try your message again.';
   }
 
   return '⚠️ *Error:* Unable to generate an AI response right now. Please try again in a few moments.';

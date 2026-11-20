@@ -191,25 +191,14 @@ export function formatTranscript(transcriptItems = [], maxChars = 24000) {
   let currentGroup = [];
 
   for (const item of transcriptItems) {
-    const raw = item.text || '';
-    const decoded = raw.replace(/&(?:amp|lt|gt|quot|#39|apos);/g, (match) => {
-      switch (match) {
-        case '&amp;':
-          return '&';
-        case '&lt;':
-          return '<';
-        case '&gt;':
-          return '>';
-        case '&quot;':
-          return '"';
-        case '&#39;':
-        case '&apos;':
-          return "'";
-        default:
-          return match;
-      }
-    });
-    const cleanText = decoded.replace(/\n/g, ' ').trim();
+    const cleanText = (item.text || '')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\n/g, ' ')
+      .trim();
 
     if (!cleanText || cleanText === '[Music]' || cleanText === '[Applause]') {
       continue;

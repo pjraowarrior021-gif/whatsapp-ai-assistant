@@ -293,21 +293,19 @@ export function analyzeUrl(rawUrl, moderation = {}) {
   const blocked = (moderation.blockedDomains || []).some((d) => host === d || host.endsWith(`.${d}`));
 
   if (blocked) return { suspicious: true, severity: SEVERITY.HIGH, reason: 'Domain is on the group blocklist' };
+  if (SHORTENERS.has(host))
+    return { suspicious: true, severity: SEVERITY.MEDIUM, reason: 'Link shortener hides the destination' };
   if (host.startsWith('xn--') || host.includes('.xn--')) {
     return { suspicious: true, severity: SEVERITY.HIGH, reason: 'Punycode domain can spoof another site' };
   }
   if (isIpHost(host)) return { suspicious: true, severity: SEVERITY.HIGH, reason: 'Direct IP address link' };
+  if (RISKY_TLDS.has(tld))
+    return { suspicious: true, severity: SEVERITY.MEDIUM, reason: `Risky top-level domain .${tld}` };
   if (looksLikeBrandImpersonation(host)) {
     return { suspicious: true, severity: SEVERITY.HIGH, reason: 'Lookalike domain impersonates a known brand' };
   }
   if (url.username || url.password) {
     return { suspicious: true, severity: SEVERITY.HIGH, reason: 'Credential-like userinfo in URL' };
-  }
-  if (SHORTENERS.has(host)) {
-    return { suspicious: true, severity: SEVERITY.MEDIUM, reason: 'Link shortener hides the destination' };
-  }
-  if (RISKY_TLDS.has(tld)) {
-    return { suspicious: true, severity: SEVERITY.MEDIUM, reason: `Risky top-level domain .${tld}` };
   }
   return { suspicious: false, severity: SEVERITY.NONE, reason: 'No link signal' };
 }

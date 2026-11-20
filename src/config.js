@@ -50,7 +50,7 @@ function parseAllowedNumbers(rawList) {
  * @returns {string[]}
  */
 export function parseFallbackModels(rawList, primaryModel) {
-  const defaults = 'gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.8-flash';
+  const defaults = 'gemini-3.5-flash-lite,gemini-3.8-flash';
   const source = typeof rawList === 'string' ? rawList : defaults;
   const list = source
     .split(',')
@@ -179,10 +179,20 @@ export const config = {
   GROUP_ADMIN_REPLY_COOLDOWN_MS: parseInt(process.env.GROUP_ADMIN_REPLY_COOLDOWN_MS, 10) || 15000,
   GROUP_ADMIN_QUEUE_CONCURRENCY: parseInt(process.env.GROUP_ADMIN_QUEUE_CONCURRENCY, 10) || 2,
   GROUP_ADMIN_AUDIT_MAX_ENTRIES: parseInt(process.env.GROUP_ADMIN_AUDIT_MAX_ENTRIES, 10) || 2000,
+  GROUP_ADMIN_MAX_FACTS: parseInt(process.env.GROUP_ADMIN_MAX_FACTS, 10) || 200,
   GROUP_ADMIN_HUMAN_ADMINS: process.env.GROUP_ADMIN_HUMAN_ADMINS || '',
   GROUP_ADMIN_REPORT_HOUR: parseInt(process.env.GROUP_ADMIN_REPORT_HOUR, 10) || 21,
   GROUP_ADMIN_REPORT_TIMEZONE: process.env.GROUP_ADMIN_REPORT_TIMEZONE || process.env.TIMEZONE || 'Asia/Kolkata',
   GROUP_ADMIN_REQUIRE_APPROVAL: process.env.GROUP_ADMIN_REQUIRE_APPROVAL !== 'false',
+
+  // Official Cloud API Groups transport. Only works for business-created,
+  // invite-only groups on an Official Business Account (max 8 participants);
+  // it cannot join arbitrary consumer groups. Inactive without credentials.
+  CLOUD_GROUPS_ENABLED: process.env.CLOUD_GROUPS_ENABLED !== 'false',
+  CLOUD_GROUPS_API_VERSION: process.env.CLOUD_GROUPS_API_VERSION || '',
+  // Registers business groups (always disabled) at startup so they appear in
+  // the dashboard. Never enables a group.
+  CLOUD_GROUPS_AUTO_DISCOVER: process.env.CLOUD_GROUPS_AUTO_DISCOVER !== 'false',
 
   // Personal-account transport (deferred / opt-in). The driver is shipped but
   // stays entirely inactive unless explicitly enabled. Unofficial transport:
@@ -222,6 +232,9 @@ export const config = {
   AI_MODEL_SUMMARY: process.env.AI_MODEL_SUMMARY || '',
   AI_MODEL_REPORT: process.env.AI_MODEL_REPORT || '',
   AI_MODEL_MEMORY: process.env.AI_MODEL_MEMORY || '',
+
+  // Optional override for self-hosted Gemini-compatible gateways.
+  GEMINI_API_BASE_URL: process.env.GEMINI_API_BASE_URL || '',
 };
 
 /**

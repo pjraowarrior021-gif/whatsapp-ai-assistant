@@ -28,38 +28,25 @@ export class JsonFileStore {
   async init() {
     if (this.ready) return this.ready;
     this.ready = (async () => {
+      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
       try {
-        await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-        let raw;
-        try {
-          raw = await fs.readFile(this.filePath, 'utf8');
-        } catch (err) {
-          if (err.code === 'ENOENT') {
-            this.data = this.defaultFactory();
-            await this.#persist();
-            return this;
-          }
-          throw err;
-        }
-
-        try {
-          const parsed = JSON.parse(raw);
-          this.data = parsed && typeof parsed === 'object' ? parsed : this.defaultFactory();
-        } catch {
-          // Corrupt file: preserve it for inspection instead of silently discarding operator configuration.
+        const raw = await fs.readFile(this.filePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        this.data = parsed && typeof parsed === 'object' ? parsed : this.defaultFactory();
+      } catch (err) {
+        if (err.code !== 'ENOENT') {
+          // Corrupt file: preserve it for inspection instead of silently
+          // discarding operator configuration.
           try {
             await fs.rename(this.filePath, `${this.filePath}.corrupt-${Date.now()}`);
           } catch {
             // best effort
           }
-          this.data = this.defaultFactory();
-          await this.#persist();
         }
-        return this;
-      } catch (fatalErr) {
-        this.ready = null;
-        throw fatalErr;
+        this.data = this.defaultFactory();
+        await this.#persist();
       }
+      return this;
     })();
     return this.ready;
   }
@@ -69,9 +56,9 @@ export class JsonFileStore {
     else await this.ready;
   }
 
-  async #persist(targetData = this.data) {
+  async #persist() {
     const tmp = `${this.filePath}.${process.pid}.tmp`;
-    const payload = JSON.stringify(targetData, null, 2);
+    const payload = JSON.stringify(this.data, null, 2);
     await fs.writeFile(tmp, payload, { encoding: 'utf8', mode: 0o600 });
     await fs.rename(tmp, this.filePath);
   }
@@ -97,10 +84,8 @@ export class JsonFileStore {
   async mutate(mutator) {
     await this.#ensureReady();
     const run = this.writeChain.then(async () => {
-      const draft = structuredClone(this.data);
-      const result = await mutator(draft);
-      await this.#persist(draft);
-      this.data = draft;
+      const result = await mutator(this.data);
+      await this.#persist();
       return result;
     });
     // Keep the chain alive after failures so one bad write does not wedge

@@ -40,6 +40,11 @@
           <span class="icon">📊</span>
           <span>Overview</span>
         </div>
+        <div class="nav-item" data-view="groups">
+          <span class="icon">👥</span>
+          <span>Group Administrator</span>
+          <span class="badge">OPT-IN</span>
+        </div>
         <div class="nav-item" data-view="memory">
           <span class="icon">🧠</span>
           <span>Semantic Memory</span>
@@ -557,6 +562,192 @@
             </div>
           </div>
         </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW: GROUP ADMINISTRATOR -->
+        <!-- ============================================================= -->
+        <section id="view-groups" class="view-section">
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">👥 Group Administrator</h1>
+              <p class="section-subtitle">
+                AI is disabled in every group by default. Only groups you explicitly enable are processed.
+              </p>
+            </div>
+            <button class="btn btn-danger" id="btn-emergency-stop">🛑 Emergency Stop</button>
+          </div>
+
+          <div class="glass-panel group-session-card">
+            <div class="session-row">
+              <div>
+                <div class="stat-label">WhatsApp Session</div>
+                <div class="session-state-line">
+                  <span class="status-dot" id="ga-session-dot"></span>
+                  <strong id="ga-session-state">Checking…</strong>
+                </div>
+                <div class="stat-sub" id="ga-session-meta">Personal WhatsApp transport</div>
+              </div>
+              <div class="session-actions">
+                <button class="btn btn-sm btn-primary" id="btn-wa-connect">Connect</button>
+                <button class="btn btn-sm" id="btn-wa-refresh">Refresh Groups</button>
+                <button class="btn btn-sm" id="btn-wa-logout">Logout</button>
+              </div>
+            </div>
+            <div class="qr-box" id="group-qr-box" hidden>
+              <img id="group-qr-img" alt="WhatsApp pairing QR code" />
+              <div>
+                <strong>Scan to link your personal WhatsApp</strong>
+                <p class="stat-sub">
+                  WhatsApp → Linked devices → Link a device. The QR expires quickly; it refreshes automatically.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-panel group-session-card" style="margin-top: 14px">
+            <div class="session-row">
+              <div>
+                <div class="stat-label">Official Cloud API Groups</div>
+                <div class="session-state-line">
+                  <span class="status-dot" id="ga-cloud-dot"></span>
+                  <strong id="ga-cloud-state">Checking…</strong>
+                </div>
+                <div class="stat-sub" id="ga-cloud-meta">
+                  Business-created, invite-only groups (Official Business Account required, max 8 participants).
+                </div>
+              </div>
+              <div class="session-actions">
+                <button class="btn btn-sm" id="btn-cloud-refresh">Sync Cloud Groups</button>
+              </div>
+            </div>
+            <div class="cloud-create-row">
+              <input
+                class="form-input"
+                id="cloud-subject"
+                maxlength="128"
+                placeholder="New group subject"
+                aria-label="New Cloud group subject"
+              />
+              <input
+                class="form-input"
+                id="cloud-description"
+                maxlength="2048"
+                placeholder="Description (optional)"
+                aria-label="New Cloud group description"
+              />
+              <select class="form-select" id="cloud-approval" aria-label="Join approval mode">
+                <option value="auto_approve">Auto-approve joins</option>
+                <option value="approval_required">Require join approval</option>
+              </select>
+              <button class="btn btn-sm btn-primary" id="btn-cloud-create">Create Group</button>
+            </div>
+            <p class="stat-sub" style="margin: 8px 0 0">
+              The Cloud number owns the group and is its only admin. It cannot join an existing consumer group. Newly
+              discovered groups stay disabled until you enable them.
+            </p>
+          </div>
+
+          <div class="stats-grid">
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Enabled Groups</div>
+              <div class="stat-val" id="stat-ga-enabled">0</div>
+              <div class="stat-sub" id="stat-ga-total">0 discovered</div>
+            </div>
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Messages Seen (24h)</div>
+              <div class="stat-val" id="stat-ga-msgs">0</div>
+              <div class="stat-sub">Enabled groups only</div>
+            </div>
+            <div class="glass-panel stat-card">
+              <div class="stat-label">AI Replies (24h)</div>
+              <div class="stat-val" id="stat-ga-replies">0</div>
+              <div class="stat-sub">Loop and rate protected</div>
+            </div>
+            <div class="glass-panel stat-card">
+              <div class="stat-label">Open Cases</div>
+              <div class="stat-val" id="stat-ga-cases">0</div>
+              <div class="stat-sub">Awaiting human review</div>
+            </div>
+          </div>
+
+          <div class="group-layout">
+            <div class="glass-panel group-list-panel">
+              <div class="panel-heading">
+                <h3 class="card-title">Groups</h3>
+                <span class="badge-tag badge-info" id="ga-group-count">0</span>
+              </div>
+              <input
+                type="search"
+                class="form-input"
+                id="group-search"
+                placeholder="Search groups by name or ID…"
+                aria-label="Search groups"
+              />
+              <div class="group-list" id="group-list">
+                <div class="empty-state">No groups discovered yet.</div>
+              </div>
+            </div>
+
+            <div class="glass-panel group-detail-panel" id="group-detail">
+              <div class="empty-state">
+                <div class="empty-icon">👈</div>
+                <p>Select a group to configure it.</p>
+                <p class="stat-sub">Groups are never enabled automatically.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-panel" style="margin-top: 18px">
+            <div class="panel-heading">
+              <h3 class="card-title">🛡️ Pending Approvals</h3>
+              <span class="badge-tag badge-warning" id="ga-approval-count">0</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Requested</th>
+                    <th>Group</th>
+                    <th>Action</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th>Controls</th>
+                  </tr>
+                </thead>
+                <tbody id="group-approvals-body">
+                  <tr>
+                    <td colspan="6" class="empty-cell">No pending approvals.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="glass-panel" style="margin-top: 18px">
+            <div class="panel-heading">
+              <h3 class="card-title">📜 Group Audit Log</h3>
+              <button class="btn btn-sm" id="btn-refresh-audit">Refresh</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Actor</th>
+                    <th>Action</th>
+                    <th>Group</th>
+                    <th>Outcome</th>
+                  </tr>
+                </thead>
+                <tbody id="group-audit-body">
+                  <tr>
+                    <td colspan="5" class="empty-cell">No audit entries.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -711,5 +902,6 @@
     <div class="toast-container" id="toast-container"></div>
 
     <script src="./app.js"></script>
+    <script src="./groups.js"></script>
   </body>
 </html>

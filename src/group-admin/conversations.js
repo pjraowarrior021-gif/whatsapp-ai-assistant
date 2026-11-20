@@ -100,7 +100,7 @@ export class ConversationStore {
     }
 
     const hourAgo = now - 60 * 60 * 1000;
-    state.replies = state.replies.filter((r) => (typeof r === 'number' ? r : r.at) > hourAgo);
+    state.replies = state.replies.filter((t) => t > hourAgo);
     const maxPerHour = Number(settings.maxRepliesPerHour) || 30;
     if (state.replies.length >= maxPerHour) {
       return { allowed: false, reason: 'hourly_cap' };

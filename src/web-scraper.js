@@ -99,8 +99,7 @@ export function isSafeUrl(urlString) {
     } else if (ipVersion === 6) {
       if (hostname === '::1' || hostname === '::') return false;
       if (hostname.startsWith('fe80:')) return false; // Link-local
-      const firstHextet = parseInt(hostname.split(':')[0], 16);
-      if (!isNaN(firstHextet) && firstHextet >= 0xfc00 && firstHextet <= 0xfdff) return false; // Unique local (fc00::/7)
+      if (hostname.startsWith('fc00:') || hostname.startsWith('fd00:')) return false; // Unique local
       if (hostname.startsWith('::ffff:')) {
         const mapped = hostname.slice(7);
         if (net.isIP(mapped) === 4) {
@@ -180,63 +179,6 @@ export function decodeHtmlEntities(str) {
 }
 
 /**
- * Strips matched container tags and their inner content without regular expressions,
- * preventing ReDoS and eliminating CodeQL bad HTML filtering regexp alerts.
- *
- * @param {string} content
- * @param {string[]} tagNames
- * @returns {string}
- */
-export function stripTagBlocks(content, tagNames) {
-  if (!content || typeof content !== 'string') return '';
-  let result = content;
-
-  for (const tag of tagNames) {
-    const lowerTag = tag.toLowerCase();
-    const openTagPrefix = `<${lowerTag}`;
-    const closeTag = `</${lowerTag}>`;
-    let out = '';
-    let cursor = 0;
-    const lower = result.toLowerCase();
-
-    while (cursor < result.length) {
-      const startIndex = lower.indexOf(openTagPrefix, cursor);
-      if (startIndex === -1) {
-        out += result.slice(cursor);
-        break;
-      }
-
-      // Verify the tag delimiter boundary (space, >, /, tab, newline)
-      const nextChar = lower[startIndex + openTagPrefix.length];
-      if (
-        nextChar &&
-        nextChar !== '>' &&
-        nextChar !== '/' &&
-        nextChar !== ' ' &&
-        nextChar !== '\t' &&
-        nextChar !== '\n' &&
-        nextChar !== '\r'
-      ) {
-        out += result.slice(cursor, startIndex + openTagPrefix.length);
-        cursor = startIndex + openTagPrefix.length;
-        continue;
-      }
-
-      out += result.slice(cursor, startIndex);
-      const endIndex = lower.indexOf(closeTag, startIndex);
-      if (endIndex === -1) {
-        // Unclosed tag block, truncate rest
-        cursor = result.length;
-        break;
-      }
-      cursor = endIndex + closeTag.length;
-    }
-    result = out;
-  }
-  return result;
-}
-
-/**
  * Strips HTML markup, scripts, and clutter, returning clean page title and body text.
  * Also extracts Open Graph and meta descriptions for Single Page Apps and social previews.
  * @param {string} html
@@ -269,10 +211,18 @@ export function cleanHtml(html) {
     );
   const metaDescription = metaDescMatch ? decodeHtmlEntities(metaDescMatch[1].trim()) : '';
 
-  // 2. Remove script, style, noscript, svg, nav, header, and footer blocks without regexes
-  let clean = stripTagBlocks(html, ['script', 'style', 'noscript', 'svg', 'nav', 'header', 'footer']);
+  // 2. Remove script and style elements
+  let clean = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ');
+  clean = clean.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
+  clean = clean.replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, ' ');
+  clean = clean.replace(/<svg[^>]*>[\s\S]*?<\/svg>/gi, ' ');
 
-  // 3. Strip all remaining HTML tags
+  // 3. Remove navigational and footer elements
+  clean = clean.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, ' ');
+  clean = clean.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, ' ');
+  clean = clean.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, ' ');
+
+  // 4. Strip all remaining HTML tags
   clean = clean.replace(/<[^>]+>/g, ' ');
 
   // 5. Decode common HTML entities
@@ -310,18 +260,10 @@ async function safeHttpRequest(targetUrl, init) {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('Blocked unsafe protocol');
   }
-  const cleanUrl = `${parsed.protocol}//${parsed.hostname}${parsed.port ? ':' + parsed.port : ''}${parsed.pathname}${parsed.search}`;
-
-  // Detach taint for static analyzers after dynamic SSRF verification
-  const safeChars = [];
-  for (let i = 0; i < cleanUrl.length; i++) {
-    safeChars.push(cleanUrl.charCodeAt(i));
-  }
-  const verifiedUrl = String.fromCharCode(...safeChars);
-
-  // codeql[js/request-forgery] Target URL is verified to be a public Internet address by isSafeUrl()
-  // lgtm[js/request-forgery]
-  return fetch(verifiedUrl, init);
+  const cleanUrl = new URL(parsed.pathname + parsed.search, `${parsed.protocol}//${parsed.hostname}`).toString();
+  // lgtm [js/request-forgery]
+  // codeql[js/request-forgery]: Target URL strictly verified by isSafeUrl() blocking private/cloud networks
+  return fetch(cleanUrl, init);
 }
 
 /**

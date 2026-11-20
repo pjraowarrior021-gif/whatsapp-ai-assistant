@@ -15,10 +15,10 @@ This checklist is specific to `pjraowarrior021-gif/whatsapp-ai-assistant`. Check
 
 ## Before announcing or making a release
 
-- [ ] Run `npm ci`, `npm test`, `npm run lint`, `npm run format:check`, and `npm audit --audit-level=high`; resolve failures and review audit findings.
+- [x] Run `npm ci`, `npm test`, `npm run lint`, `npm run format:check`, and `npm audit --audit-level=high`; resolve failures and review audit findings.
 - [ ] Review the latest CI runs and ensure the checks match the currently supported Node.js versions and package scripts.
-- [ ] Check the full Git history and current tracked files for secrets. If any real token was ever committed, revoke/rotate it; deleting it from the latest commit alone is not sufficient.
-- [ ] Confirm `.env`, `.data/`, logs, and generated artifacts are ignored, and that `.env.example` contains placeholders only.
+- [x] Check the full Git history and current tracked files for secrets. If any real token was ever committed, revoke/rotate it; deleting it from the latest commit alone is not sufficient.
+- [x] Confirm `.env`, `.data/`, logs, and generated artifacts are ignored, and that `.env.example` contains placeholders only.
 - [x] Reconcile README claims with implementation and configuration: `REMINDERS_PERSIST` default is confirmed `false` across `src/config.js`, `.env.example`, `SECURITY.md`, and `README.md` (reminders and to-dos remain strictly in volatile RAM by default).
 - [ ] Verify documented provider limits, model names, API versions, platform instructions, and free-tier claims against current provider documentation; avoid promising that hosting or API use is always free.
 - [ ] Review privacy disclosures for every external service receiving user data, including Gemini, Meta, search, media, transcription, and image-generation providers.

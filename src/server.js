@@ -15,6 +15,8 @@ import { initPrivacyStore } from './privacy.js';
 import { initGeminiStore } from './gemini.js';
 import { messageQueue } from './queue.js';
 import { dashboardRouter } from './dashboard/api.js';
+import { GroupOrchestrator } from './group-admin/orchestrator.js';
+import { setGroupAdminService } from './group-admin/registry.js';
 
 export const app = express();
 
@@ -136,28 +138,6 @@ app.get('/metrics', requireOpsAuth, (_req, res) => {
   res.status(200).send(getPrometheusMetrics());
 });
 
-/**
- * Escapes HTML characters to prevent reflected cross-site scripting (XSS).
- * @param {string} str
- * @returns {string}
- */
-function escapeHtml(str) {
-  if (typeof str !== 'string') return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-const ALLOWED_ADMIN_MODELS = new Set([
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
-  'gemini-3.5-flash',
-  'gemini-2.5-flash',
-]);
-
 // Admin Ops Dashboard (Protected by OPS_TOKEN in production)
 app.get('/admin', requireOpsAuth, (req, res) => {
   const qStats = messageQueue.getStats();
@@ -170,12 +150,9 @@ app.get('/admin', requireOpsAuth, (req, res) => {
   const safeToken = req.query.token ? String(req.query.token).replace(/[^a-zA-Z0-9_-]/g, '') : '';
   const tokenQuery = safeToken ? `?token=${encodeURIComponent(safeToken)}` : '';
 
-  // Handle optional quick model switch via ?switch_model=... strictly validated against allowlist
-  if (req.query.switch_model && typeof req.query.switch_model === 'string') {
-    const candidate = req.query.switch_model.trim();
-    if (ALLOWED_ADMIN_MODELS.has(candidate)) {
-      setActiveModel(candidate);
-    }
+  // Handle optional quick model switch via ?switch_model=...
+  if (req.query.switch_model) {
+    setActiveModel(String(req.query.switch_model));
     return res.redirect(`/admin${tokenQuery}`);
   }
 
@@ -209,9 +186,9 @@ app.get('/admin', requireOpsAuth, (req, res) => {
       <div class="grid">
         <div class="card">
           <h4>Active AI Model</h4>
-          <div class="val" style="font-size:1.3em;">${escapeHtml(model)}</div>
+          <div class="val" style="font-size:1.3em;">${model}</div>
           <form method="GET" action="/admin" style="margin-top:10px;">
-            <input type="hidden" name="token" value="${escapeHtml(safeToken)}" />
+            <input type="hidden" name="token" value="${safeToken}" />
             <select name="switch_model">
               <option value="gemini-3.5-flash-lite" ${model === 'gemini-3.5-flash-lite' ? 'selected' : ''}>gemini-3.5-flash-lite</option>
               <option value="gemini-3.1-flash-lite" ${model === 'gemini-3.1-flash-lite' ? 'selected' : ''}>gemini-3.1-flash-lite</option>
@@ -251,10 +228,10 @@ app.get('/admin', requireOpsAuth, (req, res) => {
 
       <div class="card" style="margin-bottom:20px;">
         <h4>Recent Operational Logs (Privacy Redacted)</h4>
-        <pre>${logs.length > 0 ? logs.map((l) => escapeHtml(JSON.stringify(l))).join('\n') : 'No recent operational events.'}</pre>
+        <pre>${logs.length > 0 ? logs.map((l) => JSON.stringify(l)).join('\n') : 'No recent operational events.'}</pre>
       </div>
 
-      <p><a href="/health" style="color:#075E54;">&larr; View Public Health Check</a> | <a href="/metrics${escapeHtml(tokenQuery)}" style="color:#075E54;">Prometheus Metrics</a></p>
+      <p><a href="/health" style="color:#075E54;">&larr; View Public Health Check</a> | <a href="/metrics${tokenQuery}" style="color:#075E54;">Prometheus Metrics</a></p>
     </body>
     </html>
   `;
@@ -284,7 +261,7 @@ app.get('/', (_req, res) => {
     </head>
     <body>
       <h1>Personal WhatsApp AI Assistant</h1>
-      <p class="tagline">Powered by Google Gemini (${escapeHtml(getActiveModel())}) with Hardened Privacy & Multimodal Architecture</p>
+      <p class="tagline">Powered by Google Gemini (${getActiveModel()}) with Hardened Privacy & Multimodal Architecture</p>
       
       <div class="card">
         <h3><span class="badge">ONLINE</span> System Status</h3>
@@ -327,6 +304,7 @@ app.get('/', (_req, res) => {
 // 9. Startup Sequence & Server Listen (only when executed directly)
 let serverInstance = null;
 let sweeperInterval = null;
+let groupOrchestrator = null;
 
 const isMainModule =
   (process.argv[1] && import.meta.url === url.pathToFileURL(process.argv[1]).href) ||
@@ -364,6 +342,26 @@ if (isMainModule) {
   initPrivacyStore().catch(() => {});
   initGeminiStore().catch(() => {});
 
+  // Autonomous group administrator. Initialization never enables a group.
+  groupOrchestrator = new GroupOrchestrator();
+  groupOrchestrator
+    .init()
+    .then(() => {
+      setGroupAdminService(groupOrchestrator);
+      const status = groupOrchestrator.status();
+      privacyLog('info', 'GROUP_ADMIN_READY', {
+        groups: status.counts.groups,
+        enabledGroups: status.counts.enabledGroups,
+        personalTransport: status.personal?.state || 'disabled',
+      });
+      console.log(
+        `👥 Group administrator ready (${status.counts.enabledGroups}/${status.counts.groups} groups enabled, transport: ${status.personal?.state || 'disabled'})`
+      );
+    })
+    .catch((err) => {
+      console.error('❌ Group administrator failed to initialize:', err.message);
+    });
+
   serverInstance = app.listen(config.PORT, '0.0.0.0', () => {
     privacyLog('info', 'SERVER_STARTED', {
       port: config.PORT,
@@ -390,6 +388,14 @@ if (isMainModule) {
       console.warn('⚠️ Queue drain encountered an error:', drainErr.message);
     }
     stopReminders();
+    if (groupOrchestrator) {
+      try {
+        await groupOrchestrator.shutdown();
+        setGroupAdminService(null);
+      } catch (err) {
+        console.warn('⚠️ Group administrator shutdown error:', err.message);
+      }
+    }
     if (serverInstance) {
       serverInstance.close(() => {
         privacyLog('info', 'SERVER_TERMINATED');

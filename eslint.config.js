@@ -30,6 +30,28 @@ export default [
     },
   },
   {
+    files: ['public/**/*.js'],
+    languageOptions: {
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        localStorage: 'readonly',
+        sessionStorage: 'readonly',
+        navigator: 'readonly',
+        location: 'readonly',
+        history: 'readonly',
+        confirm: 'readonly',
+        alert: 'readonly',
+        prompt: 'readonly',
+        EventSource: 'readonly',
+        HTMLElement: 'readonly',
+        customElements: 'readonly',
+        requestAnimationFrame: 'readonly',
+        cancelAnimationFrame: 'readonly',
+      },
+    },
+  },
+  {
     ignores: ['node_modules/**', '.data/**', 'brief.md'],
   },
 ];

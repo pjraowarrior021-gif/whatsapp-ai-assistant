@@ -80,155 +80,30 @@ export function extractTextFromPdfBuffer(buffer) {
       if (!uncompressed) continue;
 
       const contentStr = uncompressed.toString('latin1');
-      // Extract text from standard PDF operators in linear time (O(N)): (text) Tj, [(t1) (t2)] TJ
+      // Extract text from standard PDF operators: (text) Tj, [(t1) (t2)] TJ
       const textMatches = [];
-      const len = contentStr.length;
-      let i = 0;
 
-      while (i < len) {
-        const ch = contentStr[i];
+      // Operator 1: (Text) Tj or '
+      const tjRegex = /\(([^()\r\n]*)\)\s*(?:Tj|'|")/g;
+      let tjMatch;
+      while ((tjMatch = tjRegex.exec(contentStr)) !== null) {
+        const decoded = decodePdfString(tjMatch[1]);
+        if (decoded.trim()) textMatches.push(decoded.trim());
+      }
 
-        // 1. Literal string operator: (Text) Tj, ', "
-        if (ch === '(') {
-          let str = '';
-          let depth = 1;
-          let escape = false;
-          let j = i + 1;
-          while (j < len && depth > 0) {
-            const c = contentStr[j];
-            if (escape) {
-              str += c;
-              escape = false;
-            } else if (c === '\\') {
-              str += c;
-              escape = true;
-            } else if (c === '(') {
-              depth++;
-              str += c;
-            } else if (c === ')') {
-              depth--;
-              if (depth > 0) str += c;
-            } else {
-              str += c;
-            }
-            j++;
-          }
-
-          if (depth === 0) {
-            let k = j;
-            while (
-              k < len &&
-              (contentStr[k] === ' ' || contentStr[k] === '\t' || contentStr[k] === '\r' || contentStr[k] === '\n')
-            ) {
-              k++;
-            }
-            if (contentStr.startsWith('Tj', k) || contentStr[k] === "'" || contentStr[k] === '"') {
-              const decoded = decodePdfString(str);
-              if (decoded.trim()) textMatches.push(decoded.trim());
-              i = k + (contentStr.startsWith('Tj', k) ? 2 : 1);
-              continue;
-            }
-          }
-          i = j;
-          continue;
+      // Operator 2: [(T) 100 (ext)] TJ
+      const tjArrayRegex = /\[([^\[\]\r\n]*)\]\s*TJ/g;
+      let arrayMatch;
+      while ((arrayMatch = tjArrayRegex.exec(contentStr)) !== null) {
+        const inner = arrayMatch[1];
+        const innerStrings = inner.match(/\(([^()\r\n]*)\)/g);
+        if (innerStrings) {
+          const combined = innerStrings
+            .map((s) => decodePdfString(s.slice(1, -1)))
+            .join('')
+            .trim();
+          if (combined) textMatches.push(combined);
         }
-
-        // 2. Array operator: [(T) 100 (ext)] TJ
-        if (ch === '[') {
-          let j = i + 1;
-          let bracketDepth = 1;
-          let inParen = false;
-          let parenEscape = false;
-          let arrayContent = '';
-
-          while (j < len && bracketDepth > 0) {
-            const c = contentStr[j];
-            if (inParen) {
-              if (parenEscape) {
-                arrayContent += c;
-                parenEscape = false;
-              } else if (c === '\\') {
-                arrayContent += c;
-                parenEscape = true;
-              } else if (c === ')') {
-                arrayContent += c;
-                inParen = false;
-              } else {
-                arrayContent += c;
-              }
-            } else {
-              if (c === '(') {
-                inParen = true;
-                arrayContent += c;
-              } else if (c === '[') {
-                bracketDepth++;
-                arrayContent += c;
-              } else if (c === ']') {
-                bracketDepth--;
-                if (bracketDepth > 0) arrayContent += c;
-              } else {
-                arrayContent += c;
-              }
-            }
-            j++;
-          }
-
-          if (bracketDepth === 0) {
-            let k = j;
-            while (
-              k < len &&
-              (contentStr[k] === ' ' || contentStr[k] === '\t' || contentStr[k] === '\r' || contentStr[k] === '\n')
-            ) {
-              k++;
-            }
-            if (contentStr.startsWith('TJ', k)) {
-              let aIdx = 0;
-              const aLen = arrayContent.length;
-              const arrayStrings = [];
-              while (aIdx < aLen) {
-                if (arrayContent[aIdx] === '(') {
-                  let s = '';
-                  let sDepth = 1;
-                  let sEsc = false;
-                  let sJ = aIdx + 1;
-                  while (sJ < aLen && sDepth > 0) {
-                    const sc = arrayContent[sJ];
-                    if (sEsc) {
-                      s += sc;
-                      sEsc = false;
-                    } else if (sc === '\\') {
-                      s += sc;
-                      sEsc = true;
-                    } else if (sc === '(') {
-                      sDepth++;
-                      s += sc;
-                    } else if (sc === ')') {
-                      sDepth--;
-                      if (sDepth > 0) s += sc;
-                    } else {
-                      s += sc;
-                    }
-                    sJ++;
-                  }
-                  if (sDepth === 0) {
-                    arrayStrings.push(decodePdfString(s));
-                  }
-                  aIdx = sJ;
-                  continue;
-                }
-                aIdx++;
-              }
-              const combined = arrayStrings.join('').trim();
-              if (combined) textMatches.push(combined);
-              i = k + 2;
-              continue;
-            }
-          }
-          i = j;
-          continue;
-        }
-
-        i++;
       }
 
       if (textMatches.length > 0) {

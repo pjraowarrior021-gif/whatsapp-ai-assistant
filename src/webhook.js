@@ -1,6 +1,8 @@
 import express from 'express';
 import crypto from 'crypto';
 import { config, normalizePhoneNumber } from './config.js';
+import { getGroupAdminService } from './group-admin/registry.js';
+import { envelopeFromCloudMessage, cloudGroupEventFromChange } from './transports/cloud-api.js';
 import {
   isAuthorized,
   getAnonymizedId,
@@ -278,6 +280,20 @@ webhookRouter.post('/', async (req, res) => {
 
         const messages = value.messages;
         if (!messages || !Array.isArray(messages) || messages.length === 0) {
+          // Groups API metadata webhooks (create/delete/participants/settings/
+          // suspension) carry `value.groups` instead of `value.messages`.
+          const groupEvent = cloudGroupEventFromChange(change);
+          if (groupEvent) {
+            const groupAdmin = getGroupAdminService();
+            if (groupAdmin?.initialized && typeof groupAdmin.handleCloudGroupEvent === 'function') {
+              const result = await groupAdmin.handleCloudGroupEvent(groupEvent);
+              privacyLog('debug', 'CLOUD_GROUP_EVENT', {
+                requestId,
+                field: groupEvent.field,
+                processed: result.processed,
+              });
+            }
+          }
           continue;
         }
 
@@ -298,6 +314,7 @@ webhookRouter.post('/', async (req, res) => {
           });
           messageQueue.push({
             message,
+            contacts: Array.isArray(value.contacts) ? value.contacts : [],
             requestId,
             to: message.from,
             anonId: getAnonymizedId(message.from),
@@ -437,11 +454,13 @@ export function normalizeCommand(text, hasMedia = false) {
  * @param {object} message - WhatsApp message payload object
  * @param {string} requestId - Traceable request identifier
  */
-export async function handleIncomingMessage(message, requestId = crypto.randomUUID()) {
+export async function handleIncomingMessage(message, requestId = crypto.randomUUID(), contacts = []) {
   const messageId = message.id;
   const from = message.from;
   const messageType = message.type;
-  const isGroup = Boolean(from && (from.includes('@g.us') || from.includes('-group') || message.author));
+  const isGroup = Boolean(
+    message.group_id || (from && (from.includes('@g.us') || from.includes('-group') || message.author))
+  );
   const senderPhone = message.author || from;
   const anonId = getAnonymizedId(senderPhone);
 
@@ -457,6 +476,21 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   }
   if (messageId) {
     await markMessageProcessed(messageId);
+  }
+
+  // 1a. Autonomous group administrator. Once initialized, it is the ONLY path
+  // for group messages: disabled groups must never fall through to the legacy
+  // prefix pipeline, otherwise a disabled group could still trigger AI.
+  if (isGroup) {
+    const groupAdmin = getGroupAdminService();
+    if (groupAdmin?.initialized) {
+      const envelope = envelopeFromCloudMessage(message, contacts);
+      if (envelope) {
+        const result = await groupAdmin.handleInbound(envelope);
+        privacyLog('debug', 'GROUP_ADMIN_DISPATCH', { requestId, reason: result.reason, handled: result.handled });
+      }
+      return;
+    }
   }
 
   // 1a. Human Handoff Check (if active, pause bot automation unless resumed)
@@ -1915,6 +1949,6 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
 }
 
 // Wire the in-process work queue to the incoming message handler
-messageQueue.setHandler(async ({ message, requestId }) => {
-  await handleIncomingMessage(message, requestId);
+messageQueue.setHandler(async ({ message, requestId, contacts }) => {
+  await handleIncomingMessage(message, requestId, contacts || []);
 });

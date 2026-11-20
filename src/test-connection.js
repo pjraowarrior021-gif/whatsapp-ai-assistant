@@ -10,22 +10,21 @@ async function runDiagnostics() {
   const validation = validateConfig();
   const summary = getSafeConfigSummary();
 
-  const geminiAuthStatus = summary.gemini.hasApiKey ? 'Configured ✅' : 'Missing ❌';
-  const waAccountStatus = summary.whatsapp.phoneNumberId ? 'Configured ✅' : 'Missing ❌';
-  const waTokenStatus = summary.whatsapp.hasToken ? 'Configured ✅' : 'Missing ❌';
-  const waVerifyStatus = summary.whatsapp.hasVerifyToken ? 'Configured ✅' : 'Missing ❌';
-  const metaSigStatus = summary.whatsapp.hasAppSecret ? 'Configured ✅' : 'Missing ⚠️ (HMAC bypassed)';
-
   console.log('📋 [1/3] Environment Configuration:');
+  const maskedPhoneId = summary.whatsapp.phoneNumberId
+    ? `***${String(summary.whatsapp.phoneNumberId).slice(-4)}`
+    : 'Not configured';
   console.log(`   • Port: ${summary.port}`);
   console.log(`   • Environment: ${summary.environment}`);
   console.log(`   • Gemini Model: ${summary.gemini.model}`);
-  console.log(`   • Gemini Service Auth: ${geminiAuthStatus}`);
-  console.log(`   • WhatsApp Account ID: ${waAccountStatus}`);
-  console.log(`   • WhatsApp Access Credential: ${waTokenStatus}`);
-  console.log(`   • Webhook Verification Handshake: ${waVerifyStatus}`);
-  console.log(`   • Meta Signature Verification: ${metaSigStatus}`);
-  console.log(`   • Authorized Senders Allowlist: ${summary.privacy.authorizedNumbersCount} sender(s)`);
+  console.log(`   • Gemini API Key: ${summary.gemini.apiKeyMasked}`);
+  console.log(`   • WhatsApp Phone ID: ${maskedPhoneId}`);
+  console.log(`   • WhatsApp Token: ${summary.whatsapp.tokenMasked}`);
+  console.log(`   • Webhook Verify Token: ${summary.whatsapp.hasVerifyToken ? 'Configured ✅' : 'Missing ❌'}`);
+  console.log(
+    `   • Meta App Secret: ${summary.whatsapp.hasAppSecret ? 'Configured ✅' : 'Missing ⚠️ (HMAC bypassed)'}`
+  );
+  console.log(`   • Authorized Senders Whitelist: ${summary.privacy.authorizedNumbersCount} phone number(s)`);
   console.log(`   • In-Memory Idle Timeout: ${summary.privacy.sessionTimeoutMinutes} minutes (RAM Only)\n`);
 
   if (!validation.valid) {
@@ -75,7 +74,10 @@ async function runDiagnostics() {
       });
       const data = await res.json();
       if (res.ok) {
-        console.log('   ✅ WhatsApp Cloud API Verified: Connected successfully');
+        const displayName =
+          data.verified_name ||
+          (data.display_phone_number ? `***${String(data.display_phone_number).slice(-4)}` : 'Phone ID');
+        console.log(`   ✅ WhatsApp API Token Verified: Connected to ${displayName}`);
       } else {
         console.log(`   ❌ WhatsApp Graph API check failed: [${data?.error?.code}] ${data?.error?.message}`);
       }

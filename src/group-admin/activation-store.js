@@ -295,6 +295,24 @@ export class GroupActivationStore {
   }
 
   /**
+   * Records that a scheduled report was delivered for this group.
+   * @param {string} input
+   * @param {'daily'|'weekly'} period
+   * @param {string} atIso
+   */
+  async recordReportSent(input, period, atIso = new Date(this.clock()).toISOString()) {
+    const jid = this.#assertJid(input);
+    return this.file.mutate((data) => {
+      const entry = data.groups[jid];
+      if (!entry) throw new Error('Group not found');
+      if (period === 'weekly') entry.lastWeeklyReportAt = atIso;
+      else entry.lastDailyReportAt = atIso;
+      data.updatedAt = atIso;
+      return structuredClone(entry);
+    });
+  }
+
+  /**
    * @param {string} dataDir
    * @returns {string}
    */

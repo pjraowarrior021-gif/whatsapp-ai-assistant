@@ -97,4 +97,17 @@ export class ModerationStore {
     const jid = normalizeGroupJid(groupJid);
     return (this.file.data?.events || []).filter((e) => e.groupJid === jid && e.status === 'open').length;
   }
+
+  /**
+   * Deletes moderation history for one group only.
+   * @param {string} groupJid
+   */
+  async clearGroup(groupJid) {
+    const jid = normalizeGroupJid(groupJid);
+    return this.file.mutate((data) => {
+      const before = data.events.length;
+      data.events = data.events.filter((e) => e.groupJid !== jid);
+      return { removed: before - data.events.length };
+    });
+  }
 }

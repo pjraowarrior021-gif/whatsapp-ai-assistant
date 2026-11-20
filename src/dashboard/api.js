@@ -8,6 +8,7 @@ import { listActiveHandoffs, setHumanHandoff } from '../approval.js';
 import { getWatchlist, addToWatchlist, removeFromWatchlist } from '../web-scraper.js';
 import { getBackgroundQuotaReport } from '../quota.js';
 import { jobEngine } from '../job-engine.js';
+import { createGroupAdminRouter } from './group-api.js';
 
 export const dashboardRouter = express.Router();
 
@@ -358,6 +359,9 @@ dashboardRouter.use((req, res, next) => {
   }
   return requireDashboardAuth(req, res, next);
 });
+
+// Group administrator API (inherits the authentication middleware above).
+dashboardRouter.use('/groups', createGroupAdminRouter());
 
 // =========================================================================
 // 0. AUTH STATUS / PROBE

@@ -9,6 +9,7 @@ Designed for zero cloud costs (**₹0 budget**), zero database maintenance, and 
 ## 📑 Table of Contents
 
 - [Key Features](#-key-features)
+- [Autonomous Group Administrator](#-autonomous-group-administrator)
 - [Architecture & Data Flow](#-architecture--data-flow)
 - [Privacy & Encryption Disclosure](#-privacy--encryption-disclosure)
 - [Prerequisites for Windows 10](#-prerequisites-for-windows-10)
@@ -56,6 +57,44 @@ Designed for zero cloud costs (**₹0 budget**), zero database maintenance, and 
   - **Streaming Media Safety:** Enforces strict size caps and fetch timeouts.
   - **Dual Rate Limiting:** Global Express rate limiter plus per-user sliding-window limiter.
   - **Phone Whitelist Guard:** Strictly blocks unauthorized phone numbers.
+
+---
+
+## 👥 Autonomous Group Administrator (opt-in)
+
+A separate, opt-in subsystem turns the assistant into a group administrator on
+your **own** WhatsApp account. It is disabled in every group by default and
+only processes groups you explicitly enable.
+
+- **Explicit activation:** New groups are discovered disabled and persist across
+  restarts. The backend gate runs before any AI work, and a global **Emergency
+  Stop** overrides every group.
+- **Six specialized agents:** security/permissions, conversation, moderation,
+  administration, memory, and analytics.
+- **Human approval for high-impact actions:** remove/promote/demote, subject or
+  description changes and AI announcements are queued in the dashboard, then
+  executed only after approval. Success is reported only when fresh group
+  metadata verifies the change.
+- **Cross-group isolation:** Memory, moderation history and analytics are keyed
+  by group JID and never shared. Conversation context is RAM-only and expires.
+- **Multi-provider AI gateway:** Gemini, OpenRouter, Qwen-compatible and any
+  OpenAI-compatible endpoint, with per-task model selection, free-model
+  filtering, fallback, rate limits and secret-free usage accounting.
+- **Reliability:** duplicate suppression across restarts, reconnect backoff,
+  self-reply loop guards, and no processing of backlog from before activation.
+- **Dashboard:** session/QR status, per-group switches and settings, memory,
+  activity, moderation cases, reports, approvals and audit.
+
+Enable it with `PERSONAL_WHATSAPP_ENABLED=true` (personal groups) or the Cloud
+API adapter (text only), then open **Dashboard → Group Administrator**.
+
+> **Important:** The personal transport uses an unofficial WhatsApp Web session
+> (Baileys). It carries an account-restriction risk and cannot administer groups
+> unless the bot account is a group admin. Meta's Cloud API cannot access
+> personal group chats.
+
+Full setup, configuration, admin commands, limitations and troubleshooting:
+**[docs/GROUP-ADMIN.md](docs/GROUP-ADMIN.md)**.
 
 ---
 

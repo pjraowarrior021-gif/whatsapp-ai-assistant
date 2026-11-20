@@ -1,4 +1,4 @@
-/* global document, localStorage, confirm */
+/* global window, document, localStorage, confirm */
 /**
  * Mission Control - Personal AI Dashboard Application Logic
  * Pure ES6+, Zero External Dependencies
@@ -181,6 +181,9 @@
     switch (state.activeView) {
       case 'overview':
         loadOverview();
+        break;
+      case 'groups':
+        if (window.GroupAdminDashboard) window.GroupAdminDashboard.load();
         break;
       case 'memory':
         loadMemory();

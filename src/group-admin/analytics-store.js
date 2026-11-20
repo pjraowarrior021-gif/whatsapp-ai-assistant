@@ -128,6 +128,24 @@ export class AnalyticsStore {
       if (date < cutoff) delete data.days[date];
     }
   }
+
+  /**
+   * Deletes analytics history for one group only.
+   * @param {string} groupInput
+   */
+  async clearGroup(groupInput) {
+    const jid = normalizeGroupJid(groupInput);
+    return this.file.mutate((data) => {
+      let removed = 0;
+      for (const bucket of Object.values(data.days || {})) {
+        if (bucket.groups && bucket.groups[jid]) {
+          delete bucket.groups[jid];
+          removed++;
+        }
+      }
+      return { removed };
+    });
+  }
 }
 
 function round(n) {

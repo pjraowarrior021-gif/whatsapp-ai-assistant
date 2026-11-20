@@ -123,7 +123,7 @@ function sanitizePayload(payload) {
   if (!payload || typeof payload !== 'object') return {};
   const out = {};
   for (const [key, value] of Object.entries(payload).slice(0, 20)) {
-    if (['targetJid', 'participantJid', 'topic', 'text', 'action'].includes(key)) {
+    if (['targetJid', 'participantJid', 'topic', 'text', 'action', 'value'].includes(key)) {
       out[key] = String(value).slice(0, 2000);
     }
   }
