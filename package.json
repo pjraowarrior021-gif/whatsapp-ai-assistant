@@ -1,7 +1,7 @@
 {
-  "name": "whatsapp-gemini-assistant",
-  "version": "1.0.0",
-  "description": "Personal WhatsApp AI Assistant powered by Google Gemini with Enhanced Privacy safeguards.",
+  "name": "whatsapp-group-manager-bot",
+  "version": "1.1.0",
+  "description": "WhatsApp Group Manager Bot & AI Assistant powered by Google Gemini, Baileys Autonomous Group Administrator, and Meta WhatsApp Cloud API.",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
@@ -17,6 +17,9 @@
   },
   "keywords": [
     "whatsapp",
+    "whatsapp-group-manager-bot",
+    "group-manager",
+    "group-admin",
     "gemini",
     "ai-assistant",
     "privacy",

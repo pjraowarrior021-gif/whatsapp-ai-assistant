@@ -1,8 +1,8 @@
-# 🤖 Personal WhatsApp AI Assistant (Google Gemini)
+# 🤖 WhatsApp Group Manager Bot & AI Assistant (Google Gemini)
 
-A high-performance, privacy-focused WhatsApp chatbot that connects your personal WhatsApp directly to **Google Gemini** using the official **WhatsApp Cloud API** and **Node.js (Express)** on Windows 10 / local development environments.
+A high-performance, privacy-focused WhatsApp group manager bot and personal AI assistant that connects WhatsApp directly to **Google Gemini** using the **Autonomous Group Administrator (Baileys)** and official **WhatsApp Cloud API** with **Node.js (Express)**.
 
-Designed for zero cloud costs (**₹0 budget**), zero database maintenance, and strict privacy safeguards.
+Designed for zero cloud costs (**₹0 budget**), zero database maintenance, strict privacy safeguards, and 24/7 cloud readiness.
 
 ---
 
