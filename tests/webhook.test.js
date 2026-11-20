@@ -1342,3 +1342,53 @@ test('Webhook: handleIncomingMessage handles location quick category button', as
     },
   });
 });
+
+test('Webhook: handleIncomingMessage ignores messages from unauthorized WhatsApp groups', async () => {
+  const origGroups = config.ALLOWED_GROUP_IDS;
+  config.ALLOWED_GROUP_IDS = new Set(['120363000000000001']);
+
+  // Group message from unauthorized group
+  await handleIncomingMessage({
+    id: `wamid.grp_unauth_${Date.now()}`,
+    from: '120363999999999999@g.us',
+    author: '910000000000',
+    type: 'text',
+    text: { body: '/help' },
+  });
+
+  config.ALLOWED_GROUP_IDS = origGroups;
+});
+
+test('Webhook: handleIncomingMessage ignores authorized group messages without trigger prefix', async () => {
+  const origGroups = config.ALLOWED_GROUP_IDS;
+  const testGroup = '120363000000000002';
+  config.ALLOWED_GROUP_IDS = new Set([testGroup]);
+
+  // Regular group chatter without trigger prefix
+  await handleIncomingMessage({
+    id: `wamid.grp_no_prefix_${Date.now()}`,
+    from: `${testGroup}@g.us`,
+    author: '910000000000',
+    type: 'text',
+    text: { body: 'Just chatting in the group without any slash command' },
+  });
+
+  config.ALLOWED_GROUP_IDS = origGroups;
+});
+
+test('Webhook: handleIncomingMessage processes authorized group messages with trigger prefix', async () => {
+  const origGroups = config.ALLOWED_GROUP_IDS;
+  const testGroup = '120363000000000003';
+  config.ALLOWED_GROUP_IDS = new Set([testGroup]);
+
+  // Command triggered with '/' in authorized group
+  await handleIncomingMessage({
+    id: `wamid.grp_auth_${Date.now()}`,
+    from: `${testGroup}@g.us`,
+    author: '910000000000',
+    type: 'text',
+    text: { body: '/help' },
+  });
+
+  config.ALLOWED_GROUP_IDS = origGroups;
+});
