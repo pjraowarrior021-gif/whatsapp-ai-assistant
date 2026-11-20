@@ -1,0 +1,8 @@
+name = "whatsapp-failover-router"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+[vars]
+PRIMARY_URL = "https://whatsapp-ai-primary.onrender.com"
+BACKUP_URL = "https://whatsapp-ai-backup.koyeb.app"
+TIMEOUT_MS = "4000"

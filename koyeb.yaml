@@ -1,0 +1,21 @@
+name: whatsapp-ai-assistant
+services:
+  - name: backup-bot
+    type: web
+    git:
+      repository: github.com/pjraowarrior021-gif/whatsapp-ai-assistant
+      branch: main
+      builder: docker
+    docker:
+      dockerfile: Dockerfile
+    regions:
+      - sin
+    instance_type: nano
+    ports:
+      - port: 3000
+        path: /
+    health_checks:
+      - path: /health
+        port: 3000
+        interval: 30
+        timeout: 5
