@@ -11,11 +11,13 @@ import { config, normalizePhoneNumber } from './config.js';
 import { privacyLog } from './privacy.js';
 import { sendProactiveMessage, isWithinSessionWindow } from './templates.js';
 import { sendWhatsAppButtons } from './whatsapp.js';
+import { store } from './store/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const getDataDir = () => config.DATA_DIR || path.resolve(__dirname, '../.data');
 const getRemindersFile = () => path.join(getDataDir(), 'reminders.json');
+const REMINDERS_STORE_KEY = 'app:reminders:v1';
 
 const MAX_REMINDERS_PER_USER = 20;
 const MAX_REMINDER_TEXT_LENGTH = 500;
@@ -127,9 +129,23 @@ export function parseReminderTime(whenStr, now = new Date()) {
 }
 
 /**
- * Atomically writes current reminders to disk if persistence is enabled.
+ * Atomically writes current reminders to Redis (if enabled) and/or local disk.
  */
 function savePersistedReminders() {
+  const serializable = Array.from(activeReminders.values()).map((r) => ({
+    id: r.id,
+    anonId: r.anonId,
+    to: r.to,
+    text: r.text,
+    targetTimeMs: r.targetTimeMs,
+  }));
+
+  if (config.STATE_BACKEND === 'redis' && config.REDIS_URL) {
+    store.set(REMINDERS_STORE_KEY, serializable).catch((err) => {
+      privacyLog('warn', 'REMINDERS_REDIS_SAVE_FAILED', { error: err.message });
+    });
+  }
+
   if (!config.REMINDERS_PERSIST) return;
 
   try {
@@ -138,14 +154,6 @@ function savePersistedReminders() {
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
-
-    const serializable = Array.from(activeReminders.values()).map((r) => ({
-      id: r.id,
-      anonId: r.anonId,
-      to: r.to,
-      text: r.text,
-      targetTimeMs: r.targetTimeMs,
-    }));
 
     const tmpPath = `${remindersFile}.${Date.now()}.tmp`;
     fs.writeFileSync(tmpPath, JSON.stringify(serializable, null, 2), 'utf-8');
@@ -156,9 +164,30 @@ function savePersistedReminders() {
 }
 
 /**
- * Loads reminders from disk on startup if persistence is enabled.
+ * Loads reminders from disk/Redis on startup if persistence is enabled.
  */
 function loadPersistedReminders() {
+  if (config.STATE_BACKEND === 'redis' && config.REDIS_URL) {
+    store
+      .get(REMINDERS_STORE_KEY)
+      .then((parsed) => {
+        if (!Array.isArray(parsed)) return;
+        let loaded = 0;
+        for (const item of parsed) {
+          if (item.id && item.targetTimeMs && item.text && item.to && !activeReminders.has(item.id)) {
+            scheduleTimer(item);
+            loaded++;
+          }
+        }
+        if (loaded > 0) {
+          privacyLog('info', 'REMINDERS_LOADED_FROM_REDIS', { count: loaded });
+        }
+      })
+      .catch((err) => {
+        privacyLog('warn', 'REMINDERS_REDIS_LOAD_FAILED', { error: err.message });
+      });
+  }
+
   if (!config.REMINDERS_PERSIST) return;
 
   try {
@@ -168,7 +197,7 @@ function loadPersistedReminders() {
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
-          if (item.id && item.targetTimeMs && item.text && item.to) {
+          if (item.id && item.targetTimeMs && item.text && item.to && !activeReminders.has(item.id)) {
             scheduleTimer(item);
           }
         }
@@ -230,7 +259,9 @@ function scheduleTimer(reminder) {
   // If timer is within max 32-bit integer timeout (~24.8 days)
   if (delayMs < 2147483647) {
     reminder.timerId = setTimeout(() => {
-      fireReminder(reminder.id).catch(() => {});
+      fireReminder(reminder.id).catch((err) => {
+        privacyLog('warn', 'REMINDER_FIRE_FAILED', { reminderId: reminder.id, error: err?.message });
+      });
     }, delayMs);
 
     if (reminder.timerId && reminder.timerId.unref) {
@@ -462,7 +493,9 @@ function runReminderSweeper() {
   const now = Date.now();
   for (const [id, r] of activeReminders.entries()) {
     if (!r.fired && r.targetTimeMs <= now) {
-      fireReminder(id).catch(() => {});
+      fireReminder(id).catch((err) => {
+        privacyLog('warn', 'REMINDER_SWEEP_FIRE_FAILED', { reminderId: id, error: err?.message });
+      });
     } else if (r.fired && r.firedAt && now - r.firedAt > 2 * 60 * 60 * 1000) {
       // Retain fired reminders for 2 hours so action buttons resolve, then prune
       activeReminders.delete(id);

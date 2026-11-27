@@ -1,13 +1,13 @@
 {
-  "timestamp": "2026-11-19T13:42:54.864Z",
+  "timestamp": "2026-11-26T17:55:00.630Z",
   "totalScenarios": 53,
-  "scenariosPassed": 49,
+  "scenariosPassed": 45,
   "results": [
     {
       "name": "HMAC-SHA256 Webhook Signature Verification",
       "category": "Security & Crypto",
       "status": "PASS",
-      "durationMs": 0.52,
+      "durationMs": 0.76,
       "details": "timingSafeEqual validated authentic signature",
       "error": null
     },
@@ -15,7 +15,7 @@
       "name": "Phone Whitelist & Access Control Check",
       "category": "Security & Crypto",
       "status": "PASS",
-      "durationMs": 0.21,
+      "durationMs": 0.31,
       "details": "Authorized: true for 918217426307, Unauthorized: false for unknown",
       "error": null
     },
@@ -23,7 +23,7 @@
       "name": "Salted SHA-256 Non-Reversible Anonymization",
       "category": "Security & Crypto",
       "status": "PASS",
-      "durationMs": 0.06,
+      "durationMs": 0.13,
       "details": "Generated non-reversible ID: u_ac15af5774",
       "error": null
     },
@@ -31,7 +31,7 @@
       "name": "Payment Card Luhn Verification & Redaction",
       "category": "Privacy Guard",
       "status": "PASS",
-      "durationMs": 0.98,
+      "durationMs": 1.5,
       "details": "Categories redacted: Payment Card, Card Security Code",
       "error": null
     },
@@ -39,7 +39,7 @@
       "name": "Aadhaar, PIN, Password & OTP Redaction",
       "category": "Privacy Guard",
       "status": "PASS",
-      "durationMs": 0.06,
+      "durationMs": 0.11,
       "details": "Detected and redacted: PIN, Password/Credential, National ID",
       "error": null
     },
@@ -47,39 +47,39 @@
       "name": "Gemini Connection & Ping Test (Live Network)",
       "category": "Gemini AI Core",
       "status": "PASS",
-      "durationMs": 10825.41,
-      "details": "Model: gemini-3.1-flash-lite, Latency: 10825ms, Reply: \"PONG\"",
+      "durationMs": 1017.59,
+      "details": "Model: gemini-3.1-flash-lite, Latency: 1018ms, Reply: \"PONG\"",
       "error": null
     },
     {
       "name": "Gemini Contextual Conversation (Multi-Turn)",
       "category": "Gemini AI Core",
       "status": "FAIL",
-      "durationMs": 34151.16,
-      "details": "Error: Gemini failed to retain context. Got: \"⚠️ *Error:* Unable to generate an AI response right now. Please try again in a few moments.\"",
-      "error": "Gemini failed to retain context. Got: \"⚠️ *Error:* Unable to generate an AI response right now. Please try again in a few moments.\""
+      "durationMs": 1050.26,
+      "details": "Error: modelRouter.recordUsage is not a function",
+      "error": "modelRouter.recordUsage is not a function"
     },
     {
       "name": "Gemini Persona Switching (Coder vs Tutor vs Executive)",
       "category": "Gemini AI Core",
-      "status": "PASS",
-      "durationMs": 34785.02,
-      "details": "Coder reply length: 91 chars, Exec reply length: 91 chars",
-      "error": null
+      "status": "FAIL",
+      "durationMs": 8014.49,
+      "details": "Error: modelRouter.recordUsage is not a function",
+      "error": "modelRouter.recordUsage is not a function"
     },
     {
       "name": "Image Multimodal Analysis (Gemini Vision with Live API)",
       "category": "Multimodal Vision",
-      "status": "PASS",
-      "durationMs": 19020.41,
-      "details": "Analyzed 486 bytes in memory. Response: \"Green\"",
-      "error": null
+      "status": "FAIL",
+      "durationMs": 18740.41,
+      "details": "Error: modelRouter.recordUsage is not a function",
+      "error": "modelRouter.recordUsage is not a function"
     },
     {
       "name": "Document Allowlist & Header Validation (PDF / Office / Text)",
       "category": "Document Processor",
       "status": "PASS",
-      "durationMs": 0.16,
+      "durationMs": 0.27,
       "details": "Validated PDF, PPTX, DOCX, and XLSX support in memory",
       "error": null
     },
@@ -87,7 +87,7 @@
       "name": "PowerPoint (.pptx) In-Memory Slide & Text Extraction",
       "category": "Document Processor",
       "status": "PASS",
-      "durationMs": 18.48,
+      "durationMs": 36.25,
       "details": "Extracted 2 slides (100 chars) from in-memory zip",
       "error": null
     },
@@ -95,7 +95,7 @@
       "name": "Word (.docx) In-Memory Paragraph Extraction",
       "category": "Document Processor",
       "status": "PASS",
-      "durationMs": 1.08,
+      "durationMs": 1.59,
       "details": "Extracted document text (44 chars) in volatile RAM",
       "error": null
     },
@@ -103,7 +103,7 @@
       "name": "Excel (.xlsx) In-Memory Shared Strings Extraction",
       "category": "Document Processor",
       "status": "PASS",
-      "durationMs": 1.22,
+      "durationMs": 1.35,
       "details": "Extracted spreadsheet text (70 chars) in volatile RAM",
       "error": null
     },
@@ -111,7 +111,7 @@
       "name": "Image Prompt Parser (NLP & Slash Commands)",
       "category": "Image Generation",
       "status": "PASS",
-      "durationMs": 1.32,
+      "durationMs": 1.17,
       "details": "Parsed: \"a cyberpunk tiger in neon rain\" & \"serene mountain sunset over a lake\"",
       "error": null
     },
@@ -119,7 +119,7 @@
       "name": "Pollinations Image URL Builder & Safe Encoding",
       "category": "Image Generation",
       "status": "PASS",
-      "durationMs": 0.53,
+      "durationMs": 0.37,
       "details": "Constructed URL: https://image.pollinations.ai/prompt/a%20futuristic%20electric%20motor...",
       "error": null
     },
@@ -127,7 +127,7 @@
       "name": "In-Memory Sharp Watermark Crop & Image Optimization",
       "category": "Image Generation",
       "status": "PASS",
-      "durationMs": 26.86,
+      "durationMs": 58,
       "details": "Processed 4019B -> 3795B in volatile RAM",
       "error": null
     },
@@ -135,7 +135,7 @@
       "name": "SSRF Guard Validator (Loopback, Subnet, Metadata Blocking)",
       "category": "Web Summarizer",
       "status": "PASS",
-      "durationMs": 0.64,
+      "durationMs": 2.64,
       "details": "Blocked loopback, 169.254.*, 10.*, 192.168.*, allowed public https",
       "error": null
     },
@@ -143,23 +143,23 @@
       "name": "HTML Cleaner & Entity Decoder",
       "category": "Web Summarizer",
       "status": "PASS",
-      "durationMs": 1.5,
+      "durationMs": 7.87,
       "details": "Extracted title: \"Test & Learn\", clean text: \"Test & Learn Content with \"quotes\" and details.\"",
       "error": null
     },
     {
       "name": "Live Web Article Ingestion & Summarization (Wikipedia)",
       "category": "Web Summarizer",
-      "status": "PASS",
-      "durationMs": 20782.48,
-      "details": "Fetched \"Alan Turing - Wikipedia\" (15003 chars). Summary: \"⚠️ *Error:* Unable to generate an AI response right now. Please try again in a f...\"",
-      "error": null
+      "status": "FAIL",
+      "durationMs": 1721.25,
+      "details": "Error: modelRouter.recordUsage is not a function",
+      "error": "modelRouter.recordUsage is not a function"
     },
     {
       "name": "YouTube Video ID Parser & Metadata Fetch (oEmbed)",
       "category": "YouTube Summarizer",
       "status": "PASS",
-      "durationMs": 1210.33,
+      "durationMs": 509.49,
       "details": "Parsed video \"Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)\" by Rick Astley",
       "error": null
     },
@@ -167,7 +167,7 @@
       "name": "YouTube Subtitle / Transcript Ingestion & Formatting",
       "category": "YouTube Summarizer",
       "status": "PASS",
-      "durationMs": 698.81,
+      "durationMs": 444.56,
       "details": "Ingested 2124 chars of timestamped transcript for \"Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)\"",
       "error": null
     },
@@ -175,7 +175,7 @@
       "name": "YouTube Shorts & Live Stream URL Resolver",
       "category": "YouTube Summarizer",
       "status": "PASS",
-      "durationMs": 0.3,
+      "durationMs": 0.22,
       "details": "Resolved Shorts (dQw4w9WgXcQ) and Live (dQw4w9WgXcQ) identifiers",
       "error": null
     },
@@ -183,7 +183,7 @@
       "name": "Instagram Reel URL Parser & Shortcode Extractor",
       "category": "Instagram Intelligence",
       "status": "PASS",
-      "durationMs": 0.4,
+      "durationMs": 0.29,
       "details": "Extracted Reel shortcode \"DKn-PT1PMnr\" from mobile share link",
       "error": null
     },
@@ -191,23 +191,23 @@
       "name": "Instagram Reel Ingestion via Social Open Graph Crawler",
       "category": "Instagram Intelligence",
       "status": "PASS",
-      "durationMs": 2156.75,
+      "durationMs": 2170.55,
       "details": "Ingested Reel by Shreya (1478 chars caption)",
       "error": null
     },
     {
       "name": "Location Parsing & Google Grounded Local Snapshot",
       "category": "Location Intelligence",
-      "status": "PASS",
-      "durationMs": 13543.65,
-      "details": "Generated location snapshot (283 chars)",
-      "error": null
+      "status": "FAIL",
+      "durationMs": 20150.37,
+      "details": "Error: modelRouter.recordUsage is not a function",
+      "error": "modelRouter.recordUsage is not a function"
     },
     {
       "name": "TTS Text Preprocessor & Markdown Stripper",
       "category": "Voice Note TTS",
       "status": "PASS",
-      "durationMs": 0.91,
+      "durationMs": 0.73,
       "details": "Cleaned text into 2 speech-ready chunk(s)",
       "error": null
     },
@@ -215,7 +215,7 @@
       "name": "Text-to-Speech In-Memory Audio Synthesis (Google TTS)",
       "category": "Voice Note TTS",
       "status": "PASS",
-      "durationMs": 453.71,
+      "durationMs": 510.68,
       "details": "Synthesized 27456 bytes of MP3 audio in volatile RAM",
       "error": null
     },
@@ -223,15 +223,15 @@
       "name": "To-Do Item Full Lifecycle (Add -> List -> Done -> Clear)",
       "category": "To-Do Tracker",
       "status": "PASS",
-      "durationMs": 1.43,
-      "details": "Lifecycle verified: added ID 579f6f, checked done, cleared",
+      "durationMs": 1.77,
+      "details": "Lifecycle verified: added ID 854da2, checked done, cleared",
       "error": null
     },
     {
       "name": "Natural Language Time Parser (Relative & Absolute)",
       "category": "Reminders",
       "status": "PASS",
-      "durationMs": 24.63,
+      "durationMs": 14.94,
       "details": "Parsed 15m (+15m) and 23:59 successfully",
       "error": null
     },
@@ -239,15 +239,15 @@
       "name": "Reminder Schedule -> List -> Delete Lifecycle",
       "category": "Reminders",
       "status": "PASS",
-      "durationMs": 1.74,
-      "details": "Scheduled ID 5b308b, listed, and deleted",
+      "durationMs": 1.14,
+      "details": "Scheduled ID 3ac760, listed, and deleted",
       "error": null
     },
     {
       "name": "User Sliding-Window Rate Limiter Check",
       "category": "Rate Limiter & Quotas",
       "status": "PASS",
-      "durationMs": 0.2,
+      "durationMs": 0.11,
       "details": "User window active: undefined calls remaining",
       "error": null
     },
@@ -255,7 +255,7 @@
       "name": "Daily Quota & Budget Enforcement Check",
       "category": "Rate Limiter & Quotas",
       "status": "PASS",
-      "durationMs": 0.38,
+      "durationMs": 0.16,
       "details": "User quota: 1/200, Gemini budget: 0/1400",
       "error": null
     },
@@ -263,7 +263,7 @@
       "name": "Quoted-Reply Context Memory Store (10-min RAM Cache)",
       "category": "Context Memory",
       "status": "PASS",
-      "durationMs": 0.23,
+      "durationMs": 0.1,
       "details": "Stored & retrieved quoted message (37 chars) in RAM",
       "error": null
     },
@@ -271,7 +271,7 @@
       "name": "WhatsApp Message Chunking Splitter",
       "category": "WhatsApp Transport",
       "status": "PASS",
-      "durationMs": 0.47,
+      "durationMs": 0.23,
       "details": "Split 8500-char message into 3 chunks (< 4000 chars each)",
       "error": null
     },
@@ -279,7 +279,7 @@
       "name": "Interactive Buttons Builder (1024-char Auto Split)",
       "category": "WhatsApp Transport",
       "status": "PASS",
-      "durationMs": 3280.74,
+      "durationMs": 3038.06,
       "details": "Constructed standard & 1024-char overflow button payloads",
       "error": null
     },
@@ -287,7 +287,7 @@
       "name": "Interactive List Menu Builder (Dropdown Options)",
       "category": "WhatsApp Transport",
       "status": "PASS",
-      "durationMs": 819.09,
+      "durationMs": 779.82,
       "details": "Constructed interactive list menu payload",
       "error": null
     },
@@ -295,7 +295,7 @@
       "name": "Pluggable Store Key-Value Operations (Set -> Get -> Incr -> Keys)",
       "category": "Durable State",
       "status": "PASS",
-      "durationMs": 2.29,
+      "durationMs": 0.63,
       "details": "Store operations verified across 2 temporary keys",
       "error": null
     },
@@ -303,7 +303,7 @@
       "name": "Message Work Queue Enqueue, Processing & Metrics",
       "category": "Queue & Concurrency",
       "status": "PASS",
-      "durationMs": 9.12,
+      "durationMs": 1.58,
       "details": "Queue processed job: concurrency=4, active=1, enqueued=1",
       "error": null
     },
@@ -311,7 +311,7 @@
       "name": "Multilingual Preference & System Directive Generation",
       "category": "Multilingual Engine",
       "status": "PASS",
-      "durationMs": 0.74,
+      "durationMs": 0.37,
       "details": "Language configured to es, directive generated (130 chars)",
       "error": null
     },
@@ -319,7 +319,7 @@
       "name": "Personal Long-Term Fact Memory Storage & Retrieval",
       "category": "Personal Memory",
       "status": "PASS",
-      "durationMs": 8.58,
+      "durationMs": 8.4,
       "details": "Fact successfully stored, recalled, and cleared (95 chars)",
       "error": null
     },
@@ -327,7 +327,7 @@
       "name": "Autonomous User Fact Learning & Contradiction Resolution",
       "category": "Auto-Learner",
       "status": "PASS",
-      "durationMs": 20.23,
+      "durationMs": 6.35,
       "details": "Successfully extracted identity, updated location, and resolved contradictions",
       "error": null
     },
@@ -335,7 +335,7 @@
       "name": "Workflow Habit Recognition & Directive Context Compilation",
       "category": "Workflow Learner",
       "status": "PASS",
-      "durationMs": 1.28,
+      "durationMs": 0.34,
       "details": "Habit detected: media_actionable_highlights, context compiled (313 chars)",
       "error": null
     },
@@ -343,7 +343,7 @@
       "name": "Adaptive Conversational Progression & Pacing Calibration",
       "category": "Conversation Adapter",
       "status": "PASS",
-      "durationMs": 0.4,
+      "durationMs": 0.25,
       "details": "Stage: Developing (Turn 3), Pacing: Terse, Calibration: Advanced (< 0.5ms)",
       "error": null
     },
@@ -351,7 +351,7 @@
       "name": "Continuous Conversational Learning & Active Project Memory",
       "category": "Conversation Adapter",
       "status": "PASS",
-      "durationMs": 0.81,
+      "durationMs": 0.39,
       "details": "Retained active project & 3 topics, injected into Turn 2 context successfully",
       "error": null
     },
@@ -359,7 +359,7 @@
       "name": "Upgraded Image Engine :: Multi-Model, 4:3 / 3:4 AR & 8 Art Presets",
       "category": "Image Generation",
       "status": "PASS",
-      "durationMs": 30.36,
+      "durationMs": 10.75,
       "details": "Parsed kontext/realism models, 4:3 & 3:4 dimensions, and generated 364b clean image",
       "error": null
     },
@@ -367,7 +367,7 @@
       "name": "Generative Video Pipeline :: Parser, Motion Trajectory & WhatsApp Video Transport",
       "category": "Video Generation",
       "status": "PASS",
-      "durationMs": 7.48,
+      "durationMs": 2.07,
       "details": "Generated 10s 960x540 MP4 video (40b), delivered via WhatsApp Cloud API",
       "error": null
     },
@@ -375,15 +375,15 @@
       "name": "Agentic Tool Calling Dispatcher (Time & Weather)",
       "category": "Agentic Tools",
       "status": "PASS",
-      "durationMs": 1325.23,
-      "details": "Time returned Thursday, November 19, 2026 at 07:12:50 PM GMT+5:30 (Asia/Kolkata), Weather returned Tokyo, Tokyo, Japan",
+      "durationMs": 1154.37,
+      "details": "Time returned Thursday, November 26, 2026 at 11:24:56 PM GMT+5:30 (Asia/Kolkata), Weather returned Tokyo, Tokyo, Japan",
       "error": null
     },
     {
       "name": "User Data Export Compilation (GDPR / DPDP Compliance)",
       "category": "Data Export",
       "status": "PASS",
-      "durationMs": 2950.64,
+      "durationMs": 2535.69,
       "details": "Export completed successfully: ✅ *Data Export Sent:* Your exported JSON file has been deliv...",
       "error": null
     },
@@ -391,7 +391,7 @@
       "name": "GET /health Endpoint Latency",
       "category": "HTTP Endpoints",
       "status": "PASS",
-      "durationMs": 9.11,
+      "durationMs": 10.62,
       "details": "Status: healthy, Storage: Volatile RAM Only (Zero Disk Writes)",
       "error": null
     },
@@ -399,7 +399,7 @@
       "name": "GET /diagnostic Endpoint (Masked Secrets)",
       "category": "HTTP Endpoints",
       "status": "FAIL",
-      "durationMs": 4.94,
+      "durationMs": 3.36,
       "details": "Error: Status 401",
       "error": "Status 401"
     },
@@ -407,7 +407,7 @@
       "name": "GET /metrics Prometheus Exposition",
       "category": "HTTP Endpoints",
       "status": "FAIL",
-      "durationMs": 1.79,
+      "durationMs": 2.37,
       "details": "Error: Status 401",
       "error": "Status 401"
     },
@@ -415,7 +415,7 @@
       "name": "GET /admin Dashboard Latency (Token-Gated)",
       "category": "HTTP Endpoints",
       "status": "FAIL",
-      "durationMs": 2.45,
+      "durationMs": 3.45,
       "details": "Error: Admin returned status 401",
       "error": "Admin returned status 401"
     },
@@ -423,7 +423,7 @@
       "name": "POST /webhook Complete Pipeline (Text -> Routing -> 200 OK)",
       "category": "HTTP Endpoints",
       "status": "PASS",
-      "durationMs": 23.05,
+      "durationMs": 24.03,
       "details": "Immediate 200 EVENT_RECEIVED returned; dispatched async processing",
       "error": null
     }
@@ -431,7 +431,7 @@
   "aspects": [
     {
       "aspect": "Security & Cryptography",
-      "averageDurationMs": 0.26,
+      "averageDurationMs": 0.4,
       "averageDurationSec": 0,
       "scenariosCount": 3,
       "slaTier": "Sub-millisecond",
@@ -439,7 +439,7 @@
     },
     {
       "aspect": "Privacy Guard & PII Scrubbing",
-      "averageDurationMs": 0.52,
+      "averageDurationMs": 0.81,
       "averageDurationSec": 0.001,
       "scenariosCount": 2,
       "slaTier": "Sub-millisecond",
@@ -447,96 +447,96 @@
     },
     {
       "aspect": "Gemini AI Core (Text Generation)",
-      "averageDurationMs": 10825.41,
-      "averageDurationSec": 10.825,
+      "averageDurationMs": 1017.59,
+      "averageDurationSec": 1.018,
       "scenariosCount": 1,
-      "slaTier": "Async Cloud",
+      "slaTier": "Standard (< 2s)",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "Contextual Conversation (Multi-Turn)",
-      "averageDurationMs": 34151.16,
-      "averageDurationSec": 34.151,
+      "averageDurationMs": 1050.26,
+      "averageDurationSec": 1.05,
       "scenariosCount": 1,
-      "slaTier": "Async Cloud",
+      "slaTier": "Standard (< 2s)",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "Persona Switching Engine",
-      "averageDurationMs": 34785.02,
-      "averageDurationSec": 34.785,
+      "averageDurationMs": 8014.49,
+      "averageDurationSec": 8.014,
       "scenariosCount": 1,
       "slaTier": "Async Cloud",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "Multimodal Vision Analysis",
-      "averageDurationMs": 19020.41,
-      "averageDurationSec": 19.02,
+      "averageDurationMs": 18740.41,
+      "averageDurationSec": 18.74,
       "scenariosCount": 1,
       "slaTier": "Async Cloud",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "Document In-Memory Extraction",
-      "averageDurationMs": 5.23,
-      "averageDurationSec": 0.005,
+      "averageDurationMs": 9.87,
+      "averageDurationSec": 0.01,
       "scenariosCount": 4,
       "slaTier": "Instant (< 500ms)",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "Watermark-Free Image Engine",
-      "averageDurationMs": 14.77,
-      "averageDurationSec": 0.015,
+      "averageDurationMs": 17.57,
+      "averageDurationSec": 0.018,
       "scenariosCount": 4,
       "slaTier": "Instant (< 500ms)",
       "watermarkStatus": "VERIFIED (Sharp Lanczos3 + Flags)"
     },
     {
       "aspect": "Generative Video Pipeline",
-      "averageDurationMs": 7.48,
-      "averageDurationSec": 0.007,
+      "averageDurationMs": 2.07,
+      "averageDurationSec": 0.002,
       "scenariosCount": 1,
       "slaTier": "Instant (< 500ms)",
       "watermarkStatus": "VERIFIED (Prompt Directives + Flags)"
     },
     {
       "aspect": "YouTube & Shorts Summarizer",
-      "averageDurationMs": 636.48,
-      "averageDurationSec": 0.636,
+      "averageDurationMs": 318.09,
+      "averageDurationSec": 0.318,
       "scenariosCount": 3,
-      "slaTier": "Standard (< 2s)",
+      "slaTier": "Instant (< 500ms)",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "Instagram Reel Intelligence",
-      "averageDurationMs": 1078.58,
-      "averageDurationSec": 1.079,
+      "averageDurationMs": 1085.42,
+      "averageDurationSec": 1.085,
       "scenariosCount": 2,
       "slaTier": "Standard (< 2s)",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "Web Article Intelligence",
-      "averageDurationMs": 6928.21,
-      "averageDurationSec": 6.928,
+      "averageDurationMs": 577.25,
+      "averageDurationSec": 0.577,
       "scenariosCount": 3,
-      "slaTier": "Async Cloud",
+      "slaTier": "Standard (< 2s)",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "Voice Note TTS Synthesis",
-      "averageDurationMs": 227.31,
-      "averageDurationSec": 0.227,
+      "averageDurationMs": 255.71,
+      "averageDurationSec": 0.256,
       "scenariosCount": 2,
       "slaTier": "Instant (< 500ms)",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "Location Intelligence & Grounding",
-      "averageDurationMs": 13543.65,
-      "averageDurationSec": 13.544,
+      "averageDurationMs": 20150.37,
+      "averageDurationSec": 20.15,
       "scenariosCount": 1,
       "slaTier": "Async Cloud",
       "watermarkStatus": "N/A (Non-Visual)"
@@ -559,24 +559,24 @@
     },
     {
       "aspect": "Personal Memory & Auto-Learner",
-      "averageDurationMs": 6.26,
-      "averageDurationSec": 0.006,
+      "averageDurationMs": 3.15,
+      "averageDurationSec": 0.003,
       "scenariosCount": 5,
       "slaTier": "Instant (< 500ms)",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "Agentic Function Calling",
-      "averageDurationMs": 1325.23,
-      "averageDurationSec": 1.325,
+      "averageDurationMs": 1154.37,
+      "averageDurationSec": 1.154,
       "scenariosCount": 1,
       "slaTier": "Standard (< 2s)",
       "watermarkStatus": "N/A (Non-Visual)"
     },
     {
       "aspect": "HTTP Operational Endpoints",
-      "averageDurationMs": 333.79,
-      "averageDurationSec": 0.334,
+      "averageDurationMs": 286.9,
+      "averageDurationSec": 0.287,
       "scenariosCount": 9,
       "slaTier": "Instant (< 500ms)",
       "watermarkStatus": "N/A (Non-Visual)"

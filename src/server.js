@@ -13,6 +13,9 @@ import { initContacts } from './contacts.js';
 import { initQuotas } from './quota.js';
 import { initPrivacyStore } from './privacy.js';
 import { initGeminiStore } from './gemini.js';
+import { initBriefingScheduler, stopBriefingScheduler } from './briefing.js';
+import { sendProactiveMessage } from './templates.js';
+import { resolveBriefingPhone } from './handlers/command-handler.js';
 import { messageQueue } from './queue.js';
 import { dashboardRouter } from './dashboard/api.js';
 import { GroupOrchestrator } from './group-admin/orchestrator.js';
@@ -26,9 +29,19 @@ app.disable('x-powered-by');
 // Enable trust proxy for reverse proxies and tunnels (Cloudflare Tunnel, ngrok, Render)
 app.set('trust proxy', 1);
 
-// Global debug request logger
+/**
+ * Redacts query parameters carrying operational tokens or secrets before HTTP logging.
+ * @param {string} rawUrl
+ * @returns {string}
+ */
+export function sanitizeRequestUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  return rawUrl.replace(/([?&](?:token|hub\.verify_token|api_key|key|secret)=)[^&\s]+/gi, '$1REDACTED');
+}
+
+// Global debug request logger (scrubbed of query credentials)
 app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] [HTTP_${req.method}] ${req.url}`);
+  console.log(`[${new Date().toISOString()}] [HTTP_${req.method}] ${sanitizeRequestUrl(req.url)}`);
   next();
 });
 
@@ -110,12 +123,25 @@ app.use('/dashboard', express.static('public/dashboard'));
 
 // Health Check Endpoint (Public unauthenticated probe)
 app.get('/health', (_req, res) => {
+  const stateBackend = config.STATE_BACKEND || 'memory';
+  const groupDiskActive = Boolean(groupOrchestrator?.initialized);
+  const diskPersistActive = Boolean(config.REMINDERS_PERSIST || groupDiskActive);
+  let storageMode = 'Volatile RAM Only (Zero Disk Writes)';
+  if (stateBackend === 'redis') {
+    storageMode = diskPersistActive ? 'Redis Distributed Store + Local Group Store' : 'Redis Distributed Store';
+  } else if (config.REMINDERS_PERSIST) {
+    storageMode = 'Hybrid (RAM + Local Disk Persistence)';
+  } else if (groupDiskActive) {
+    storageMode = 'Volatile Chat RAM + Local Group Store';
+  }
+
   res.status(200).json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
     activeModel: getActiveModel(),
-    storageMode: 'Volatile RAM Only (Zero Disk Writes)',
+    storageBackend: stateBackend,
+    storageMode,
     privacyGuard: 'Active (PII & Financial Data Redaction Enabled)',
   });
 });
@@ -147,13 +173,16 @@ app.get('/admin', requireOpsAuth, (req, res) => {
   const model = getActiveModel();
   const logs = getRecentLogs();
   const personas = listPersonas();
-  const safeToken = req.query.token ? String(req.query.token).replace(/[^a-zA-Z0-9_-]/g, '') : '';
-  const tokenQuery = safeToken ? `?token=${encodeURIComponent(safeToken)}` : '';
+  const modelOptions = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.8-flash'];
+  if (model && !modelOptions.includes(model)) {
+    modelOptions.unshift(model);
+  }
 
   // Handle optional quick model switch via ?switch_model=...
   if (req.query.switch_model) {
     setActiveModel(String(req.query.switch_model));
-    return res.redirect(`/admin${tokenQuery}`);
+    const nextToken = req.query.token ? `?token=${encodeURIComponent(String(req.query.token))}` : '';
+    return res.redirect(`/admin${nextToken}`);
   }
 
   const html = `
@@ -188,11 +217,10 @@ app.get('/admin', requireOpsAuth, (req, res) => {
           <h4>Active AI Model</h4>
           <div class="val" style="font-size:1.3em;">${model}</div>
           <form method="GET" action="/admin" style="margin-top:10px;">
-            <input type="hidden" name="token" value="${safeToken}" />
             <select name="switch_model">
-              <option value="gemini-3.5-flash-lite" ${model === 'gemini-3.5-flash-lite' ? 'selected' : ''}>gemini-3.5-flash-lite</option>
-              <option value="gemini-3.1-flash-lite" ${model === 'gemini-3.1-flash-lite' ? 'selected' : ''}>gemini-3.1-flash-lite</option>
-              <option value="gemini-3.5-flash" ${model === 'gemini-3.5-flash' ? 'selected' : ''}>gemini-3.5-flash</option>
+              ${modelOptions
+                .map((opt) => `<option value="${opt}" ${model === opt ? 'selected' : ''}>${opt}</option>`)
+                .join('')}
             </select>
             <button type="submit">Switch</button>
           </form>
@@ -231,7 +259,7 @@ app.get('/admin', requireOpsAuth, (req, res) => {
         <pre>${logs.length > 0 ? logs.map((l) => JSON.stringify(l)).join('\n') : 'No recent operational events.'}</pre>
       </div>
 
-      <p><a href="/health" style="color:#075E54;">&larr; View Public Health Check</a> | <a href="/metrics${tokenQuery}" style="color:#075E54;">Prometheus Metrics</a></p>
+      <p><a href="/health" style="color:#075E54;">&larr; View Public Health Check</a> | <a href="/dashboard" style="color:#075E54;">Mission Control Dashboard</a> | <a href="/metrics" style="color:#075E54;">Prometheus Metrics</a></p>
     </body>
     </html>
   `;
@@ -338,9 +366,23 @@ if (isMainModule) {
   initReminders();
   initTodos();
   initContacts();
-  initQuotas().catch(() => {});
-  initPrivacyStore().catch(() => {});
-  initGeminiStore().catch(() => {});
+  initQuotas().catch((err) => privacyLog('warn', 'QUOTA_STORE_INIT_FAILED', { error: err?.message }));
+  initPrivacyStore().catch((err) => privacyLog('warn', 'PRIVACY_STORE_INIT_FAILED', { error: err?.message }));
+  initGeminiStore().catch((err) => privacyLog('warn', 'GEMINI_STORE_INIT_FAILED', { error: err?.message }));
+  initBriefingScheduler({
+    sendBriefingFn: async (userId, text) => {
+      const targetPhone = resolveBriefingPhone(userId);
+      if (!targetPhone) {
+        privacyLog('warn', 'PROACTIVE_BRIEFING_NO_RECIPIENT', { userId });
+        return;
+      }
+      await sendProactiveMessage(targetPhone, {
+        text,
+        templateName: config.TEMPLATE_DIGEST_NAME || config.TEMPLATE_PROACTIVE_NAME,
+        templateParams: [text.slice(0, 100)],
+      });
+    },
+  });
 
   // Autonomous group administrator. Initialization never enables a group.
   groupOrchestrator = new GroupOrchestrator();
@@ -388,6 +430,7 @@ if (isMainModule) {
       console.warn('⚠️ Queue drain encountered an error:', drainErr.message);
     }
     stopReminders();
+    stopBriefingScheduler();
     if (groupOrchestrator) {
       try {
         await groupOrchestrator.shutdown();

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
-import { app } from '../src/server.js';
+import { app, sanitizeRequestUrl } from '../src/server.js';
 import { config } from '../src/config.js';
 
 test('Server E2E: Full HTTP wiring across public, operational, admin, and webhook endpoints', async (t) => {
@@ -156,5 +156,19 @@ test('Server E2E: Full HTTP wiring across public, operational, admin, and webhoo
     config.WHATSAPP_APP_SECRET = origSecret;
     config.SKIP_SIGNATURE_VERIFICATION = origSkip;
     config.NODE_ENV = origEnv;
+  });
+
+  // 7. sanitizeRequestUrl redacts secrets in query string logs
+  await t.test('sanitizeRequestUrl masks operational tokens and verify tokens', () => {
+    const clean = sanitizeRequestUrl('/admin?token=super_secret_123&switch_model=gemini-3.5-flash');
+    assert.ok(!clean.includes('super_secret_123'));
+    assert.ok(clean.includes('token=REDACTED'));
+    assert.ok(clean.includes('switch_model=gemini-3.5-flash'));
+
+    const verifyClean = sanitizeRequestUrl(
+      '/webhook?hub.mode=subscribe&hub.verify_token=my_verify_tok&hub.challenge=99'
+    );
+    assert.ok(!verifyClean.includes('my_verify_tok'));
+    assert.ok(verifyClean.includes('hub.verify_token=REDACTED'));
   });
 });

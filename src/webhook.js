@@ -10,53 +10,23 @@ import {
   privacyLog,
   getConversation,
   saveTurn,
-  resetConversation,
-  deleteUserData,
-  getPrivacyDisclosure,
   checkUserRateLimit,
   rememberMessage,
   getRememberedMessage,
   isVoiceReplyEnabled,
-  setVoiceReplyEnabled,
 } from './privacy.js';
-import {
-  generateAIResponse,
-  getActiveModel,
-  setActiveModel,
-  isSearchGroundingEnabled,
-  setSearchGrounding,
-  getPersona,
-  setPersona,
-  listPersonas,
-  uploadGeminiFileInMemory,
-  deleteGeminiFile,
-} from './gemini.js';
+import { generateAIResponse, getActiveModel, uploadGeminiFileInMemory, deleteGeminiFile } from './gemini.js';
 import { isDocumentSupported, resolveDocumentMime, extractDocumentContent } from './document.js';
 import {
   sendWhatsAppMessage,
-  sendWhatsAppImage,
-  sendWhatsAppVideo,
   sendWhatsAppAudio,
   sendWhatsAppButtons,
-  sendWhatsAppDocument,
   markMessageAsRead,
-  sendWhatsAppTypingIndicator,
   getMediaUrl,
   downloadMediaInMemory,
 } from './whatsapp.js';
-import {
-  parseImagePrompt,
-  parseImagePromptOptions,
-  generateImageUrl,
-  generateCleanImage,
-  processImageReaction,
-  recordImageGeneration,
-  resetImageLearner,
-  cacheImageMediaId,
-  selectImageModel,
-} from './image-gen.js';
-import { parseVideoPrompt, parseVideoPromptOptions, generateVideo } from './video-gen.js';
-import { scheduleReminder, listReminders, deleteReminder, snoozeReminder, completeReminder } from './reminders.js';
+import { processImageReaction } from './image-gen.js';
+import { deleteReminder, snoozeReminder, completeReminder } from './reminders.js';
 import {
   saveUserLocation,
   getUserLocation,
@@ -64,31 +34,15 @@ import {
   formatPlacesSummary,
   LOCATION_CATEGORIES,
 } from './location.js';
-import { addTodo, listTodos, markTodoDone, clearCompletedTodos } from './todos.js';
-import { extractUrl, extractUserPromptAside, fetchAndExtractArticle } from './web-scraper.js';
-import { extractYouTubeVideoId, isYouTubeDomain, fetchYouTubeVideoData, buildYouTubeAiPrompt } from './youtube.js';
-import { isInstagramUrl, fetchInstagramPostData, buildInstagramAiPrompt } from './instagram.js';
 import { synthesizeSpeech } from './tts.js';
-import { checkAndIncrementUserQuota, recordGeminiDailyUsage, getUserQuotaReport } from './quota.js';
+import { checkAndIncrementUserQuota, recordGeminiDailyUsage } from './quota.js';
 import { recordMessageMetric, recordErrorMetric, recordMediaBytes, recordGeminiMetric } from './metrics.js';
 import { messageQueue } from './queue.js';
-import { handleLanguageCommand } from './language.js';
-import { handleMemoryCommand, clearUserMemory, addAutoMemoryFact } from './memory.js';
-import { clearLearnedWorkflows } from './workflow-learner.js';
-import { clearUserProfile } from './conversation-adapter.js';
+import { addAutoMemoryFact } from './memory.js';
 import { autoLearnFromTurn, extractDeterministicFacts } from './auto-learner.js';
-import { exportUserData } from './export.js';
-import {
-  addContact,
-  removeContact,
-  getContact,
-  formatContactsList,
-  setContactAiAllowed,
-  sendOutboundContactMessage,
-  isPrimaryAdmin,
-  getPrimaryAdminNumber,
-  maskPhoneNumber,
-} from './contacts.js';
+import { getContact, isPrimaryAdmin, getPrimaryAdminNumber, maskPhoneNumber } from './contacts.js';
+import { dispatchBuiltInCommand } from './handlers/command-handler.js';
+import { resolveUrlPrompt } from './handlers/link-handler.js';
 
 export { messageQueue };
 export const webhookRouter = express.Router();
@@ -367,6 +321,7 @@ export function normalizeCommand(text, hasMedia = false) {
     cmd_language: '/language',
     cmd_memory: '/memory',
     cmd_export: '/export',
+    cmd_briefing: '/briefing',
     cmd_img_lion: '/image a majestic male lion in a thunderstorm --photo',
     cmd_img_wall: '/image a neon cyberpunk alleyway in Tokyo rain --wallpaper',
     cmd_img_anime: '/image a girl reading in an enchanted sunlit library --anime',
@@ -409,6 +364,7 @@ export function normalizeCommand(text, hasMedia = false) {
     language: '/language',
     memory: '/memory',
     export: '/export',
+    briefing: '/briefing',
     c: '/c',
     'c list': '/c',
     contacts: '/contacts',
@@ -434,6 +390,7 @@ export function normalizeCommand(text, hasMedia = false) {
     'motion ',
     'language ',
     'memory ',
+    'briefing ',
     's ',
     'c ',
     'send ',
@@ -525,12 +482,16 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
             }
             await sendWhatsAppMessage(from, resolution.message || '✅ Action confirmed.');
             if (message?.id) {
-              applyContextualReaction(from, message.id, '', { action: 'approval_granted' }).catch(() => {});
+              applyContextualReaction(from, message.id, '', { action: 'approval_granted' }).catch((err) =>
+                privacyLog('debug', 'APPROVAL_REACTION_FAILED', { error: err?.message })
+              );
             }
           } else {
             await sendWhatsAppMessage(from, resolution.message || '❌ Action cancelled.');
             if (message?.id) {
-              applyContextualReaction(from, message.id, '', { action: 'approval_denied' }).catch(() => {});
+              applyContextualReaction(from, message.id, '', { action: 'approval_denied' }).catch((err) =>
+                privacyLog('debug', 'APPROVAL_REACTION_FAILED', { error: err?.message })
+              );
             }
           }
           return;
@@ -651,7 +612,7 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
 
   // 3. Mark message as read (blue ticks)
   if (messageId) {
-    markMessageAsRead(messageId).catch(() => {});
+    markMessageAsRead(messageId).catch((err) => privacyLog('debug', 'MARK_READ_FAILED', { error: err?.message }));
   }
 
   // 4. Per-User Sliding-Window Rate Limit Guard
@@ -1020,670 +981,18 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
 
   // 9. Command Handlers & Normalization (supports slash commands, slashless inputs, and interactive buttons)
   const effectiveCommand = normalizeCommand(rawText, Boolean(mediaPart));
-
-  // 9a. Image Generation
-  const imagePrompt = !mediaPart ? parseImagePrompt(effectiveCommand || rawText) : null;
-  if (imagePrompt) {
-    const parsedOptions = parseImagePromptOptions(imagePrompt);
-    const selectedModel = parsedOptions.hasExplicitModel ? parsedOptions.model : selectImageModel(imagePrompt);
-
-    privacyLog('info', 'IMAGE_GENERATION_REQUESTED', {
-      requestId,
-      user: anonId,
-      promptLength: parsedOptions.prompt.length,
-      model: selectedModel,
-      dimensions: `${parsedOptions.width}x${parsedOptions.height}`,
-      isLossless: parsedOptions.isLossless,
-    });
-
-    const modelBadge =
-      selectedModel === 'gemini-3-pro-image'
-        ? '👑 Gemini 3 Pro (Studio HD)'
-        : selectedModel === 'gemini-3.1-flash-image'
-          ? '⚡ Gemini 3.1 Flash Image'
-          : selectedModel === 'turbo'
-            ? '⚡ SDXL-Turbo (Fast)'
-            : selectedModel === 'kontext'
-              ? '✨ FLUX.1 Kontext Pro'
-              : selectedModel === 'realism'
-                ? '📸 FLUX Realism'
-                : '✨ FLUX.1 (HD)';
-    const dimBadge = `${parsedOptions.width}x${parsedOptions.height}${parsedOptions.isLossless ? ' [Lossless HD]' : ''}`;
-
-    // Trigger native animated typing indicator instead of sending a bulky placeholder message
-    if (messageId) {
-      await sendWhatsAppTypingIndicator(messageId).catch(() => {});
-    }
-
-    const cleanImage = await generateCleanImage(imagePrompt, {
-      anonId,
-      model: selectedModel,
-      isLossless: parsedOptions.isLossless,
-    });
-    const caption = [
-      `🎨 *AI Generated Image* (${modelBadge})`,
-      `📐 _Size:_ ${dimBadge}`,
-      ``,
-      `_Prompt:_ "${parsedOptions.prompt}"`,
-    ].join('\n');
-
-    let result;
-    if (cleanImage?.cachedMediaId) {
-      result = await sendWhatsAppImage(from, { mediaId: cleanImage.cachedMediaId }, caption);
-    } else if (cleanImage && cleanImage.isLossless && cleanImage.buffer) {
-      result = await sendWhatsAppDocument(from, cleanImage.buffer, 'image_hd.png', caption, 'image/png');
-    } else if (cleanImage && cleanImage.buffer) {
-      result = await sendWhatsAppImage(from, cleanImage, caption);
-    } else {
-      result = await sendWhatsAppImage(from, generateImageUrl(imagePrompt, parsedOptions).imageUrl, caption);
-    }
-
-    if (result.success) {
-      if (cleanImage?.cacheKey && result.mediaId) {
-        await cacheImageMediaId(cleanImage.cacheKey, result.mediaId);
-      }
-      saveTurn(anonId, rawText, `[Generated and sent image: ${parsedOptions.prompt}]`);
-      recordMessageMetric('image_gen', 'success');
-      if (message?.id) {
-        applyContextualReaction(from, message.id, imagePrompt, { action: 'image_gen' }).catch(() => {});
-      }
-      recordImageGeneration(anonId, {
-        id: result.messageId || requestId,
-        prompt: parsedOptions.prompt,
-        enhancedPrompt: cleanImage?.enhancedPrompt || imagePrompt,
-        model: selectedModel,
-        style: parsedOptions.style,
-        appliedLighting: cleanImage?.appliedLearning?.lighting,
-        appliedComposition: cleanImage?.appliedLearning?.composition,
-        appliedQuality: cleanImage?.appliedLearning?.quality,
-      });
-    } else {
-      recordErrorMetric('image_gen');
-      await sendWhatsAppMessage(
-        from,
-        `⚠️ *Image Generation Notice:*\nCould not deliver generated image: ${result.error || 'Server error'}. Please try again.`
-      );
-    }
-    return;
-  }
-
-  // 9a-2. Video Generation (Text-to-Video & Image-to-Video)
-  const isImageToVideo = Boolean(mediaPart && messageType === 'image');
-  const videoPrompt = !mediaPart || isImageToVideo ? parseVideoPrompt(effectiveCommand || rawText) : null;
-  if (videoPrompt) {
-    const parsedVidOptions = parseVideoPromptOptions(videoPrompt);
-    privacyLog('info', 'VIDEO_GENERATION_REQUESTED', {
-      requestId,
-      user: anonId,
-      promptLength: parsedVidOptions.prompt.length,
-      duration: parsedVidOptions.duration,
-      dimensions: `${parsedVidOptions.width}x${parsedVidOptions.height}`,
-      isImageToVideo,
-    });
-
-    // Notify user immediately that generation is underway
-    await sendWhatsAppMessage(
-      from,
-      isImageToVideo
-        ? '🎬 *Animating your photo...*\n_Directing AI motion & synthesizing follow-up scenes. This usually takes 15–30 seconds. Hang tight!_'
-        : '🎬 *Generating your video...*\n_Directing cinematography & rendering frames. This usually takes 15–30 seconds. Hang tight!_'
-    );
-
-    try {
-      const vidOptions =
-        isImageToVideo && mediaPart?.data ? { imageBuffer: Buffer.from(mediaPart.data, 'base64') } : {};
-      const vidResult = await generateVideo(videoPrompt, vidOptions);
-      if (vidResult && vidResult.ok && vidResult.buffer) {
-        const typeBadge = vidResult.isImageToVideo ? 'Image-to-Video Animation' : 'AI Generated Video';
-        const motionBadge = parsedVidOptions.motion ? ` | 🎥 ${parsedVidOptions.motion}` : '';
-        const engineBadge = vidResult.isFreeVideo ? ' (100% Free AI)' : '';
-        const caption = [
-          `🎬 *${typeBadge}*${engineBadge} (${vidResult.duration || parsedVidOptions.duration}s${motionBadge})`,
-          `📐 _Resolution:_ ${vidResult.width || parsedVidOptions.width}x${vidResult.height || parsedVidOptions.height}`,
-          ``,
-          `_Prompt:_ "${parsedVidOptions.prompt}"`,
-        ].join('\n');
-
-        const sendRes = await sendWhatsAppVideo(from, vidResult.buffer, caption);
-        if (sendRes.success) {
-          saveTurn(anonId, rawText, `[Generated and sent video: ${parsedVidOptions.prompt}]`);
-          recordMessageMetric('video_gen', 'success');
-          if (message?.id) {
-            applyContextualReaction(from, message.id, rawText, { action: 'video_gen' }).catch(() => {});
-          }
-        } else {
-          recordErrorMetric('video_gen');
-          await sendWhatsAppMessage(
-            from,
-            `⚠️ *Video Delivery Notice:*\nCould not deliver video file: ${sendRes.error || 'Server error'}. Please try again.`
-          );
-        }
-      } else {
-        recordErrorMetric('video_gen');
-        if (vidResult?.fallbackImage) {
-          const isApiKeyIssue =
-            vidResult.statusCode === 401 ||
-            vidResult.reason === 'missing_api_key' ||
-            vidResult.reason === 'unauthorized_api_key' ||
-            String(vidResult.reason).includes('401');
-          const isCreditsIssue =
-            vidResult.statusCode === 402 ||
-            vidResult.reason === 'credits_exhausted' ||
-            String(vidResult.reason).includes('402');
-
-          let header = '🎬 *Video Concept Preview* (Generation queued/busy)';
-          let statusText = '⚠️ _Video cloud render is currently busy. Here is your high-definition concept still:_';
-
-          if (isApiKeyIssue) {
-            header = '🎬 *Video Concept Preview* (API Key Setup Required)';
-            statusText = [
-              '⚠️ *Video Generation Setup Required:*',
-              '_Text-to-video rendering requires an active Pollinations API key._',
-              '_1. Get a free key with starter pollen credits at:_ https://enter.pollinations.ai/keys',
-              '_2. Add_ `POLLINATIONS_API_KEY=your_key` _to your bot `.env` file and restart._',
-              '',
-              '🖼️ _In the meantime, here is your generated high-definition concept still:_',
-            ].join('\n');
-          } else if (isCreditsIssue) {
-            header = '🎬 *Video Concept Preview* (Paid Pollen Required)';
-            statusText = [
-              '⚠️ *Paid Pollen Balance Required:*',
-              vidResult.apiMessage
-                ? `_${vidResult.apiMessage}_`
-                : '_GPU video rendering requires Paid Pollen (from ~$0.05 per clip)._',
-              '',
-              '👉 _Top up your Pollinations balance at:_ https://enter.pollinations.ai/top-up',
-              '',
-              '🖼️ _In the meantime, here is your generated high-definition concept still:_',
-            ].join('\n');
-          }
-
-          const fallbackCaption = [header, statusText, '', `_Prompt:_ "${parsedVidOptions.prompt}"`].join('\n');
-          await sendWhatsAppImage(from, vidResult.fallbackImage, fallbackCaption);
-          saveTurn(anonId, rawText, `[Generated video concept preview image: ${parsedVidOptions.prompt}]`);
-        } else {
-          await sendWhatsAppMessage(
-            from,
-            `⚠️ *Video Generation Notice:*\nVideo generation is temporarily busy (${vidResult?.reason || 'Service busy'}). Please try again in a few moments.`
-          );
-        }
-      }
-    } catch (vidErr) {
-      recordErrorMetric('video_gen');
-      privacyLog('error', 'VIDEO_DISPATCH_ERROR', { error: vidErr.message });
-      await sendWhatsAppMessage(
-        from,
-        `⚠️ *Video Generation Error:*\nCould not process video request: ${vidErr.message}.`
-      );
-    }
-    return;
-  }
-
-  // 9b. Help Manual
-  if (!mediaPart && (effectiveCommand === '/help' || effectiveCommand === 'help')) {
-    const helpMessage = [
-      `🤖 *Personal WhatsApp AI Assistant (Gemini)*`,
-      ``,
-      `*Available Commands:*`,
-      `• */help* - Display this help manual`,
-      `• */image <prompt>* or */draw <prompt>* - Generate AI artwork (FLUX.1, Kontext, Realism)`,
-      `  _Options: \`--fast\`, \`--wallpaper\` (9:16), \`--wide\` (16:9), \`--standard\` (4:3), \`--anime\`, \`--photo\`, \`--pixel\`, \`--oil\`, \`--watercolor\`, \`--sketch\`_`,
-      `• */video <prompt>* or */vid <prompt>* - Generate AI video animation (10s – 15s)`,
-      `  _Options: \`--10s\`, \`--15s\`, \`--wide\` (16:9), \`--vertical\` (9:16), \`--drone\`, \`--pan\`, \`--zoom\`, \`--timelapse\`, \`--slowmo\`_`,
-      `• */todo <task>* - Add item to your quick to-do list`,
-      `• */todos* - List your active to-dos`,
-      `• */done <id>* - Mark a task completed`,
-      `• */clear_todos* - Clear all completed tasks`,
-      `• */persona [name]* - Switch persona (coder, tutor, executive, default)`,
-      `• */voice on* | */voice off* - Toggle voice audio replies`,
-      `• */remind <time> <task>* - Schedule an automated reminder`,
-      `• */reminders* - List your active reminders`,
-      `• */remind delete <id>* - Cancel a reminder`,
-      `• */search on* | */search off* - Toggle Google Search grounding`,
-      `• */usage* - Check your daily request quota`,
-      `• */status* - Check system health and current model`,
-      `• */model <name>* - Switch Gemini model (e.g. \`/model gemini-3.5-flash-lite\`)`,
-      `• */reset* - Clear conversation context`,
-      `• */delete* or */forget* - Purge all temporary session data`,
-      `• */privacy* - View architecture & privacy disclosure`,
-      ``,
-      `*Multimodal Capabilities:*`,
-      `• 🔗 *Webpage Summaries:* Send any article or webpage URL for 3-5 bullet point takeaways.`,
-      `• ▶️ *YouTube Summaries:* Paste any YouTube or Shorts link for key takeaways & topic timestamps.`,
-      `• 📸 *Instagram Summaries:* Paste any Instagram Reel or Post link for venue, dish, and creator highlights.`,
-      `• 📍 *Location Intelligence:* Share a location pin for local snapshot, weather, and top spots.`,
-      `• 📸 *Photos & Images:* Send screenshots, diagrams, or math problems for instant analysis.`,
-      `• 🎙️ *Voice Notes:* Send audio voice notes for automatic transcription and answers.`,
-      `• 📄 *Documents:* Upload PDF, TXT, or CSV files for summaries and analysis.`,
-      `• 💬 *Quoted Replies:* Reply directly to previous messages to maintain context.`,
-      ``,
-      `*Privacy Guardrails:*`,
-      `• All chat history is held in volatile RAM (${config.SESSION_TIMEOUT_MINUTES}m idle timeout).`,
-      `• *Zero conversations or images are saved to disk.*`,
-    ].join('\n');
-
-    await sendWhatsAppMessage(from, helpMessage);
-    await sendWhatsAppButtons(from, '⚡ *Quick Actions:*', [
-      { id: 'cmd_status', title: 'Status' },
-      { id: 'cmd_todos', title: 'To-Dos' },
-      { id: 'cmd_reset', title: 'Clear History' },
-    ]);
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9c. Memory Reset
-  if (effectiveCommand === '/reset') {
-    resetConversation(anonId);
-    await sendWhatsAppMessage(
-      from,
-      `🧹 *Conversation Context Cleared!*\nYour previous chat memory has been reset. The next message starts a fresh conversation.`
-    );
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9d. Data Purge
-  if (effectiveCommand === '/delete' || effectiveCommand === '/forget') {
-    deleteUserData(anonId);
-    await clearUserMemory(anonId);
-    await clearLearnedWorkflows(anonId);
-    await clearUserProfile(anonId);
-    resetImageLearner(anonId);
-    await sendWhatsAppMessage(
-      from,
-      `🗑️ *Data Purged:*\nAll temporary in-memory session data, learned habits, and personal memory have been completely wiped.`
-    );
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9e. Privacy Disclosure
-  if (effectiveCommand === '/privacy') {
-    await sendWhatsAppMessage(from, getPrivacyDisclosure());
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9f. System Status
-  if (effectiveCommand === '/status') {
-    const quota = getUserQuotaReport(anonId);
-    const searchStatus = isSearchGroundingEnabled() ? 'Enabled (Google Search)' : 'Disabled';
-    const statusMsg = [
-      `📊 *System Status:*`,
-      `• AI Model: *${getActiveModel()}*`,
-      `• Active Persona: *${getPersona(anonId)}*`,
-      `• Voice Replies: *${isVoiceReplyEnabled(anonId) ? 'Enabled' : 'Disabled'}*`,
-      `• Search Grounding: *${searchStatus}*`,
-      `• Remaining Daily Quota: *${quota.userMax - quota.userCount} / ${quota.userMax}*`,
-      `• Memory Mode: *Volatile RAM Only (Zero Disk Storage)*`,
-      `• Idle Session Timeout: *${config.SESSION_TIMEOUT_MINUTES} minutes*`,
-      `• Max Context Turns: *${config.MAX_CONTEXT_TURNS}*`,
-      `• Meta Webhook: *Active*`,
-      `• Transport Security: *HTTPS / TLS 1.3*`,
-    ].join('\n');
-    await sendWhatsAppButtons(from, statusMsg, [
-      { id: 'cmd_usage', title: 'Usage' },
-      { id: 'cmd_help', title: 'Help' },
-    ]);
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9g. Model Switch
-  if (effectiveCommand.startsWith('/model ')) {
-    const requestedModel = effectiveCommand.substring(7).trim();
-    if (requestedModel) {
-      setActiveModel(requestedModel);
-      await sendWhatsAppMessage(from, `🔄 *Model Switched:*\nActive model is now set to *${getActiveModel()}*.`);
-      recordMessageMetric('command', 'success');
-      return;
-    }
-  }
-
-  // 9h. Google Search Grounding Toggle
-  if (effectiveCommand === '/search on') {
-    setSearchGrounding(true);
-    await sendWhatsAppMessage(
-      from,
-      '🌐 *Google Search Grounding Enabled:*\nGemini will now retrieve live web information and append verified sources.'
-    );
-    recordMessageMetric('command', 'success');
-    return;
-  }
-  if (effectiveCommand === '/search off') {
-    setSearchGrounding(false);
-    await sendWhatsAppMessage(
-      from,
-      '🌐 *Google Search Grounding Disabled:*\nGemini will now respond using internal model knowledge.'
-    );
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9i. Usage & Quotas
-  if (effectiveCommand === '/usage') {
-    const quota = getUserQuotaReport(anonId);
-    const usageMsg = [
-      `📈 *Daily AI Request Usage:*`,
-      `• Your Requests Today: *${quota.userCount} / ${quota.userMax}*`,
-      `• Requests Remaining: *${quota.userMax - quota.userCount}*`,
-      `• Global System Requests: *${quota.geminiCount} / ${quota.geminiMax}*`,
-      `• Date (UTC): *${quota.dateUtc}*`,
-      `• Resets Daily At: *00:00 UTC*`,
-    ].join('\n');
-    await sendWhatsAppMessage(from, usageMsg);
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9j. Scheduled Reminders
-  if (effectiveCommand.startsWith('/remind ')) {
-    const remArgs = effectiveCommand.substring(8).trim();
-    if (remArgs.toLowerCase().startsWith('delete ')) {
-      const deleteId = remArgs.substring(7).trim();
-      const delResult = deleteReminder(anonId, deleteId);
-      await sendWhatsAppMessage(from, delResult.message);
-      return;
-    }
-
-    const parts = remArgs.split(/\s+/);
-    let whenStr = '';
-    let reminderText = '';
-
-    // Handle DD-MM-YYYY HH:MM two-token timestamp
-    if (parts.length >= 3 && /^\d{1,2}-\d{1,2}-\d{4}$/.test(parts[0]) && /^\d{1,2}:\d{2}$/.test(parts[1])) {
-      whenStr = `${parts[0]} ${parts[1]}`;
-      reminderText = parts.slice(2).join(' ');
-    } else {
-      whenStr = parts[0] || '';
-      reminderText = parts.slice(1).join(' ');
-    }
-
-    const schedResult = scheduleReminder(from, anonId, whenStr, reminderText);
-    await sendWhatsAppMessage(from, schedResult.message);
-    recordMessageMetric('reminder', schedResult.success ? 'success' : 'rejected');
-    if (schedResult.success && message?.id) {
-      applyContextualReaction(from, message.id, reminderText, { action: 'reminder_created' }).catch(() => {});
-    }
-    return;
-  }
-
-  if (effectiveCommand === '/reminders') {
-    const listMsg = listReminders(anonId);
-    await sendWhatsAppMessage(from, listMsg);
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9k. Quick Notes & To-Do List Tracker
-  if (effectiveCommand.startsWith('/todo ')) {
-    const taskText = effectiveCommand.substring(6).trim();
-    const result = addTodo(anonId, taskText);
-    await sendWhatsAppMessage(from, result.message);
-    recordMessageMetric('todo', result.success ? 'success' : 'rejected');
-    if (result.success && message?.id) {
-      applyContextualReaction(from, message.id, taskText, { action: 'todo_created' }).catch(() => {});
-    }
-    return;
-  }
-
-  if (effectiveCommand === '/todos') {
-    const listMsg = listTodos(anonId);
-    await sendWhatsAppButtons(from, listMsg, [
-      { id: 'cmd_help', title: 'Help' },
-      { id: 'cmd_status', title: 'Status' },
-    ]);
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  if (effectiveCommand.startsWith('/done ')) {
-    const todoId = effectiveCommand.substring(6).trim();
-    const result = markTodoDone(anonId, todoId);
-    await sendWhatsAppMessage(from, result.message);
-    recordMessageMetric('todo', result.success ? 'success' : 'rejected');
-    return;
-  }
-
-  if (effectiveCommand === '/clear_todos') {
-    const result = clearCompletedTodos(anonId);
-    await sendWhatsAppMessage(from, result.message);
-    recordMessageMetric('todo', 'success');
-    return;
-  }
-
-  // 9l. Custom Persona Switching
-  if (effectiveCommand === '/persona' || effectiveCommand.startsWith('/persona ')) {
-    const personaArg = effectiveCommand.length > 8 ? effectiveCommand.substring(8).trim().toLowerCase() : '';
-    if (!personaArg) {
-      const current = getPersona(anonId);
-      const personas = listPersonas();
-      const personaLines = Object.values(personas).map((p) => {
-        const marker = p.name === current ? ' *(Active)*' : '';
-        return `• */persona ${p.name}* - *${p.title}*${marker}\n  _${p.description}_`;
-      });
-      const msg = [
-        `🎭 *AI Personas:*`,
-        `Current Persona: *${current}*`,
-        ``,
-        ...personaLines,
-        ``,
-        `_Switch persona by sending e.g. \`/persona coder\` or \`/persona default\`._`,
-      ].join('\n');
-      await sendWhatsAppMessage(from, msg);
-    } else {
-      const result = setPersona(anonId, personaArg);
-      if (result.success) {
-        await sendWhatsAppMessage(
-          from,
-          `🎭 *Persona Switched to "${result.persona.name}":*\n_${result.persona.description}_`
-        );
-      } else {
-        await sendWhatsAppMessage(from, `⚠️ ${result.error}`);
-      }
-    }
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9m. Voice Note Replies Toggle
-  if (effectiveCommand === '/voice on') {
-    setVoiceReplyEnabled(anonId, true);
-    await sendWhatsAppMessage(
-      from,
-      '🎙️ *Voice Mode Enabled:*\nAssistant replies will now also be synthesized into audio voice messages.\nType */voice off* anytime to return to text-only.'
-    );
-    recordMessageMetric('command', 'success');
-    return;
-  }
-  if (effectiveCommand === '/voice off') {
-    setVoiceReplyEnabled(anonId, false);
-    await sendWhatsAppMessage(from, '💬 *Voice Mode Disabled:*\nAssistant replies will now be delivered as text only.');
-    recordMessageMetric('command', 'success');
-    return;
-  }
-  if (effectiveCommand === '/voice' || effectiveCommand === '/voice status') {
-    const isVoice = isVoiceReplyEnabled(anonId);
-    await sendWhatsAppMessage(
-      from,
-      `🎙️ *Voice Mode Status:* *${isVoice ? 'Enabled (Audio replies ON)' : 'Disabled (Text-only)'}*\n\n• Type */voice on* to receive voice audio replies.\n• Type */voice off* for text-only replies.\n• Or append \`--voice\` to any single message.`
-    );
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9n. Multilingual Language Selection
-  if (effectiveCommand === '/language' || effectiveCommand.startsWith('/language ')) {
-    const langArg = effectiveCommand.length > 9 ? effectiveCommand.substring(9).trim() : '';
-    const reply = await handleLanguageCommand(anonId, langArg);
-    await sendWhatsAppMessage(from, reply);
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9o. Long-Term Personal Memory
-  if (effectiveCommand === '/memory' || effectiveCommand.startsWith('/memory ')) {
-    const reply = await handleMemoryCommand(anonId, effectiveCommand);
-    await sendWhatsAppMessage(from, reply);
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9p. User Data Export
-  if (effectiveCommand === '/export' || effectiveCommand.startsWith('/export')) {
-    await exportUserData(from, anonId);
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  // 9q. Outbound Contact Messaging (/s, /send, or /msg)
-  if (
-    effectiveCommand.startsWith('/s ') ||
-    effectiveCommand.startsWith('/send ') ||
-    effectiveCommand.startsWith('/msg ')
-  ) {
-    let args = '';
-    if (effectiveCommand.startsWith('/s ')) {
-      args = effectiveCommand.slice(3).trim();
-    } else if (effectiveCommand.startsWith('/send ')) {
-      args = effectiveCommand.slice(6).trim();
-    } else {
-      args = effectiveCommand.slice(5).trim();
-    }
-    const firstSpaceIdx = args.indexOf(' ');
-
-    if (firstSpaceIdx === -1) {
-      await sendWhatsAppMessage(
-        from,
-        '⚠️ *Usage:* `/s <contact_or_number> <message>` (or `/send`)\n\n*Examples:*\n• `/s mom Hello Mom, are we meeting tonight?`\n• `/s 919876543210 Here is the report summary.`'
-      );
-      recordMessageMetric('command', 'invalid_args');
-      return;
-    }
-
-    const target = args.slice(0, firstSpaceIdx).trim();
-    const messageToSend = args.slice(firstSpaceIdx + 1).trim();
-
-    const result = await sendOutboundContactMessage(from, target, messageToSend);
-    await sendWhatsAppMessage(from, result.message);
-    recordMessageMetric('command', result.ok ? 'success' : 'failed');
-    return;
-  }
-
-  // 9r. Contacts Book Management (/c, /contact, or /contacts)
-  if (
-    effectiveCommand === '/c' ||
-    effectiveCommand === '/contacts' ||
-    effectiveCommand === '/contact' ||
-    effectiveCommand === '/contact list' ||
-    effectiveCommand === '/c list'
-  ) {
-    if (!isPrimaryAdmin(from)) {
-      await sendWhatsAppMessage(from, '⛔ *Access Denied:* Only the bot administrator can manage contacts.');
-      return;
-    }
-    const contactsList = formatContactsList();
-    await sendWhatsAppMessage(from, contactsList);
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  if (effectiveCommand.startsWith('/c add ') || effectiveCommand.startsWith('/contact add ')) {
-    if (!isPrimaryAdmin(from)) {
-      await sendWhatsAppMessage(from, '⛔ *Access Denied:* Only the bot administrator can add contacts.');
-      return;
-    }
-    const rawArgs = effectiveCommand.replace(/^\/(?:c|contact)\s+add\s+/, '').trim();
-    const parts = rawArgs.split(/\s+/);
-    const alias = parts[0];
-    const phone = parts[1];
-    const name = parts.slice(2).join(' ') || alias;
-
-    if (!alias || !phone) {
-      await sendWhatsAppMessage(
-        from,
-        '⚠️ *Usage:* `/c add <alias> <phone> [display_name]`\n\n*Example:* `/c add mom 919876543210 Mom`'
-      );
-      recordMessageMetric('command', 'invalid_args');
-      return;
-    }
-
-    const saveRes = addContact(alias, phone, name);
-    if (!saveRes.ok) {
-      await sendWhatsAppMessage(from, `❌ ${saveRes.error}`);
-      recordMessageMetric('command', 'failed');
-      return;
-    }
-
-    await sendWhatsAppMessage(
-      from,
-      `✅ *Contact Saved!*\n• *Name:* ${saveRes.contact.name}\n• *Alias:* \`@${saveRes.contact.alias}\`\n• *Phone:* ${maskPhoneNumber(saveRes.contact.phone)}\n• *Mode:* 📨 Relay Only\n\n_💡 Send them a message with:_ \`/s ${saveRes.contact.alias} <your message>\``
-    );
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  if (
-    effectiveCommand.startsWith('/c remove ') ||
-    effectiveCommand.startsWith('/c delete ') ||
-    effectiveCommand.startsWith('/contact remove ') ||
-    effectiveCommand.startsWith('/contact delete ')
-  ) {
-    if (!isPrimaryAdmin(from)) {
-      await sendWhatsAppMessage(from, '⛔ *Access Denied:* Only the bot administrator can delete contacts.');
-      return;
-    }
-    const query = effectiveCommand.replace(/^\/(?:c|contact)\s+(?:remove|delete)\s+/, '').trim();
-    const removeRes = removeContact(query);
-    if (!removeRes.ok) {
-      await sendWhatsAppMessage(from, `❌ ${removeRes.error}`);
-      recordMessageMetric('command', 'failed');
-      return;
-    }
-    await sendWhatsAppMessage(
-      from,
-      `🗑️ *Contact Removed:* \`@${removeRes.removed.alias}\` (${removeRes.removed.name}) was deleted from your contact book.`
-    );
-    recordMessageMetric('command', 'success');
-    return;
-  }
-
-  if (effectiveCommand.startsWith('/c permit ') || effectiveCommand.startsWith('/contact permit ')) {
-    if (!isPrimaryAdmin(from)) {
-      await sendWhatsAppMessage(from, '⛔ *Access Denied:* Only the bot administrator can modify contact permissions.');
-      return;
-    }
-    const rawArgs = effectiveCommand.replace(/^\/(?:c|contact)\s+permit\s+/, '').trim();
-    const parts = rawArgs.split(/\s+/);
-    const alias = parts[0];
-    const flag = (parts[1] || '').toLowerCase();
-
-    if (!alias || (flag !== 'on' && flag !== 'off')) {
-      await sendWhatsAppMessage(
-        from,
-        '⚠️ *Usage:* `/c permit <alias> on|off`\n\n*Example:*\n• `/c permit mom on` (Allows contact to directly chat with Gemini AI)\n• `/c permit mom off` (Relay only: replies are forwarded to you)'
-      );
-      recordMessageMetric('command', 'invalid_args');
-      return;
-    }
-
-    const permitRes = setContactAiAllowed(alias, flag === 'on');
-    if (!permitRes.ok) {
-      await sendWhatsAppMessage(from, `❌ ${permitRes.error}`);
-      recordMessageMetric('command', 'failed');
-      return;
-    }
-
-    const modeDescription = permitRes.contact.allowAiChat
-      ? '🤖 Full AI Chat & Relay (Can chat directly with Gemini AI)'
-      : '📨 Relay Only (All replies are forwarded directly to you)';
-
-    await sendWhatsAppMessage(
-      from,
-      `✅ *Permission Updated!*\n• *Contact:* ${permitRes.contact.name} (\`@${permitRes.contact.alias}\`)\n• *Mode:* ${modeDescription}`
-    );
-    recordMessageMetric('command', 'success');
+  const commandHandled = await dispatchBuiltInCommand({
+    effectiveCommand,
+    rawText,
+    from,
+    anonId,
+    message,
+    mediaPart,
+    messageType,
+    messageId,
+    requestId,
+  });
+  if (commandHandled) {
     return;
   }
 
@@ -1716,146 +1025,24 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   }
 
   // Check for webpage/article link summarization
-  let articleHeader = null;
-  const foundUrl =
-    !mediaPart && messageType === 'text' && !cleanRawText.startsWith('/') ? extractUrl(cleanRawText) : null;
+  const urlResult = await resolveUrlPrompt({
+    from,
+    sanitizedText,
+    cleanRawText,
+    mediaPart,
+    messageType,
+  });
+  if (urlResult.aborted) {
+    return;
+  }
 
-  let effectivePrompt = sanitizedText;
+  const articleHeader = urlResult.articleHeader;
+  let effectivePrompt = urlResult.effectivePrompt;
+  if (urlResult.forceGrounding) {
+    forceGrounding = true;
+  }
 
-  if (foundUrl) {
-    const userPromptAside = extractUserPromptAside(sanitizedText, foundUrl);
-    const ytVideoId = extractYouTubeVideoId(foundUrl);
-    const isYtDomain = isYouTubeDomain(foundUrl);
-
-    if (ytVideoId) {
-      const videoData = await fetchYouTubeVideoData(ytVideoId);
-
-      if (!videoData.ok) {
-        if (userPromptAside) {
-          privacyLog('info', 'YOUTUBE_FETCH_FALLBACK_GROUNDING', { error: videoData.error, videoId: ytVideoId });
-          forceGrounding = true;
-          effectivePrompt = [
-            `The user shared this YouTube video link: ${foundUrl}`,
-            `User instruction: "${userPromptAside}"`,
-            `Note: Direct video details could not be retrieved (${videoData.error || 'Video may be private, restricted, or unavailable'}). Use Google Search Grounding to assist the user with their request and any clues provided, and politely let them know the video details couldn't be loaded directly.`,
-          ].join('\n\n');
-        } else {
-          await sendWhatsAppMessage(
-            from,
-            `⚠️ *YouTube Error:* Could not load video details (${videoData.error || 'Video may be private, restricted, or unavailable'}).`
-          );
-          return;
-        }
-      } else {
-        effectivePrompt = buildYouTubeAiPrompt(videoData, userPromptAside);
-        articleHeader = {
-          title: `▶️ ${videoData.title} (${videoData.author})`,
-          url: videoData.url,
-        };
-        if (!videoData.hasTranscript) {
-          forceGrounding = true;
-        }
-      }
-    } else if (isYtDomain) {
-      // YouTube link with missing, truncated, or malformed video ID (e.g. truncated Shorts /shorts/4Mer-_)
-      if (userPromptAside) {
-        privacyLog('info', 'YOUTUBE_INCOMPLETE_LINK_FALLBACK_GROUNDING', { url: foundUrl });
-        forceGrounding = true;
-        effectivePrompt = [
-          `The user shared this YouTube link: ${foundUrl}`,
-          `User instruction: "${userPromptAside}"`,
-          `Note: The YouTube link appears incomplete, truncated, or invalid (YouTube video IDs must be exactly 11 characters).`,
-          `Use Google Search Grounding to assist the user with their request (for example, identifying songs, mix tracks, or artists from any lyrics or clues they provided). In your response, helpfully answer their question and politely mention that the YouTube link was cut short or couldn't be opened directly, inviting them to provide more lyrics, clues, or the complete link if needed.`,
-        ].join('\n\n');
-      } else {
-        await sendWhatsAppMessage(
-          from,
-          `⚠️ *YouTube Notice:* The link appears incomplete or truncated (${foundUrl}). YouTube video links require an 11-character video ID (e.g. youtube.com/shorts/VIDEO_ID). Please check the link or share the video title/lyrics!`
-        );
-        return;
-      }
-    } else if (isInstagramUrl(foundUrl)) {
-      const instaData = await fetchInstagramPostData(foundUrl);
-
-      effectivePrompt = buildInstagramAiPrompt(instaData, userPromptAside);
-      const mediaBadge = instaData.isReel ? 'Instagram Reel' : 'Instagram Post';
-      articleHeader = {
-        title: `📸 ${instaData.title || mediaBadge} (${instaData.author})`,
-        url: instaData.url,
-      };
-      forceGrounding = true; // Google search grounding retrieves up-to-date venue details, dishes, and reviews
-    } else {
-      const article = await fetchAndExtractArticle(foundUrl);
-      if (!article.ok) {
-        if (article.reason === 'ssrf_blocked') {
-          await sendWhatsAppMessage(
-            from,
-            '⚠️ *Security Alert:* Access to internal, loopback, or private network addresses is blocked for security.'
-          );
-          return;
-        }
-        if (article.reason === 'too_large') {
-          await sendWhatsAppMessage(from, '⚠️ *Webpage Error:* Webpage content exceeds maximum allowed size (16MB).');
-          return;
-        }
-
-        // For all other fetch failures (http_404, http_500, timeout, http_429, http_403, http_401, content_too_short):
-        // If the user provided a question or instruction, NEVER abort! Ground the query and answer the user!
-        if (userPromptAside) {
-          privacyLog('info', 'WEBPAGE_FETCH_FALLBACK_GROUNDING', { reason: article.reason, url: foundUrl });
-          forceGrounding = true;
-          const failureNote =
-            article.reason === 'http_404'
-              ? 'Page not found (HTTP 404). The link may be broken, incomplete, or expired.'
-              : article.reason === 'timeout'
-                ? 'Webpage download timed out.'
-                : `Direct HTML fetching was blocked or limited (${article.reason || 'Could not load URL'}).`;
-          effectivePrompt = [
-            `The user shared this link: ${foundUrl}`,
-            `User instruction: "${userPromptAside}"`,
-            `Note: ${failureNote} Use Google Search Grounding to look up details about this URL, topic, or any clues provided by the user, and answer their question clearly. Politely mention that the link couldn't be loaded directly if relevant.`,
-          ].join('\n\n');
-        } else if (
-          article.reason === 'http_429' ||
-          article.reason === 'content_too_short' ||
-          article.reason === 'http_403' ||
-          article.reason === 'http_401'
-        ) {
-          privacyLog('info', 'WEBPAGE_FETCH_FALLBACK_GROUNDING', { reason: article.reason, url: foundUrl });
-          forceGrounding = true;
-          effectivePrompt = [
-            `The user shared this link: ${foundUrl}`,
-            'Please summarize the content and topic of this webpage.',
-            'Note: Direct HTML fetching was blocked or limited by the host server. Use Google Search Grounding to look up details about this URL and topic, providing clear highlights and key takeaway points for WhatsApp.',
-          ].join('\n\n');
-          articleHeader = {
-            title: `🔗 ${foundUrl}`,
-            url: foundUrl,
-          };
-        } else {
-          const errorMsg =
-            article.reason === 'http_404'
-              ? `⚠️ *Webpage Notice:* The webpage was not found (HTTP 404). The link may be broken, incomplete, or deleted. Please check the URL and try again.`
-              : article.reason === 'timeout'
-                ? `⚠️ *Webpage Notice:* Webpage download timed out. Please verify the URL and try again.`
-                : `⚠️ *Webpage Notice:* Failed to fetch webpage content (${article.reason || 'Could not load URL'}).`;
-          await sendWhatsAppMessage(from, errorMsg);
-          return;
-        }
-      } else {
-        if (article.needsGrounding) {
-          forceGrounding = true;
-        }
-
-        if (userPromptAside) {
-          effectivePrompt = `The user shared this article: [${article.title || foundUrl}](${foundUrl})\n\nUser Question/Instruction: "${userPromptAside}"\n\nArticle Content:\n"""${article.text}"""`;
-        } else {
-          effectivePrompt = `Summarize this webpage clearly in 3-5 WhatsApp bullet points with key takeaways:\n\nTitle: ${article.title || 'Webpage'}\nURL: ${foundUrl}\n\nContent:\n"""${article.text}"""`;
-        }
-        articleHeader = { title: article.title || 'Webpage Summary', url: foundUrl };
-      }
-    }
-  } else if (locationSnapshotPrompt) {
+  if (locationSnapshotPrompt) {
     effectivePrompt = locationSnapshotPrompt;
   }
 
@@ -1912,12 +1099,16 @@ export async function handleIncomingMessage(message, requestId = crypto.randomUU
   // 15a. Contextual Reaction: React authentically only when intent/sentiment warrants (gratitude, agreement, laughter, celebration)
   // Queries, educational questions ("Explain in detail"), documents, and general text return null (clean messages)
   if (message?.id) {
-    applyContextualReaction(from, message.id, sanitizedText || rawText).catch(() => {});
+    applyContextualReaction(from, message.id, sanitizedText || rawText).catch((err) =>
+      privacyLog('debug', 'CONTEXTUAL_REACTION_ERROR', { error: err?.message })
+    );
   }
 
   // 15b. Cleanup temporary Gemini Files API upload if one was created
   if (mediaPart?.geminiFileName) {
-    deleteGeminiFile(mediaPart.geminiFileName).catch(() => {});
+    deleteGeminiFile(mediaPart.geminiFileName).catch((err) =>
+      privacyLog('debug', 'GEMINI_FILE_CLEANUP_FAILED', { error: err?.message })
+    );
   }
 
   // 15c. Post-response autonomous habit & workflow learning (0ms added user latency)

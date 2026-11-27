@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
 import { privacyLog } from './privacy.js';
+import { store } from './store/index.js';
 
 /**
  * In-Memory To-Do Store:
@@ -12,11 +13,40 @@ const todoStore = new Map();
 
 const getPersistenceDir = () => config.DATA_DIR || path.resolve('.data');
 const getPersistenceFile = () => path.join(getPersistenceDir(), 'todos.json');
+const TODOS_STORE_KEY = 'app:todos:v1';
 
 /**
- * Loads persisted todos from disk on startup if REMINDERS_PERSIST is enabled.
+ * Loads persisted todos from disk/Redis on startup when enabled.
  */
 export function initTodos() {
+  if (config.STATE_BACKEND === 'redis' && config.REDIS_URL) {
+    store
+      .get(TODOS_STORE_KEY)
+      .then((parsed) => {
+        if (!Array.isArray(parsed)) return;
+        for (const item of parsed) {
+          if (item.user && item.id && item.text) {
+            const list = todoStore.get(item.user) || [];
+            if (!list.some((t) => t.id === item.id)) {
+              list.push({
+                id: item.id,
+                text: item.text,
+                completed: Boolean(item.completed),
+                createdAt: item.createdAt || Date.now(),
+              });
+              todoStore.set(item.user, list);
+            }
+          }
+        }
+        if (parsed.length > 0) {
+          privacyLog('info', 'TODOS_LOADED_FROM_REDIS', { count: parsed.length });
+        }
+      })
+      .catch((err) => {
+        privacyLog('warn', 'TODOS_REDIS_LOAD_FAILED', { error: err.message });
+      });
+  }
+
   if (!config.REMINDERS_PERSIST) return;
 
   try {
@@ -29,13 +59,15 @@ export function initTodos() {
       for (const item of parsed) {
         if (item.user && item.id && item.text) {
           const list = todoStore.get(item.user) || [];
-          list.push({
-            id: item.id,
-            text: item.text,
-            completed: Boolean(item.completed),
-            createdAt: item.createdAt || Date.now(),
-          });
-          todoStore.set(item.user, list);
+          if (!list.some((t) => t.id === item.id)) {
+            list.push({
+              id: item.id,
+              text: item.text,
+              completed: Boolean(item.completed),
+              createdAt: item.createdAt || Date.now(),
+            });
+            todoStore.set(item.user, list);
+          }
         }
       }
       privacyLog('info', 'TODOS_LOADED_FROM_DISK', { count: parsed.length });
@@ -46,18 +78,10 @@ export function initTodos() {
 }
 
 /**
- * Persists all in-memory todos atomically to disk if REMINDERS_PERSIST is enabled.
+ * Persists all in-memory todos to Redis (when configured) and/or atomically to disk.
  */
 export function persistTodos() {
-  if (!config.REMINDERS_PERSIST) return;
-
-  try {
-    const dir = getPersistenceDir();
-    const file = getPersistenceFile();
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
+  const serializeTodos = () => {
     const flatList = [];
     for (const [user, list] of todoStore.entries()) {
       for (const t of list) {
@@ -70,7 +94,25 @@ export function persistTodos() {
         });
       }
     }
+    return flatList;
+  };
 
+  if (config.STATE_BACKEND === 'redis' && config.REDIS_URL) {
+    store.set(TODOS_STORE_KEY, serializeTodos()).catch((err) => {
+      privacyLog('warn', 'TODOS_REDIS_PERSIST_FAILED', { error: err.message });
+    });
+  }
+
+  if (!config.REMINDERS_PERSIST) return;
+
+  try {
+    const dir = getPersistenceDir();
+    const file = getPersistenceFile();
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const flatList = serializeTodos();
     const tmpPath = `${file}.tmp.${Date.now()}`;
     fs.writeFileSync(tmpPath, JSON.stringify(flatList, null, 2), 'utf-8');
     fs.renameSync(tmpPath, file);

@@ -24,6 +24,34 @@ const userVoicePreferences = new Map();
 const recentLogsRing = [];
 const MAX_RECENT_LOGS = 50;
 
+// Live PII Redaction Counters
+const redactionCounters = {
+  'Payment Card': 0,
+  'Card Security Code': 0,
+  PIN: 0,
+  Password: 0,
+  'National ID': 0,
+  SSN: 0,
+  'One-Time Password': 0,
+};
+
+function recordRedaction(category) {
+  const key = category === 'Password/Credential' ? 'Password' : category;
+  redactionCounters[key] = (redactionCounters[key] || 0) + 1;
+}
+
+/**
+ * Returns live counters of redacted sensitive categories.
+ * @returns {Record<string, number>}
+ */
+export function getRedactionCounters() {
+  return { ...redactionCounters };
+}
+
+function logStoreError(op, err) {
+  privacyLog('debug', 'PRIVACY_STORE_OP_FAILED', { op, error: err?.message || String(err) });
+}
+
 // Salt generated at runtime; fallback to RUNTIME_SALT if neither persistent env salt nor secret is present
 const RUNTIME_SALT = crypto.randomBytes(16).toString('hex');
 const PERSISTENT_SALT =
@@ -178,6 +206,7 @@ export function maskSensitiveInfo(text) {
     const digits = match.replace(/\D/g, '');
     if (isValidLuhn(digits)) {
       categories.push('Payment Card');
+      recordRedaction('Payment Card');
       return '[REDACTED_CARD_NUMBER]';
     }
     return match;
@@ -189,6 +218,7 @@ export function maskSensitiveInfo(text) {
     const next = sanitized.replace(pattern.regex, pattern.replacement);
     if (next !== sanitized) {
       categories.push(pattern.category);
+      recordRedaction(pattern.category);
       sanitized = next;
     }
   }
@@ -503,7 +533,7 @@ export function saveTurn(anonId, sanitizedUserMessage, assistantResponse) {
   });
 
   const sessionTtlSec = config.SESSION_TIMEOUT_MINUTES * 60;
-  store.set(`session:${anonId}`, currentMessages, sessionTtlSec).catch(() => {});
+  store.set(`session:${anonId}`, currentMessages, sessionTtlSec).catch((e) => logStoreError('save_session', e));
 }
 
 /**
@@ -514,7 +544,7 @@ export function saveTurn(anonId, sanitizedUserMessage, assistantResponse) {
 export function resetConversation(anonId) {
   const hadSession = sessionStore.has(anonId);
   sessionStore.delete(anonId);
-  store.del(`session:${anonId}`).catch(() => {});
+  store.del(`session:${anonId}`).catch((e) => logStoreError('del_session', e));
   privacyLog('info', 'CONVERSATION_RESET', { user: anonId, hadActiveSession: hadSession });
   return hadSession;
 }
@@ -537,7 +567,7 @@ export function isVoiceReplyEnabled(anonId) {
 export function setVoiceReplyEnabled(anonId, enabled) {
   if (anonId) {
     userVoicePreferences.set(anonId, Boolean(enabled));
-    store.set(`voice:${anonId}`, Boolean(enabled)).catch(() => {});
+    store.set(`voice:${anonId}`, Boolean(enabled)).catch((e) => logStoreError('save_voice', e));
     privacyLog('info', 'VOICE_MODE_TOGGLED', { user: anonId, enabled: Boolean(enabled) });
   }
 }
@@ -550,12 +580,12 @@ export function setVoiceReplyEnabled(anonId, enabled) {
 export function deleteUserData(anonId) {
   resetUserRateLimit(anonId);
   userVoicePreferences.delete(anonId);
-  store.del(`voice:${anonId}`).catch(() => {});
-  store.del(`ratelimit:${anonId}`).catch(() => {});
-  store.del(`user:memory:${anonId}`).catch(() => {});
-  store.del(`user:workflows:${anonId}`).catch(() => {});
-  store.del(`user:profile:${anonId}`).catch(() => {});
-  store.del(`image:learner:${anonId}`).catch(() => {});
+  store.del(`voice:${anonId}`).catch((e) => logStoreError('del_voice', e));
+  store.del(`ratelimit:${anonId}`).catch((e) => logStoreError('del_ratelimit', e));
+  store.del(`user:memory:${anonId}`).catch((e) => logStoreError('del_memory', e));
+  store.del(`user:workflows:${anonId}`).catch((e) => logStoreError('del_workflows', e));
+  store.del(`user:profile:${anonId}`).catch((e) => logStoreError('del_profile', e));
+  store.del(`image:learner:${anonId}`).catch((e) => logStoreError('del_image_learner', e));
   clearUserProfile(anonId);
   return resetConversation(anonId);
 }

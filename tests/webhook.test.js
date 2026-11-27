@@ -1392,3 +1392,16 @@ test('Webhook: handleIncomingMessage processes authorized group messages with tr
 
   config.ALLOWED_GROUP_IDS = origGroups;
 });
+
+test('Webhook: normalizeCommand and handleIncomingMessage dispatch /briefing commands', async () => {
+  assert.strictEqual(normalizeCommand('briefing'), '/briefing');
+  assert.strictEqual(normalizeCommand('briefing status'), '/briefing status');
+
+  const phone = '910000000000';
+  await handleIncomingMessage({
+    id: `wamid.briefing_test_${Date.now()}`,
+    from: phone,
+    type: 'text',
+    text: { body: '/briefing status' },
+  });
+});

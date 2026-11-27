@@ -31,6 +31,7 @@ export default [
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       'no-undef': 'error',
       'no-constant-condition': 'warn',
+      'no-empty': 'warn',
     },
   },
   {
@@ -53,6 +54,9 @@ export default [
         requestAnimationFrame: 'readonly',
         cancelAnimationFrame: 'readonly',
       },
+    },
+    rules: {
+      'no-empty': ['warn', { allowEmptyCatch: true }],
     },
   },
   {

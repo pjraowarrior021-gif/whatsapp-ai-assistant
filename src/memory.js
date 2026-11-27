@@ -216,8 +216,8 @@ export async function addAutoMemoryFact(anonId, factText, options = {}) {
   await saveUserMemory(anonId);
   try {
     syncMemoryFactToGraph(anonId, factItem);
-  } catch {
-    // Fail-safe graph sync
+  } catch (err) {
+    privacyLog('debug', 'MEMORY_GRAPH_SYNC_FAILED', { user: anonId, error: err?.message });
   }
   privacyLog('info', 'MEMORY_AUTO_FACT_LEARNED', { user: anonId, id, category });
 
@@ -249,8 +249,8 @@ export async function deleteMemoryFact(anonId, factId) {
   try {
     deleteKgFact(cleanId, anonId);
     deleteKgFact(`rel_${cleanId}`, anonId);
-  } catch {
-    // Fail-safe graph sync
+  } catch (err) {
+    privacyLog('debug', 'MEMORY_GRAPH_DELETE_FAILED', { user: anonId, error: err?.message });
   }
   privacyLog('info', 'MEMORY_FACT_DELETED', { user: anonId, id: cleanId });
 
@@ -272,8 +272,8 @@ export async function clearUserMemory(anonId) {
   await saveUserMemory(anonId);
   try {
     await clearKnowledgeGraph(anonId);
-  } catch {
-    // Fail-safe graph clear
+  } catch (err) {
+    privacyLog('debug', 'MEMORY_GRAPH_CLEAR_FAILED', { user: anonId, error: err?.message });
   }
   privacyLog('info', 'MEMORY_CLEARED', { user: anonId, count });
 
@@ -466,4 +466,154 @@ export async function handleMemoryCommand(anonId, text) {
   const directFact = parts.slice(1).join(' ');
   const res = await addMemoryFact(anonId, directFact);
   return res.message;
+}
+
+/**
+ * Returns flattened memory facts across all cached users for Dashboard inspection.
+ * @returns {{ facts: Array<object>, categories: string[], autoEnabled: boolean }}
+ */
+export function listAllMemoryFacts() {
+  const facts = [];
+  const categories = new Set();
+  let autoEnabled = true;
+
+  for (const [userId, entry] of userMemoryCache.entries()) {
+    if (entry.autoEnabled === false) autoEnabled = false;
+    for (const f of entry.facts) {
+      const cat = f.category || (f.origin === 'auto' ? 'auto_learned' : 'general');
+      categories.add(cat);
+      facts.push({
+        id: f.id,
+        userId,
+        category: cat,
+        fact: f.text,
+        confidence: typeof f.confidence === 'number' ? f.confidence : 0.95,
+        source: f.origin === 'auto' ? 'auto_learner' : f.source || 'user_input',
+        createdAt: new Date(f.createdAt || Date.now()).toISOString(),
+        updatedAt: new Date(f.updatedAt || f.createdAt || Date.now()).toISOString(),
+      });
+    }
+  }
+
+  return { facts, categories: Array.from(categories), autoEnabled };
+}
+
+/**
+ * Creates or updates a memory fact cleanly in userMemoryCache & store (for Dashboard API).
+ * @param {object} payload
+ * @returns {Promise<object>}
+ */
+export async function upsertMemoryFact({
+  id,
+  userId = 'default_user',
+  category = 'general',
+  fact,
+  confidence = 0.95,
+  source = 'dashboard',
+}) {
+  const cleanUserId = String(userId || 'default_user').trim();
+  const cleanFact = String(fact || '')
+    .trim()
+    .substring(0, MAX_FACT_LENGTH);
+  const cleanCategory = String(category || 'general').trim();
+  const cleanConf = typeof confidence === 'number' ? Math.max(0, Math.min(1, confidence)) : 0.95;
+
+  // Update existing fact across any user if ID is specified and found
+  if (id) {
+    const cleanId = String(id).trim();
+    for (const [uid, entry] of userMemoryCache.entries()) {
+      const target = entry.facts.find((f) => f.id === cleanId);
+      if (target) {
+        target.text = cleanFact;
+        if (category) target.category = cleanCategory;
+        target.confidence = cleanConf;
+        target.updatedAt = Date.now();
+        await saveUserMemory(uid);
+        return {
+          id: target.id,
+          userId: uid,
+          category: target.category || 'general',
+          fact: target.text,
+          confidence: target.confidence,
+          source: target.source || source,
+          createdAt: new Date(target.createdAt || Date.now()).toISOString(),
+          updatedAt: new Date(target.updatedAt).toISOString(),
+        };
+      }
+    }
+  }
+
+  const factId = id ? String(id).trim() : `fact-${Date.now()}-${crypto.randomInt(1000, 10000)}`;
+  const nowMs = Date.now();
+  const entry = getMemoryEntry(cleanUserId);
+  const item = {
+    id: factId,
+    text: cleanFact,
+    origin: 'manual',
+    category: cleanCategory,
+    confidence: cleanConf,
+    source,
+    createdAt: nowMs,
+    updatedAt: nowMs,
+  };
+  entry.facts.push(item);
+  await saveUserMemory(cleanUserId);
+  try {
+    syncMemoryFactToGraph(cleanUserId, item);
+  } catch (err) {
+    privacyLog('debug', 'MEMORY_GRAPH_UPSERT_FAILED', { user: cleanUserId, error: err?.message });
+  }
+
+  return {
+    id: item.id,
+    userId: cleanUserId,
+    category: item.category,
+    fact: item.text,
+    confidence: item.confidence,
+    source: item.source,
+    createdAt: new Date(nowMs).toISOString(),
+    updatedAt: new Date(nowMs).toISOString(),
+  };
+}
+
+/**
+ * Deletes a memory fact globally by ID across cached users.
+ * @param {string} factId
+ * @returns {Promise<boolean>}
+ */
+export async function deleteMemoryFactById(factId) {
+  const cleanId = String(factId || '').trim();
+  for (const [uid, entry] of userMemoryCache.entries()) {
+    const idx = entry.facts.findIndex((f) => f.id === cleanId);
+    if (idx !== -1) {
+      entry.facts.splice(idx, 1);
+      await saveUserMemory(uid);
+      try {
+        deleteKgFact(cleanId, uid);
+      } catch (err) {
+        privacyLog('debug', 'MEMORY_GRAPH_DELETE_FAILED', { user: uid, error: err?.message });
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Clears all facts across all cached users (Dashboard global clear).
+ * @returns {Promise<number>}
+ */
+export async function clearAllMemoryFacts() {
+  let count = 0;
+  for (const [uid, entry] of userMemoryCache.entries()) {
+    count += entry.facts.length;
+    entry.facts = [];
+    await saveUserMemory(uid);
+    try {
+      await clearKnowledgeGraph(uid);
+    } catch (err) {
+      privacyLog('debug', 'MEMORY_GRAPH_CLEAR_FAILED', { user: uid, error: err?.message });
+    }
+  }
+  return count;
 }

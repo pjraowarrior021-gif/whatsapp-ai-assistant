@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import { dashboardRouter } from '../src/dashboard/api.js';
 import { config } from '../src/config.js';
+import { maskSensitiveInfo } from '../src/privacy.js';
+import { isSearchGroundingEnabled, setSearchGrounding } from '../src/gemini.js';
+import { addMemoryFact } from '../src/memory.js';
 
 test('Personal AI Dashboard API Test Suite', async (t) => {
   // Setup standalone express server with dashboardRouter mounted at /dashboard/api
@@ -480,4 +483,37 @@ test('Personal AI Dashboard API Test Suite', async (t) => {
     assert.strictEqual(toggleData.success, true);
     assert.strictEqual(toggleData.enabled, true);
   });
+
+  // =========================================================================
+  // 12. Real Backend Sync Checks (Whitelist, Redactions, Search Grounding, Memory)
+  // =========================================================================
+  await t.test(
+    'Section 12: Dashboard API syncs live security whitelist, redactions, settings, and memory',
+    async () => {
+      // Seed a real PII redaction & verify counter increments in /security
+      maskSensitiveInfo('My password: password12345');
+      const secRes = await authFetch(`${baseUrl}/security`);
+      assert.strictEqual(secRes.status, 200);
+      const secData = await secRes.json();
+      assert.strictEqual(secData.whitelist.enabled, config.ALLOWED_PHONE_NUMBERS.size > 0);
+      assert.strictEqual(secData.whitelist.count, config.ALLOWED_PHONE_NUMBERS.size);
+      assert.ok(secData.redactionCounters.Password >= 1);
+
+      // Toggle search grounding via PUT /settings and verify runtime Gemini state flips
+      const origGrounding = isSearchGroundingEnabled();
+      await authFetch(`${baseUrl}/settings`, {
+        method: 'PUT',
+        body: JSON.stringify({ searchGrounding: true }),
+      });
+      assert.strictEqual(isSearchGroundingEnabled(), true);
+      setSearchGrounding(origGrounding);
+
+      // Add memory via memory.js and verify it appears in GET /memory
+      await addMemoryFact('u_sync_dash_test', 'Uses WhatsApp Bot for daily reminders');
+      const memRes = await authFetch(`${baseUrl}/memory?userId=u_sync_dash_test`);
+      assert.strictEqual(memRes.status, 200);
+      const memData = await memRes.json();
+      assert.ok(memData.facts.some((f) => f.fact.includes('daily reminders')));
+    }
+  );
 });

@@ -7,9 +7,11 @@ import { getMemoryContext } from './memory.js';
 import { getLearnedWorkflowContext } from './workflow-learner.js';
 import { getConversationAdaptationContext } from './conversation-adapter.js';
 import { toolDeclarations, executeToolCall } from './tools/index.js';
+import { modelRouter, TASK_TYPES } from './model-router.js';
 
 let aiClient = null;
 let activeModel = config.GEMINI_MODEL;
+let runtimeFallbackModels = null;
 let searchGroundingEnabled = config.ENABLE_SEARCH_GROUNDING;
 
 // In-Memory store for user persona preferences: Map<anonymizedUserId, string>
@@ -203,7 +205,32 @@ export function isSearchGroundingEnabled() {
  */
 export function setSearchGrounding(enabled) {
   searchGroundingEnabled = Boolean(enabled);
-  store.set('search_grounding', searchGroundingEnabled).catch(() => {});
+  store.set('search_grounding', searchGroundingEnabled).catch((err) => {
+    privacyLog('debug', 'GEMINI_SEARCH_GROUNDING_SAVE_FAILED', { error: err?.message });
+  });
+}
+
+/**
+ * Sets runtime fallback model chain.
+ * @param {string[]} models
+ */
+export function setFallbackModels(models) {
+  if (Array.isArray(models)) {
+    runtimeFallbackModels = models.map((m) => String(m || '').trim()).filter((m) => m.length > 0 && m !== activeModel);
+  }
+}
+
+/**
+ * Returns effective fallback models (runtime override or config defaults).
+ * @returns {string[]}
+ */
+export function getFallbackModels() {
+  const fallbacks = Array.isArray(runtimeFallbackModels)
+    ? runtimeFallbackModels
+    : Array.isArray(config.GEMINI_FALLBACK_MODELS)
+      ? config.GEMINI_FALLBACK_MODELS
+      : [];
+  return fallbacks.filter((m) => m !== activeModel);
 }
 
 /**
@@ -234,7 +261,7 @@ export async function initGeminiStore() {
  * @returns {string[]}
  */
 export function getCandidateModels() {
-  const fallbacks = Array.isArray(config.GEMINI_FALLBACK_MODELS) ? config.GEMINI_FALLBACK_MODELS : [];
+  const fallbacks = getFallbackModels();
   return [activeModel, ...fallbacks.filter((m) => m !== activeModel)];
 }
 
@@ -463,6 +490,16 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
         }
       }
 
+      modelRouter.recordModelSuccess(modelToTry);
+      modelRouter.trackUsage({
+        model: modelToTry,
+        taskType: imagePart ? TASK_TYPES.MEDIA_VISION : shouldGround ? TASK_TYPES.RESEARCH : TASK_TYPES.CHAT,
+        promptTokens: response?.usageMetadata?.promptTokenCount || Math.ceil(userMessage.length / 4),
+        completionTokens: response?.usageMetadata?.candidatesTokenCount || Math.ceil(responseText.length / 4),
+        latencyMs,
+        userId: options.anonId || 'anonymous',
+      });
+
       privacyLog('info', 'GEMINI_RESPONSE_GENERATED', {
         model: modelToTry,
         historyLength: conversationHistory.length,
@@ -477,6 +514,16 @@ export async function generateAIResponse(userMessage, conversationHistory = [], 
     } catch (error) {
       lastError = error;
       const errorMessage = error?.message || String(error);
+
+      modelRouter.recordModelFailure(modelToTry, error);
+      modelRouter.trackUsage({
+        model: modelToTry,
+        taskType: imagePart ? TASK_TYPES.MEDIA_VISION : shouldGround ? TASK_TYPES.RESEARCH : TASK_TYPES.CHAT,
+        promptTokens: Math.ceil(userMessage.length / 4),
+        completionTokens: 0,
+        latencyMs: Date.now() - startTime,
+        userId: options.anonId || 'anonymous',
+      });
 
       privacyLog('warn', 'GEMINI_MODEL_ATTEMPT_FAILED', {
         model: modelToTry,

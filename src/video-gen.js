@@ -345,10 +345,14 @@ export function synthesizeMotionVideo(imageBuffer, options = {}) {
   } finally {
     try {
       if (fs.existsSync(tempIn)) fs.unlinkSync(tempIn);
-    } catch {}
+    } catch (cleanupErr) {
+      privacyLog('debug', 'VIDEO_TMP_CLEANUP_SKIPPED', { file: 'in', error: cleanupErr?.message });
+    }
     try {
       if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut);
-    } catch {}
+    } catch (cleanupErr) {
+      privacyLog('debug', 'VIDEO_TMP_CLEANUP_SKIPPED', { file: 'out', error: cleanupErr?.message });
+    }
   }
 }
 
@@ -470,11 +474,15 @@ export function synthesizeStoryboardVideo(keyframeBuffers, options = {}) {
     for (const f of tmpFiles) {
       try {
         if (fs.existsSync(f)) fs.unlinkSync(f);
-      } catch {}
+      } catch (cleanupErr) {
+        privacyLog('debug', 'STORYBOARD_FRAME_CLEANUP_SKIPPED', { error: cleanupErr?.message });
+      }
     }
     try {
       if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut);
-    } catch {}
+    } catch (cleanupErr) {
+      privacyLog('debug', 'STORYBOARD_OUT_CLEANUP_SKIPPED', { error: cleanupErr?.message });
+    }
   }
 }
 
